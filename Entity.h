@@ -81,15 +81,6 @@ private:
 
 std::string toString(const EntityId& id);
 
-class EntityProvider {
-public:
-  virtual ~EntityProvider();
-
-  virtual void enumerate(std::back_insert_iterator<std::vector<EntityId> > output) = 0;
-
-  // TODO:  Visibility.
-};
-
 }  // namespace kake2
 
 #endif  // KAKE2_ENTITY_H_

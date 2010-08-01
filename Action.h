@@ -32,6 +32,7 @@
 #define KAKE2_ACTION_H_
 
 #include <string>
+#include <vector>
 #include <sys/types.h>
 
 #include "OwnedPtr.h"
@@ -52,10 +53,10 @@ class BuildContext {
 public:
   virtual ~BuildContext();
 
-  virtual EntityProvider* findProvider(EntityId id, const std::string& title) = 0;
-  virtual EntityProvider* findOptionalProvider(EntityId id) = 0;
+  virtual File* findProvider(EntityId id, const std::string& title) = 0;
+  virtual File* findOptionalProvider(EntityId id) = 0;
 
-  virtual void provide(OwnedPtr<EntityProvider>* providerToAdopt) = 0;
+  virtual void provide(File* file, const std::vector<EntityId>& entities) = 0;
   virtual void log(const std::string& text) = 0;
 
   virtual void newOutput(const std::string& basename, OwnedPtr<File>* output) = 0;

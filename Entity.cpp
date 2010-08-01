@@ -78,6 +78,4 @@ std::string toString(const EntityId& id) {
   return result;
 }
 
-EntityProvider::~EntityProvider() {}
-
 }  // namespace kake2

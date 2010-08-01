@@ -56,10 +56,10 @@ public:
   void start();
 
   // implements BuildContext -------------------------------------------------------------
-  EntityProvider* findProvider(EntityId id, const std::string& title);
-  EntityProvider* findOptionalProvider(EntityId id);
+  File* findProvider(EntityId id, const std::string& title);
+  File* findOptionalProvider(EntityId id);
 
-  void provide(OwnedPtr<EntityProvider>* providerToAdopt);
+  void provide(File* file, const std::vector<EntityId>& entities);
   void log(const std::string& text);
 
   void newOutput(const std::string& basename, OwnedPtr<File>* output);
@@ -88,8 +88,15 @@ private:
   MissingDependencyMap missingDependencies;
 
   OwnedPtrMap<pid_t, ProcessExitCallback> processExitCallbacks;
-  OwnedPtrVector<EntityProvider> providers;
+
   OwnedPtrVector<File> outputs;
+
+  struct Provision {
+    OwnedPtr<File> file;
+    std::vector<EntityId> entities;
+  };
+
+  OwnedPtrVector<Provision> provisions;
 
   void ensureRunning();
   void cancelPendingEvents();
@@ -120,24 +127,34 @@ void Driver::ActionDriver::start() {
   action->start(this);
 }
 
-EntityProvider* Driver::ActionDriver::findProvider(EntityId id, const std::string& title) {
+File* Driver::ActionDriver::findProvider(EntityId id, const std::string& title) {
   ensureRunning();
-  EntityProvider* result = driver->entityMap.get(id);
+  File* result = findOptionalProvider(id);
   if (result == NULL) {
     missingDependencies[id] = title;
   }
   return result;
 }
 
-EntityProvider* Driver::ActionDriver::findOptionalProvider(EntityId id) {
+File* Driver::ActionDriver::findOptionalProvider(EntityId id) {
   ensureRunning();
-  return driver->entityMap.get(id);
+  EntityMap::const_iterator iter = driver->entityMap.find(id);
+  if (iter == driver->entityMap.end()) {
+    return NULL;
+  } else {
+    return iter->second;
+  }
 }
 
-void Driver::ActionDriver::provide(OwnedPtr<EntityProvider>* providerToAdopt) {
+void Driver::ActionDriver::provide(File* file, const std::vector<EntityId>& entities) {
   ensureRunning();
 
-  providers.adoptBack(providerToAdopt);
+  OwnedPtr<Provision> provision;
+  provision.allocate();
+  file->clone(&provision->file);
+  provision->entities = entities;
+
+  provisions.adoptBack(&provision);
 }
 
 void Driver::ActionDriver::log(const std::string& text) {
@@ -254,7 +271,7 @@ void Driver::ActionDriver::returned() {
     // Reset state to PENDING.
     state = PENDING;
     cancelPendingEvents();
-    providers.clear();
+    provisions.clear();
     outputs.clear();
     dashboardTask->setState(Dashboard::BLOCKED);
 
@@ -269,14 +286,13 @@ void Driver::ActionDriver::returned() {
       dashboardTask->setState(state == PASSED ? Dashboard::PASSED : Dashboard::SUCCESS);
 
       // Register providers.
-      for (int i = 0; i < providers.size(); i++) {
-        std::vector<EntityId> entities;
-        providers.get(i)->enumerate(std::back_inserter(entities));
-        for (std::vector<EntityId>::const_iterator iter = entities.begin();
-             iter != entities.end(); ++iter) {
-          OwnedPtr<EntityProvider> providerToAdopt;
-          providers.release(i, &providerToAdopt);
-          driver->entityMap.adopt(*iter, &providerToAdopt);
+      for (int i = 0; i < provisions.size(); i++) {
+        File* file = provisions.get(i)->file.get();
+        driver->filePtrs.adopt(file, &provisions.get(i)->file);
+
+        for (std::vector<EntityId>::const_iterator iter = provisions.get(i)->entities.begin();
+             iter != provisions.get(i)->entities.end(); ++iter) {
+          driver->entityMap[*iter] = file;
 
           // Unblock blocked actions.
           std::pair<BlockedActionMap::const_iterator, BlockedActionMap::const_iterator>

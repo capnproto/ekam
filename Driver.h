@@ -63,8 +63,9 @@ private:
   typedef std::tr1::unordered_map<std::string, ActionFactory*> ActionFactoryMap;
   ActionFactoryMap actionFactories;
 
-  typedef OwnedPtrMap<EntityId, EntityProvider, EntityId::HashFunc> EntityMap;
+  typedef std::tr1::unordered_map<EntityId, File*, EntityId::HashFunc> EntityMap;
   EntityMap entityMap;
+  OwnedPtrMap<File*, File> filePtrs;
 
   OwnedPtrVector<ActionDriver> activeActions;
   OwnedPtrVector<ActionDriver> pendingActions;
