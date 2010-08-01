@@ -50,27 +50,32 @@ char HexDigit(unsigned int value) {
 } // anonymous namespace
 
 EntityId EntityId::fromName(const std::string& name) {
+  EntityId result;
   SHA256_CTX context;
   SHA256_Init(&context);
   SHA256_Update(&context, name.data(), name.size());
-  SHA256_Final(hash, &context);
+  SHA256_Final(result.hash, &context);
+  return result;
 }
 
 EntityId EntityId::fromBytes(const std::string& data) {
-  if (data.size() != sizeof(hash)) {
+  EntityId result;
+  if (data.size() != sizeof(result.hash)) {
     throw std::invalid_argument("Hash passed to EntityId::fromBytes() had incorrect size.");
   }
 
-  memcpy(hash, data.data(), sizeof(hash));
+  memcpy(result.hash, data.data(), sizeof(result.hash));
+  return result;
 }
 
 std::string toString(const EntityId& id) {
   std::string result;
   result.reserve(sizeof(id.hash) * 2);
-  for (int i = 0; i < sizeof(id.hash); i++) {
+  for (unsigned int i = 0; i < sizeof(id.hash); i++) {
     result.push_back(HexDigit(id.hash[i] >> 4));
     result.push_back(HexDigit(id.hash[i]));
   }
+  return result;
 }
 
 EntityProvider::~EntityProvider() {}

@@ -118,9 +118,9 @@ private:
     return result;
   }
 
-  template <typename T>
+  template <typename U>
   friend class OwnedPtrVector;
-  template <typename Key, typename T>
+  template <typename Key, typename U, typename HashFunc, typename EqualsFunc>
   friend class OwnedPtrMap;
 };
 
@@ -190,7 +190,7 @@ private:
 };
 
 template <typename Key, typename T,
-          typename HashFunc = std::tr1::hash<T>,
+          typename HashFunc = std::tr1::hash<Key>,
           typename EqualsFunc = std::equal_to<Key> >
 class OwnedPtrMap {
   typedef std::tr1::unordered_map<Key, T*, HashFunc, EqualsFunc> InnerMap;
@@ -209,7 +209,7 @@ public:
   }
 
   T* get(const Key& key) const {
-    typename InnerMap::iterator iter = map.find(key);
+    typename InnerMap::const_iterator iter = map.find(key);
     if (iter == map.end()) {
       return NULL;
     } else {
@@ -219,7 +219,7 @@ public:
 
   void adopt(const Key& key, OwnedPtr<T>* ptr) {
     T* value = ptr->release();
-    std::pair<InnerMap::iterator, bool> insertResult =
+    std::pair<typename InnerMap::iterator, bool> insertResult =
         map.insert(std::make_pair(key, value));
     if (!insertResult.second) {
       delete insertResult.first->second;
@@ -254,13 +254,16 @@ public:
   class Iterator {
   public:
     Iterator(const OwnedPtrMap& map)
-      : iter(map.map.begin()),
-        end (map.map.end()) {}
+      : nextIter(map.map.begin()),
+        end(map.map.end()) {}
 
     bool next() {
-      ++iter;
-      if (iter == end) {
+      if (nextIter == end) {
         return false;
+      } else {
+        iter = nextIter;
+        ++nextIter;
+        return true;
       }
     }
 
@@ -274,6 +277,7 @@ public:
 
   private:
     typename InnerMap::const_iterator iter;
+    typename InnerMap::const_iterator nextIter;
     typename InnerMap::const_iterator end;
   };
 

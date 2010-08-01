@@ -32,8 +32,7 @@
 
 namespace kake2 {
 
-Dashboard::~Dashboard() {
-  // TODO Auto-generated destructor stub
-}
+Dashboard::~Dashboard() {}
+Dashboard::Task::~Task() {}
 
 }

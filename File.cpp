@@ -33,5 +33,6 @@
 namespace kake2 {
 
 File::~File() {}
+File::DiskRef::~DiskRef() {};
 
 }  // namespace kake2

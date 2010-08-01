@@ -64,7 +64,7 @@ public:
     }
   }
 
-  ~FileDescirptor() {
+  ~FileDescriptor() {
     if (close(fd) < 0) {
       DEBUG_ERROR << "close: " << strerror(errno);
     }
@@ -281,9 +281,11 @@ void DiskFile::list(OwnedPtrVector<File>::Appender output) {
   DirectoryReader reader(path);
   std::string filename;
   while (reader.next(&filename)) {
-    OwnedPtr<File> file;
-    file.allocateSubclass<DiskFile>(prefix + filename);
-    output.adopt(&file);
+    if (filename != "." && filename != "..") {
+      OwnedPtr<File> file;
+      file.allocateSubclass<DiskFile>(prefix + filename, this);
+      output.adopt(&file);
+    }
   }
 }
 

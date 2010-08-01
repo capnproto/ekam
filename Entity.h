@@ -40,31 +40,32 @@ namespace kake2 {
 class EntityId {
 public:
   EntityId() {}
-  EntityId fromName(const std::string& name);
-  EntityId fromBytes(const std::string& data);
 
-  bool operator==(const EntityId& other) {
+  static EntityId fromName(const std::string& name);
+  static EntityId fromBytes(const std::string& data);
+
+  bool operator==(const EntityId& other) const {
     return memcmp(hash, other.hash, sizeof(hash)) == 0;
   }
-  bool operator!=(const EntityId& other) {
+  bool operator!=(const EntityId& other) const {
     return memcmp(hash, other.hash, sizeof(hash)) != 0;
   }
-  bool operator<(const EntityId& other) {
+  bool operator<(const EntityId& other) const {
     return memcmp(hash, other.hash, sizeof(hash)) < 0;
   }
-  bool operator>(const EntityId& other) {
+  bool operator>(const EntityId& other) const {
     return memcmp(hash, other.hash, sizeof(hash)) > 0;
   }
-  bool operator<=(const EntityId& other) {
+  bool operator<=(const EntityId& other) const {
     return memcmp(hash, other.hash, sizeof(hash)) <= 0;
   }
-  bool operator>=(const EntityId& other) {
+  bool operator>=(const EntityId& other) const {
     return memcmp(hash, other.hash, sizeof(hash)) >= 0;
   }
 
   class HashFunc {
   public:
-    size_t operator()(const EntityId& id) {
+    size_t operator()(const EntityId& id) const {
       return id.shortHash;
     }
   };

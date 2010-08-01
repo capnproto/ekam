@@ -51,7 +51,7 @@ private:
   static const char* const STATE_NAMES[];
 };
 
-static const char* const SimpleDashboard::TaskImpl::STATE_NAMES[] = {
+const char* const SimpleDashboard::TaskImpl::STATE_NAMES[] = {
   "PENDING",
   "RUNNING",
   "SUCCESS",

@@ -40,14 +40,21 @@ namespace kake2 {
 
 class MockAction : public Action {
 public:
-  MockAction() {}
+  MockAction(bool result) : result(result) {}
   ~MockAction() {}
 
   // implements Action -------------------------------------------------------------------
   std::string getVerb() { return "mock"; }
   void start(BuildContext* context) {
-    context->success();
+    if (result) {
+      context->success();
+    } else {
+      context->failed();
+    }
   }
+
+private:
+  bool result;
 };
 
 class MockActionFactory : public ActionFactory {
@@ -59,7 +66,7 @@ public:
   void tryMakeAction(File* file, OwnedPtr<Action>* output) {
     std::string basename = file->basename();
     if (basename.size() > 4 && basename.substr(basename.size() - 4) == ".cpp") {
-      output->allocateSubclass<MockAction>();
+      output->allocateSubclass<MockAction>(basename != "main.cpp");
     }
   }
 };
@@ -75,6 +82,8 @@ int main(int argc, char* argv) {
   driver.addActionFactory("mock", &mockFactory);
 
   driver.run(1);
+
+  return 0;
 }
 
 }  // namespace kake2

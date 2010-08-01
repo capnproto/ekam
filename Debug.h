@@ -31,6 +31,8 @@
 #ifndef KAKE2_DEBUGLOG_H_
 #define KAKE2_DEBUGLOG_H_
 
+#include <string>
+
 namespace kake2 {
 
 class DebugMessage {
@@ -60,7 +62,7 @@ public:
   DebugMessage& operator<<(float value);
   DebugMessage& operator<<(double value);
 
-  inline static bool shouldLog(Severity severity, char*, int) {
+  inline static bool shouldLog(Severity severity, const char*, int) {
     return severity >= logLevel;
   }
 
@@ -69,7 +71,7 @@ private:
 };
 
 #define DEBUG_LOG(SEVERITY) \
-  if (!DebugMessage::shouldLog(SEVERITY, __FILE__, __LINE__)) {} else \
+  if (!DebugMessage::shouldLog(::kake2::DebugMessage::SEVERITY, __FILE__, __LINE__)) {} else \
   ::kake2::DebugMessage(::kake2::DebugMessage::SEVERITY, __FILE__, __LINE__)
 
 #define DEBUG_INFO DEBUG_LOG(INFO)

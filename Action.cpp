@@ -33,6 +33,8 @@
 
 namespace kake2 {
 
+BuildContext::~BuildContext() {}
 Action::~Action() {}
+ActionFactory::~ActionFactory() {}
 
 }  // namespace kake2

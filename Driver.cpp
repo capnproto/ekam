@@ -43,7 +43,7 @@
 #include <sys/event.h>
 #include <sys/time.h>
 
-#include <Debug.h>
+#include "Debug.h"
 
 namespace kake2 {
 
@@ -84,7 +84,7 @@ private:
     FAILED
   } state;
 
-  typedef std::tr1::unordered_map<EntityId, std::string> MissingDependencyMap;
+  typedef std::tr1::unordered_map<EntityId, std::string, EntityId::HashFunc> MissingDependencyMap;
   MissingDependencyMap missingDependencies;
 
   OwnedPtrMap<pid_t, ProcessExitCallback> processExitCallbacks;
@@ -189,7 +189,7 @@ void Driver::ActionDriver::onProcessExit(
   processExitCallbacks.adopt(process, callbackToAdopt);
 
   struct kevent event;
-  EV_SET(event, process, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, NULL);
+  EV_SET(&event, process, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, NULL);
   int n = kevent(driver->kqueueFd, &event, 1, NULL, 0, NULL);
   if (n < 0) {
     DEBUG_ERROR << "kevent: " << strerror(errno);
@@ -208,7 +208,7 @@ void Driver::ActionDriver::cancelPendingEvents() {
   for (OwnedPtrMap<pid_t, ProcessExitCallback>::Iterator iter(processExitCallbacks);
        iter.next();) {
     struct kevent event;
-    EV_SET(event, iter.key, EVFILT_PROC, EV_DELETE, NOTE_EXIT, 0, NULL);
+    EV_SET(&event, iter.key(), EVFILT_PROC, EV_DELETE, NOTE_EXIT, 0, NULL);
     int n = kevent(driver->kqueueFd, &event, 1, NULL, 0, NULL);
     if (n < 0) {
       DEBUG_ERROR << "kevent: " << strerror(errno);
@@ -427,16 +427,19 @@ void Driver::handleEvent() {
   }
 }
 
-void Driver::scanForActions(File* src, File* tmp) {
-  struct SrcTmpPair {
-    OwnedPtr<File> srcFile;
-    OwnedPtr<File> tmpLocation;
-  };
+namespace {
+struct SrcTmpPair {
+  OwnedPtr<File> srcFile;
+  OwnedPtr<File> tmpLocation;
+};
+}  // namespace
 
+void Driver::scanForActions(File* src, File* tmp) {
   OwnedPtrVector<SrcTmpPair> fileQueue;
 
   {
     OwnedPtr<SrcTmpPair> root;
+    root.allocate();
     src->clone(&root->srcFile);
     tmp->clone(&root->tmpLocation);
     fileQueue.adoptBack(&root);
@@ -447,12 +450,15 @@ void Driver::scanForActions(File* src, File* tmp) {
     fileQueue.releaseBack(&current);
 
     if (current->srcFile->isDirectory()) {
-      current->tmpLocation->createDirectory();
+      if (!current->tmpLocation->isDirectory()) {
+        current->tmpLocation->createDirectory();
+      }
 
       OwnedPtrVector<File> list;
       current->srcFile->list(list.appender());
       for (int i = 0; i < list.size(); i++) {
         OwnedPtr<SrcTmpPair> newPair;
+        newPair.allocate();
         list.release(i, &newPair->srcFile);
         current->tmpLocation->relative(newPair->srcFile->basename(), &newPair->tmpLocation);
         fileQueue.adoptBack(&newPair);

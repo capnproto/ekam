@@ -51,18 +51,18 @@ DebugMessage::~DebugMessage() {
 
 DebugMessage& DebugMessage::operator<<(const char* value) {
   fputs(value, stderr);
-  return this;
+  return *this;
 }
 
 DebugMessage& DebugMessage::operator<<(const std::string& value) {
   fwrite(value.data(), sizeof(char), value.size(), stderr);
-  return this;
+  return *this;
 }
 
 #define HANDLE_TYPE(TYPE, FORMAT)                      \
 DebugMessage& DebugMessage::operator<<(TYPE value) {   \
   fprintf(stderr, FORMAT, value);                      \
-  return this;                                         \
+  return *this;                                        \
 }
 
 HANDLE_TYPE(char, "%c");
