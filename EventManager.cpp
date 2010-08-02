@@ -28,60 +28,15 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef KAKE2_ACTION_H_
-#define KAKE2_ACTION_H_
-
-#include <string>
-#include <vector>
-#include <sys/types.h>
-
-#include "OwnedPtr.h"
-#include "File.h"
-#include "Entity.h"
 #include "EventManager.h"
 
 namespace kake2 {
 
-class ProcessExitCallback {
-public:
-  virtual ~ProcessExitCallback();
-
-  // Negative = signal number.
-  virtual void done(int exit_status) = 0;
-};
-
-class BuildContext {
-public:
-  virtual ~BuildContext();
-
-  virtual File* findProvider(EntityId id, const std::string& title) = 0;
-  virtual File* findOptionalProvider(EntityId id) = 0;
-
-  virtual void provide(File* file, const std::vector<EntityId>& entities) = 0;
-  virtual void log(const std::string& text) = 0;
-
-  virtual void newOutput(const std::string& basename, OwnedPtr<File>* output) = 0;
-
-  virtual void success() = 0;
-  virtual void passed() = 0;
-  virtual void failed() = 0;
-};
-
-class Action {
-public:
-  virtual ~Action();
-
-  virtual std::string getVerb() = 0;
-  virtual void start(EventManager* eventManager, BuildContext* context) = 0;
-};
-
-class ActionFactory {
-public:
-  virtual ~ActionFactory();
-
-  virtual void tryMakeAction(File* file, OwnedPtr<Action>* output) = 0;
-};
+EventManager::~EventManager() {}
+EventManager::Canceler::~Canceler() {}
+EventManager::Callback::~Callback() {}
+EventManager::ProcessExitCallback::~ProcessExitCallback() {}
+EventManager::IoCallback::~IoCallback() {}
+EventManager::ContinuousReadCallback::~ContinuousReadCallback() {}
 
 }  // namespace kake2
-
-#endif  // KAKE2_ACTION_H_

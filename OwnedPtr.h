@@ -34,6 +34,7 @@
 #include <stddef.h>
 #include <tr1/type_traits>
 #include <vector>
+#include <queue>
 #include <tr1/unordered_map>
 
 namespace kake2 {
@@ -120,6 +121,8 @@ private:
 
   template <typename U>
   friend class OwnedPtrVector;
+  template <typename U>
+  friend class OwnedPtrQueue;
   template <typename Key, typename U, typename HashFunc, typename EqualsFunc>
   friend class OwnedPtrMap;
 };
@@ -189,6 +192,53 @@ private:
   std::vector<T*> vec;
 };
 
+template <typename T>
+class OwnedPtrQueue {
+public:
+  OwnedPtrQueue() {}
+  ~OwnedPtrQueue() {
+    clear();
+  }
+
+  int size() const { return q.size(); }
+  bool empty() const { return q.empty(); }
+
+  void adopt(OwnedPtr<T>* ptr) {
+    q.push(ptr->release());
+  }
+
+  void release(OwnedPtr<T>* ptr) {
+    ptr->reset(q.front());
+    q.pop();
+  }
+
+  void clear() {
+    while (!q.empty()) {
+      delete q.front();
+      q.pop();
+    }
+  }
+
+  class Appender {
+  public:
+    Appender(OwnedPtrQueue* q) : q(q) {}
+
+    void adopt(OwnedPtr<T>* ptr) {
+      q->adopt(ptr);
+    }
+
+  private:
+    OwnedPtrQueue* q;
+  };
+
+  Appender appender() {
+    return Appender(this);
+  }
+
+private:
+  std::queue<T*> q;
+};
+
 template <typename Key, typename T,
           typename HashFunc = std::tr1::hash<Key>,
           typename EqualsFunc = std::equal_to<Key> >
@@ -206,6 +256,10 @@ public:
 
   bool empty() const {
     return map.empty();
+  }
+
+  bool contains(const Key& key) const {
+    return map.count(key) > 0;
   }
 
   T* get(const Key& key) const {
@@ -227,6 +281,18 @@ public:
     }
   }
 
+  bool adoptIfNew(const Key& key, OwnedPtr<T>* ptr) {
+    T* value = ptr->release();
+    std::pair<typename InnerMap::iterator, bool> insertResult =
+        map.insert(std::make_pair(key, value));
+    if (insertResult.second) {
+      return true;
+    } else {
+      ptr->reset(value);
+      return false;
+    }
+  }
+
   bool release(const Key& key, OwnedPtr<T>* output) {
     typename InnerMap::iterator iter = map.find(key);
     if (iter == map.end()) {
@@ -239,8 +305,8 @@ public:
     }
   }
 
-  void erase(const Key& key) {
-    map.erase(key);
+  bool erase(const Key& key) {
+    return map.erase(key) > 0;
   }
 
   void clear() {

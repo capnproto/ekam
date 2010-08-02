@@ -35,6 +35,7 @@
 #include "DiskFile.h"
 #include "Action.h"
 #include "SimpleDashboard.h"
+#include "KqueueEventManager.h"
 
 namespace kake2 {
 
@@ -45,7 +46,7 @@ public:
 
   // implements Action -------------------------------------------------------------------
   std::string getVerb() { return "mock"; }
-  void start(BuildContext* context) {
+  void start(EventManager* eventManager, BuildContext* context) {
     if (result) {
       context->success();
     } else {
@@ -75,13 +76,15 @@ int main(int argc, char* argv) {
   DiskFile src("src", NULL);
   DiskFile tmp("tmp", NULL);
   SimpleDashboard dashboard(stdout);
+  KqueueEventManager eventManager;
 
-  Driver driver(&dashboard, &src, &tmp);
+  Driver driver(&eventManager, &dashboard, &src, &tmp, 1);
 
   MockActionFactory mockFactory;
   driver.addActionFactory("mock", &mockFactory);
 
-  driver.run(1);
+  driver.start();
+  eventManager.loop();
 
   return 0;
 }

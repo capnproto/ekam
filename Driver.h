@@ -45,20 +45,24 @@ namespace kake2 {
 
 class Driver {
 public:
-  Driver(Dashboard* dashboard, File* src, File* tmp);
+  Driver(EventManager* eventManager, Dashboard* dashboard, File* src, File* tmp,
+         int maxConcurrentActions);
   ~Driver();
 
   void addActionFactory(const std::string& name, ActionFactory* factory);
 
-  void run(int maxConcurrentActions);
+  void start();
 
 private:
   class ActionDriver;
 
+  EventManager* eventManager;
   Dashboard* dashboard;
 
   File* src;
   File* tmp;
+
+  int maxConcurrentActions;
 
   typedef std::tr1::unordered_map<std::string, ActionFactory*> ActionFactoryMap;
   ActionFactoryMap actionFactories;
@@ -78,10 +82,7 @@ private:
   typedef std::tr1::unordered_map<pid_t, ActionDriver*> ProcessMap;
   ProcessMap processMap;
 
-  int kqueueFd;
-
-
-  void handleEvent();
+  void startSomeActions();
 
   void scanForActions(File* src, File* tmp);
 };

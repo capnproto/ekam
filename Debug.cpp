@@ -41,7 +41,7 @@ static const char* SEVERITY_NAMES[] = {
 };
 
 DebugMessage::DebugMessage(Severity severity, const char* filename, int line) {
-  *this << "kake2: internal debug " << SEVERITY_NAMES[severity] << ": "
+  *this << "kake2 debug: " << SEVERITY_NAMES[severity] << ": "
         << filename << ":" << line << ": ";
 }
 DebugMessage::~DebugMessage() {

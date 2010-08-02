@@ -37,17 +37,12 @@
 #include <string.h>
 #include <stdio.h>
 
-// kqueue
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <sys/event.h>
-#include <sys/time.h>
-
 #include "Debug.h"
+#include "EventGroup.h"
 
 namespace kake2 {
 
-class Driver::ActionDriver : public BuildContext {
+class Driver::ActionDriver : public BuildContext, public EventGroup::ExceptionHandler {
 public:
   ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* tmpdir,
                OwnedPtr<Dashboard::Task>* taskToAdopt);
@@ -68,9 +63,42 @@ public:
   void passed();
   void failed();
 
-  void onProcessExit(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt);
+  // implements ExceptionHandler ---------------------------------------------------------
+  void threwException(const std::exception& e);
+  void threwUnknownException();
 
 private:
+  class StartCallback : public EventManager::Callback {
+  public:
+    StartCallback(ActionDriver* action) : actionDriver(action) {}
+    ~StartCallback() {}
+
+    // implements Callback ---------------------------------------------------------------
+    void run() {
+      actionDriver->action->start(&actionDriver->eventGroup, actionDriver);
+    }
+
+  private:
+    ActionDriver* actionDriver;
+  };
+
+  class DoneCallback : public EventManager::Callback {
+  public:
+    DoneCallback(ActionDriver* action) : action(action) {}
+    ~DoneCallback() {}
+
+    // implements Callback ---------------------------------------------------------------
+    void run() {
+      Driver* driver = action->driver;
+      action->returned();  // may delete action
+      driver->startSomeActions();
+    }
+
+  private:
+    ActionDriver* action;
+  };
+
+
   Driver* driver;
   OwnedPtr<Action> action;
   OwnedPtr<File> tmpdir;
@@ -83,6 +111,8 @@ private:
     PASSED,
     FAILED
   } state;
+
+  EventGroup eventGroup;
 
   typedef std::tr1::unordered_map<EntityId, std::string, EntityId::HashFunc> MissingDependencyMap;
   MissingDependencyMap missingDependencies;
@@ -99,9 +129,7 @@ private:
   OwnedPtrVector<Provision> provisions;
 
   void ensureRunning();
-  void cancelPendingEvents();
-  void threwException(const std::exception& e);
-  void threwUnknownException();
+  void queueDoneCallback();
   void returned();
 
   friend class Driver;
@@ -109,13 +137,13 @@ private:
 
 Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* tmpdir,
                                    OwnedPtr<Dashboard::Task>* taskToAdopt)
-    : driver(driver), state(PENDING) {
+    : driver(driver), state(PENDING), eventGroup(driver->eventManager, this) {
   action.adopt(actionToAdopt);
   tmpdir->clone(&this->tmpdir);
   dashboardTask.adopt(taskToAdopt);
 }
 Driver::ActionDriver::~ActionDriver() {
-  cancelPendingEvents();
+  eventGroup.cancelAll();
 }
 
 void Driver::ActionDriver::start() {
@@ -124,7 +152,10 @@ void Driver::ActionDriver::start() {
   }
   state = RUNNING;
   dashboardTask->setState(Dashboard::RUNNING);
-  action->start(this);
+
+  OwnedPtr<EventManager::Callback> callback;
+  callback.allocateSubclass<StartCallback>(this);
+  eventGroup.runAsynchronously(&callback);
 }
 
 File* Driver::ActionDriver::findProvider(EntityId id, const std::string& title) {
@@ -178,6 +209,7 @@ void Driver::ActionDriver::success() {
   }
 
   state = SUCCEEDED;
+  queueDoneCallback();
 }
 
 void Driver::ActionDriver::passed() {
@@ -188,31 +220,13 @@ void Driver::ActionDriver::passed() {
   }
 
   state = PASSED;
+  queueDoneCallback();
 }
 
 void Driver::ActionDriver::failed() {
   ensureRunning();
-
   state = FAILED;
-}
-
-void Driver::ActionDriver::onProcessExit(
-    pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt) {
-  ensureRunning();
-
-  if (!driver->processMap.insert(std::make_pair(process, this)).second) {
-    throw std::invalid_argument("A callback is already registered for this process.");
-  }
-  processExitCallbacks.adopt(process, callbackToAdopt);
-
-  struct kevent event;
-  EV_SET(&event, process, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0, NULL);
-  int n = kevent(driver->kqueueFd, &event, 1, NULL, 0, NULL);
-  if (n < 0) {
-    DEBUG_ERROR << "kevent: " << strerror(errno);
-  } else if (n > 0) {
-    DEBUG_ERROR << "kevent() returned events when not asked to.";
-  }
+  queueDoneCallback();
 }
 
 void Driver::ActionDriver::ensureRunning() {
@@ -221,35 +235,24 @@ void Driver::ActionDriver::ensureRunning() {
   }
 }
 
-void Driver::ActionDriver::cancelPendingEvents() {
-  for (OwnedPtrMap<pid_t, ProcessExitCallback>::Iterator iter(processExitCallbacks);
-       iter.next();) {
-    struct kevent event;
-    EV_SET(&event, iter.key(), EVFILT_PROC, EV_DELETE, NOTE_EXIT, 0, NULL);
-    int n = kevent(driver->kqueueFd, &event, 1, NULL, 0, NULL);
-    if (n < 0) {
-      DEBUG_ERROR << "kevent: " << strerror(errno);
-    } else if (n > 0) {
-      DEBUG_ERROR << "kevent() returned events when not asked to.";
-    }
-
-    if (driver->processMap.erase(iter.key()) == 0) {
-      DEBUG_ERROR << "Process was in ActionDriver's map but not in Driver's.";
-    }
-  }
-  processExitCallbacks.clear();
+void Driver::ActionDriver::queueDoneCallback() {
+  OwnedPtr<EventManager::Callback> callback;
+  callback.allocateSubclass<DoneCallback>(this);
+  driver->eventManager->runAsynchronously(&callback);
 }
 
 void Driver::ActionDriver::threwException(const std::exception& e) {
   dashboardTask->addOutput(std::string("uncaught exception: ") + e.what() + "\n");
-  state = FAILED;
-  returned();
+  if (state == RUNNING) {
+    failed();
+  }
 }
 
 void Driver::ActionDriver::threwUnknownException() {
   dashboardTask->addOutput("uncaught exception of unknown type\n");
-  state = FAILED;
-  returned();
+  if (state == RUNNING) {
+    failed();
+  }
 }
 
 void Driver::ActionDriver::returned() {
@@ -270,7 +273,7 @@ void Driver::ActionDriver::returned() {
 
     // Reset state to PENDING.
     state = PENDING;
-    cancelPendingEvents();
+    eventGroup.cancelAll();
     provisions.clear();
     outputs.clear();
     dashboardTask->setState(Dashboard::BLOCKED);
@@ -326,17 +329,15 @@ void Driver::ActionDriver::returned() {
 
 // =======================================================================================
 
-Driver::Driver(Dashboard* dashboard, File* src, File* tmp)
-    : dashboard(dashboard), src(src), tmp(tmp), kqueueFd(kqueue()) {
-  if (kqueueFd < 0) {
-    std::string error(strerror(errno));
-    throw std::runtime_error("kqueue: " + error);
-  }
-}
+Driver::Driver(EventManager* eventManager, Dashboard* dashboard, File* src, File* tmp,
+               int maxConcurrentActions)
+    : eventManager(eventManager), dashboard(dashboard), src(src), tmp(tmp),
+      maxConcurrentActions(maxConcurrentActions) {}
 
 Driver::~Driver() {
-  if (close(kqueueFd) < 0) {
-    perror("close(kqueue)");
+  // Error out all blocked tasks.
+  for (OwnedPtrMap<ActionDriver*, ActionDriver>::Iterator iter(blockedActionPtrs); iter.next();) {
+    iter.value()->dashboardTask->setState(Dashboard::FAILED);
   }
 }
 
@@ -344,101 +345,23 @@ void Driver::addActionFactory(const std::string& name, ActionFactory* factory) {
   actionFactories[name] = factory;
 }
 
-void Driver::run(int maxConcurrentActions) {
+void Driver::start() {
   scanForActions(src, tmp);
+  startSomeActions();
+}
 
-  while (!pendingActions.empty() || !activeActions.empty()) {
-    while (activeActions.size() >= maxConcurrentActions) {
-      handleEvent();
-    }
-
+void Driver::startSomeActions() {
+  while (activeActions.size() < maxConcurrentActions && !pendingActions.empty()) {
     OwnedPtr<ActionDriver> actionDriver;
     pendingActions.releaseBack(&actionDriver);
     ActionDriver* ptr = actionDriver.get();
     activeActions.adoptBack(&actionDriver);
     try {
       ptr->start();
-      ptr->returned();
     } catch (const std::exception& e) {
       ptr->threwException(e);
     } catch (...) {
       ptr->threwUnknownException();
-    }
-  }
-
-  // Error out all blocked tasks.
-  for (OwnedPtrMap<ActionDriver*, ActionDriver>::Iterator iter(blockedActionPtrs); iter.next();) {
-    iter.value()->dashboardTask->setState(Dashboard::FAILED);
-  }
-}
-
-void Driver::handleEvent() {
-  DEBUG_INFO << "Waiting for events...";
-
-  struct kevent event;
-  int n = kevent(kqueueFd, NULL, 0, &event, 1, NULL);
-
-  DEBUG_INFO << "Received event.";
-
-  if (n < 0) {
-    DEBUG_ERROR << "kevent: " << strerror(errno);
-  } else if (n == 0) {
-    DEBUG_ERROR << "kevent() timed out, but timeout was infinite.";
-  } else {
-    if (n > 1) {
-      DEBUG_ERROR << "kevent() returned more events than requested.";
-    }
-
-    // Got an event.
-    switch (event.filter) {
-      case EVFILT_PROC: {
-        pid_t pid = event.ident;
-
-        if (event.fflags & ~NOTE_EXIT) {
-          DEBUG_ERROR << "EVFILT_PROC kevent had unexpected fflags: " << event.fflags;
-        }
-
-        if (event.fflags & NOTE_EXIT) {
-          DEBUG_INFO << "Process " << pid << " exited with status: " << event.data;
-
-          int status;
-
-          if (WIFEXITED(event.data)) {
-            status = WEXITSTATUS(event.data);
-          } else if (WIFSIGNALED(event.data)) {
-            status = -WTERMSIG(event.data);
-          } else {
-            DEBUG_ERROR << "kake2 internal error: Didn't understand process exit status.";
-            status = 1;
-          }
-
-          ProcessMap::iterator iter = processMap.find(pid);
-          if (iter == processMap.end()) {
-            DEBUG_ERROR << "Got process exit event that no one was waiting for.";
-          } else {
-            ActionDriver* action = iter->second;
-            processMap.erase(iter);
-            OwnedPtr<ProcessExitCallback> callback;
-            if (action->processExitCallbacks.release(pid, &callback)) {
-              try {
-                callback->done(status);
-                action->returned();
-              } catch (const std::exception& e) {
-                action->threwException(e);
-              } catch (...) {
-                action->threwUnknownException();
-              }
-            } else {
-              DEBUG_ERROR << "PID not on Action's processExitCallbacks map.";
-            }
-          }
-        }
-
-        break;
-      }
-      default:
-        DEBUG_ERROR << "kevent() returned unknown filter type: %d\n" << event.filter;
-        break;
     }
   }
 }
