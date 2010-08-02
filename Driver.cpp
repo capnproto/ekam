@@ -44,7 +44,7 @@ namespace kake2 {
 
 class Driver::ActionDriver : public BuildContext, public EventGroup::ExceptionHandler {
 public:
-  ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* tmpdir,
+  ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* tmploc,
                OwnedPtr<Dashboard::Task>* taskToAdopt);
   ~ActionDriver();
 
@@ -135,11 +135,11 @@ private:
   friend class Driver;
 };
 
-Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* tmpdir,
+Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* tmploc,
                                    OwnedPtr<Dashboard::Task>* taskToAdopt)
     : driver(driver), state(PENDING), eventGroup(driver->eventManager, this) {
   action.adopt(actionToAdopt);
-  tmpdir->clone(&this->tmpdir);
+  tmploc->parent(&this->tmpdir);
   dashboardTask.adopt(taskToAdopt);
 }
 Driver::ActionDriver::~ActionDriver() {
@@ -314,6 +314,18 @@ void Driver::ActionDriver::returned() {
             }
           }
           driver->blockedActions.erase(range.first, range.second);
+
+          // Fire triggers.
+          std::pair<TriggerMap::const_iterator, TriggerMap::const_iterator>
+              triggerRange = driver->triggers.equal_range(*iter);
+          for (TriggerMap::const_iterator iter2 = triggerRange.first;
+               iter2 != triggerRange.second; ++iter2) {
+            OwnedPtr<Action> triggeredAction;
+            if (iter2->second->tryMakeAction(*iter, file, &triggeredAction)) {
+              driver->queueNewAction(&triggeredAction, file, file);
+            }
+          }
+
         }
       }
 
@@ -343,6 +355,12 @@ Driver::~Driver() {
 
 void Driver::addActionFactory(const std::string& name, ActionFactory* factory) {
   actionFactories[name] = factory;
+
+  std::vector<EntityId> triggerEntities;
+  factory->enumerateTriggerEntities(std::back_inserter(triggerEntities));
+  for (unsigned int i = 0; i < triggerEntities.size(); i++) {
+    triggers.insert(std::make_pair(triggerEntities[i], factory));
+  }
 }
 
 void Driver::start() {
@@ -407,19 +425,22 @@ void Driver::scanForActions(File* src, File* tmp) {
            iter != actionFactories.end(); ++iter) {
         ActionFactory* factory = iter->second;
         OwnedPtr<Action> action;
-        factory->tryMakeAction(current->srcFile.get(), &action);
-        if (action != NULL) {
-          OwnedPtr<Dashboard::Task> task;
-          dashboard->beginTask(action->getVerb(), current->srcFile->displayName(), &task);
-
-          OwnedPtr<ActionDriver> actionDriver;
-          actionDriver.allocate(this, &action, current->tmpLocation.get(), &task);
-
-          pendingActions.adoptBack(&actionDriver);
+        if (factory->tryMakeAction(current->srcFile.get(), &action)) {
+          queueNewAction(&action, current->srcFile.get(), current->tmpLocation.get());
         }
       }
     }
   }
+}
+
+void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file, File* tmpLocation) {
+  OwnedPtr<Dashboard::Task> task;
+  dashboard->beginTask((*actionToAdopt)->getVerb(), file->displayName(), &task);
+
+  OwnedPtr<ActionDriver> actionDriver;
+  actionDriver.allocate(this, actionToAdopt, tmpLocation, &task);
+
+  pendingActions.adoptBack(&actionDriver);
 }
 
 }  // namespace kake2

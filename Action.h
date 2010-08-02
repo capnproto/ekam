@@ -79,7 +79,9 @@ class ActionFactory {
 public:
   virtual ~ActionFactory();
 
-  virtual void tryMakeAction(File* file, OwnedPtr<Action>* output) = 0;
+  virtual bool tryMakeAction(File* file, OwnedPtr<Action>* output) = 0;
+  virtual void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter) = 0;
+  virtual bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output) = 0;
 };
 
 }  // namespace kake2

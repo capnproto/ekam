@@ -46,6 +46,8 @@ public:
   void clone(OwnedPtr<File>* output);
   void parent(OwnedPtr<File>* output);
 
+  bool equals(File* other);
+
   void getOnDisk(OwnedPtr<DiskRef>* output);
 
   bool exists();
@@ -55,6 +57,7 @@ public:
   // File only.
   std::string readAll();
   void writeAll(const std::string& content);
+  void writeAll(const void* data, int size);
 
   // Directory only.
   void list(OwnedPtrVector<File>::Appender output);

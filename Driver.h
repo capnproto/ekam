@@ -67,6 +67,9 @@ private:
   typedef std::tr1::unordered_map<std::string, ActionFactory*> ActionFactoryMap;
   ActionFactoryMap actionFactories;
 
+  typedef std::tr1::unordered_multimap<EntityId, ActionFactory*, EntityId::HashFunc> TriggerMap;
+  TriggerMap triggers;
+
   typedef std::tr1::unordered_map<EntityId, File*, EntityId::HashFunc> EntityMap;
   EntityMap entityMap;
   OwnedPtrMap<File*, File> filePtrs;
@@ -85,6 +88,8 @@ private:
   void startSomeActions();
 
   void scanForActions(File* src, File* tmp);
+
+  void queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file, File* tmpLocation);
 };
 
 }  // namespace kake2

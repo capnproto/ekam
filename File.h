@@ -47,6 +47,8 @@ public:
   virtual void clone(OwnedPtr<File>* output) = 0;
   virtual void parent(OwnedPtr<File>* output) = 0;
 
+  virtual bool equals(File* other) = 0;
+
   class DiskRef {
   public:
     virtual ~DiskRef();
@@ -63,6 +65,7 @@ public:
   // File only.
   virtual std::string readAll() = 0;
   virtual void writeAll(const std::string& content) = 0;
+  virtual void writeAll(const void* data, int size) = 0;
 
   // Directory only.
   virtual void list(OwnedPtrVector<File>::Appender output) = 0;

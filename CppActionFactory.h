@@ -28,69 +28,29 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include <string>
-#include <stdio.h>
+#ifndef KAKE2_CPPACTIONFACTORY_H_
+#define KAKE2_CPPACTIONFACTORY_H_
 
-#include "Driver.h"
-#include "DiskFile.h"
+#include <vector>
+#include <iterator>
 #include "Action.h"
-#include "SimpleDashboard.h"
-#include "KqueueEventManager.h"
 
 namespace kake2 {
 
-class MockAction : public Action {
+class CppActionFactory: public ActionFactory {
 public:
-  MockAction(bool result) : result(result) {}
-  ~MockAction() {}
+  CppActionFactory();
+  ~CppActionFactory();
 
-  // implements Action -------------------------------------------------------------------
-  std::string getVerb() { return "mock"; }
-  void start(EventManager* eventManager, BuildContext* context) {
-    if (result) {
-      context->success();
-    } else {
-      context->failed();
-    }
-  }
+  // implements ActionFactory --------------------------------------------------
+  bool tryMakeAction(File* file, OwnedPtr<Action>* output);
+  void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter);
+  bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output);
 
 private:
-  bool result;
+  static const EntityId MAIN_SYMBOL;
 };
-
-class MockActionFactory : public ActionFactory {
-public:
-  MockActionFactory() {}
-  ~MockActionFactory() {}
-
-  // implements ActionFactory ------------------------------------------------------------
-  void tryMakeAction(File* file, OwnedPtr<Action>* output) {
-    std::string basename = file->basename();
-    if (basename.size() > 4 && basename.substr(basename.size() - 4) == ".cpp") {
-      output->allocateSubclass<MockAction>(basename != "main.cpp");
-    }
-  }
-};
-
-int main(int argc, char* argv) {
-  DiskFile src("src", NULL);
-  DiskFile tmp("tmp", NULL);
-  SimpleDashboard dashboard(stdout);
-  KqueueEventManager eventManager;
-
-  Driver driver(&eventManager, &dashboard, &src, &tmp, 1);
-
-  MockActionFactory mockFactory;
-  driver.addActionFactory("mock", &mockFactory);
-
-  driver.start();
-  eventManager.loop();
-
-  return 0;
-}
 
 }  // namespace kake2
 
-int main(int argc, char* argv) {
-  kake2::main(argc, argv);
-}
+#endif  // KAKE2_CPPACTIONFACTORY_H_

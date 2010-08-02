@@ -36,6 +36,7 @@
 #include <vector>
 #include <queue>
 #include <tr1/unordered_map>
+#include <assert.h>
 
 namespace kake2 {
 
@@ -46,8 +47,8 @@ public:
   ~OwnedPtr() { delete ptr; }
 
   T* get() const { return ptr; }
-  T* operator->() const { return ptr; }
-  const T& operator*() const { return *ptr; }
+  T* operator->() const { assert(ptr != NULL); return ptr; }
+  const T& operator*() const { assert(ptr != NULL); return *ptr; }
 
   template <typename U>
   void adopt(OwnedPtr<U>* other) {
@@ -120,6 +121,8 @@ private:
   }
 
   template <typename U>
+  friend class OwnedPtr;
+  template <typename U>
   friend class OwnedPtrVector;
   template <typename U>
   friend class OwnedPtrQueue;
@@ -172,9 +175,13 @@ public:
     vec.clear();
   }
 
+  void swap(OwnedPtrVector* other) {
+    vec.swap(other->vec);
+  }
+
   class Appender {
   public:
-    Appender(OwnedPtrVector* vec) : vec(vec) {}
+    explicit Appender(OwnedPtrVector* vec) : vec(vec) {}
 
     void adopt(OwnedPtr<T>* ptr) {
       vec->adoptBack(ptr);
@@ -303,6 +310,16 @@ public:
       map.erase(iter);
       return true;
     }
+  }
+
+  void releaseAll(typename OwnedPtrVector<T>::Appender output) {
+    for (typename InnerMap::const_iterator iter = map.begin();
+         iter != map.end(); ++iter) {
+      OwnedPtr<T> ptr;
+      ptr.reset(iter->second);
+      output.adopt(&ptr);
+    }
+    map.clear();
   }
 
   bool erase(const Key& key) {

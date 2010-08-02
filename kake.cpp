@@ -28,57 +28,37 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "Debug.h"
-
+#include <string>
 #include <stdio.h>
+
+#include "Driver.h"
+#include "DiskFile.h"
+#include "Action.h"
+#include "SimpleDashboard.h"
+#include "KqueueEventManager.h"
+#include "CppActionFactory.h"
 
 namespace kake2 {
 
-DebugMessage::Severity DebugMessage::logLevel = WARNING;
+int main(int argc, char* argv) {
+  DiskFile src("src", NULL);
+  DiskFile tmp("tmp", NULL);
+  SimpleDashboard dashboard(stdout);
+  KqueueEventManager eventManager;
 
-static const char* SEVERITY_NAMES[] = {
-  "INFO", "WARNING", "ERROR"
-};
+  Driver driver(&eventManager, &dashboard, &src, &tmp, 1);
 
-DebugMessage::DebugMessage(Severity severity, const char* filename, int line) {
-  *this << "kake2 debug: " << SEVERITY_NAMES[severity] << ": "
-        << filename << ":" << line << ": ";
+  CppActionFactory cppActionFactory;
+  driver.addActionFactory("mock", &cppActionFactory);
+
+  driver.start();
+  eventManager.loop();
+
+  return 0;
 }
-DebugMessage::~DebugMessage() {
-  // TODO:  We really need to buffer the message and write it all at once to avoid interleaved
-  //   text when multiprocessing.
-  fputs("\n", stderr);
-  fflush(stderr);
-}
-
-DebugMessage& DebugMessage::operator<<(const char* value) {
-  fputs(value, stderr);
-  return *this;
-}
-
-DebugMessage& DebugMessage::operator<<(const std::string& value) {
-  fwrite(value.data(), sizeof(char), value.size(), stderr);
-  return *this;
-}
-
-#define HANDLE_TYPE(TYPE, FORMAT)                      \
-DebugMessage& DebugMessage::operator<<(TYPE value) {   \
-  fprintf(stderr, FORMAT, value);                      \
-  return *this;                                        \
-}
-
-HANDLE_TYPE(char, "%c");
-HANDLE_TYPE(signed char, "%hhd");
-HANDLE_TYPE(unsigned char, "%hhu");
-HANDLE_TYPE(short, "%hd");
-HANDLE_TYPE(unsigned short, "%hu");
-HANDLE_TYPE(int, "%d");
-HANDLE_TYPE(unsigned int, "%u");
-HANDLE_TYPE(long, "%ld");
-HANDLE_TYPE(unsigned long, "%lu");
-HANDLE_TYPE(long long, "%lld");
-HANDLE_TYPE(unsigned long long, "%llu");
-HANDLE_TYPE(float, "%g");
-HANDLE_TYPE(double, "%g");
 
 }  // namespace kake2
+
+int main(int argc, char* argv) {
+  kake2::main(argc, argv);
+}

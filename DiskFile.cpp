@@ -200,6 +200,11 @@ void DiskFile::parent(OwnedPtr<File>* output) {
   parentRef->clone(output);
 }
 
+bool DiskFile::equals(File* other) {
+  DiskFile* otherDiskFile = dynamic_cast<DiskFile*>(other);
+  return otherDiskFile != NULL && otherDiskFile->path == path;
+}
+
 class DiskFile::DiskRefImpl : public File::DiskRef {
 public:
   DiskRefImpl(const std::string& path) : pathName(path) {}
@@ -268,6 +273,17 @@ void DiskFile::writeAll(const std::string& content) {
   std::string::size_type pos = 0;
   while (pos < content.size()) {
     pos += fd.write(content.data() + pos, content.size() - pos);
+  }
+}
+
+void DiskFile::writeAll(const void* data, int size) {
+  FileDescriptor fd(path, O_WRONLY | O_TRUNC | O_CREAT);
+
+  const char* pos = reinterpret_cast<const char*>(data);
+  while (size > 0) {
+    int n = fd.write(pos, size);
+    pos += n;
+    size -= n;
   }
 }
 

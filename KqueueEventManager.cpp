@@ -271,7 +271,7 @@ void KqueueEventManager::handleReadAll(KqueueEventManager* self, const struct ke
         break;
       } else if (bytesRead > 0) {
         context->pos += bytesRead;
-        if (context->pos == context->size) {
+        if (context->pos == context->size || (event.flags & EV_EOF)) {
           context->callback->done(context->pos);
           break;
         }
@@ -448,12 +448,17 @@ void KqueueEventManager::handleContinuousRead(
   try {
     while (true) {
       int bytesRead = ::read(fd, buffer, sizeof(buffer));
+      DEBUG_INFO << "Read " << bytesRead << " bytes from " << fd;
 
       if (bytesRead == 0) {
         callback->eof();
         break;
       } else if (bytesRead > 0) {
         callback->data(buffer, bytesRead);
+        if (event.flags & EV_EOF) {
+          callback->eof();
+          break;
+        }
         return;  // Not done; don't unregister.
       } else if (errno != EINTR) {
         callback->error(errno);
