@@ -1,4 +1,4 @@
-// kake2 -- http://code.google.com/p/kake2
+// ekam -- http://code.google.com/p/ekam
 // Copyright (c) 2010 Kenton Varda and contributors.  All rights reserved.
 // Portions copyright Google, Inc.
 //
@@ -12,7 +12,7 @@
 // copyright notice, this list of conditions and the following disclaimer
 // in the documentation and/or other materials provided with the
 // distribution.
-//     * Neither the name of the kake2 project nor the names of its
+//     * Neither the name of the ekam project nor the names of its
 // contributors may be used to endorse or promote products derived from
 // this software without specific prior written permission.
 //
@@ -38,7 +38,7 @@
 #include "KqueueEventManager.h"
 #include "CppActionFactory.h"
 
-namespace kake2 {
+namespace ekam {
 
 int main(int argc, char* argv) {
   DiskFile src("src", NULL);
@@ -46,7 +46,7 @@ int main(int argc, char* argv) {
   SimpleDashboard dashboard(stdout);
   KqueueEventManager eventManager;
 
-  Driver driver(&eventManager, &dashboard, &src, &tmp, 1);
+  Driver driver(&eventManager, &dashboard, &src, &tmp, 4);
 
   CppActionFactory cppActionFactory;
   driver.addActionFactory("mock", &cppActionFactory);
@@ -57,8 +57,8 @@ int main(int argc, char* argv) {
   return 0;
 }
 
-}  // namespace kake2
+}  // namespace ekam
 
 int main(int argc, char* argv) {
-  kake2::main(argc, argv);
+  ekam::main(argc, argv);
 }

@@ -1,4 +1,4 @@
-// kake2 -- http://code.google.com/p/kake2
+// ekam -- http://code.google.com/p/ekam
 // Copyright (c) 2010 Kenton Varda and contributors.  All rights reserved.
 // Portions copyright Google, Inc.
 //
@@ -12,7 +12,7 @@
 // copyright notice, this list of conditions and the following disclaimer
 // in the documentation and/or other materials provided with the
 // distribution.
-//     * Neither the name of the kake2 project nor the names of its
+//     * Neither the name of the ekam project nor the names of its
 // contributors may be used to endorse or promote products derived from
 // this software without specific prior written permission.
 //
@@ -28,12 +28,12 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef KAKE2_DEBUGLOG_H_
-#define KAKE2_DEBUGLOG_H_
+#ifndef EKAM_DEBUGLOG_H_
+#define EKAM_DEBUGLOG_H_
 
 #include <string>
 
-namespace kake2 {
+namespace ekam {
 
 class DebugMessage {
 public:
@@ -71,13 +71,13 @@ private:
 };
 
 #define DEBUG_LOG(SEVERITY) \
-  if (!DebugMessage::shouldLog(::kake2::DebugMessage::SEVERITY, __FILE__, __LINE__)) {} else \
-  ::kake2::DebugMessage(::kake2::DebugMessage::SEVERITY, __FILE__, __LINE__)
+  if (!DebugMessage::shouldLog(::ekam::DebugMessage::SEVERITY, __FILE__, __LINE__)) {} else \
+  ::ekam::DebugMessage(::ekam::DebugMessage::SEVERITY, __FILE__, __LINE__)
 
 #define DEBUG_INFO DEBUG_LOG(INFO)
 #define DEBUG_WARNING DEBUG_LOG(WARNING)
 #define DEBUG_ERROR DEBUG_LOG(ERROR)
 
-}  // namespace kake2
+}  // namespace ekam
 
-#endif  // KAKE2_DEBUGLOG_H_
+#endif  // EKAM_DEBUGLOG_H_

@@ -1,4 +1,4 @@
-// kake2 -- http://code.google.com/p/kake2
+// ekam -- http://code.google.com/p/ekam
 // Copyright (c) 2010 Kenton Varda and contributors.  All rights reserved.
 // Portions copyright Google, Inc.
 //
@@ -12,7 +12,7 @@
 // copyright notice, this list of conditions and the following disclaimer
 // in the documentation and/or other materials provided with the
 // distribution.
-//     * Neither the name of the kake2 project nor the names of its
+//     * Neither the name of the ekam project nor the names of its
 // contributors may be used to endorse or promote products derived from
 // this software without specific prior written permission.
 //
@@ -41,7 +41,7 @@
 
 #include "Debug.h"
 
-namespace kake2 {
+namespace ekam {
 
 // TODO:  Handle EINTR.  :(
 // TODO:  Use new openat() and friends?  Very capability-like!
@@ -358,4 +358,4 @@ void DiskFile::createDirectory() {
   }
 }
 
-}  // namespace kake2
+}  // namespace ekam

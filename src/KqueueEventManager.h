@@ -1,4 +1,4 @@
-// kake2 -- http://code.google.com/p/kake2
+// ekam -- http://code.google.com/p/ekam
 // Copyright (c) 2010 Kenton Varda and contributors.  All rights reserved.
 // Portions copyright Google, Inc.
 //
@@ -12,7 +12,7 @@
 // copyright notice, this list of conditions and the following disclaimer
 // in the documentation and/or other materials provided with the
 // distribution.
-//     * Neither the name of the kake2 project nor the names of its
+//     * Neither the name of the ekam project nor the names of its
 // contributors may be used to endorse or promote products derived from
 // this software without specific prior written permission.
 //
@@ -28,8 +28,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef KAKE2_KQUEUEEVENTMANAGER_H_
-#define KAKE2_KQUEUEEVENTMANAGER_H_
+#ifndef EKAM_KQUEUEEVENTMANAGER_H_
+#define EKAM_KQUEUEEVENTMANAGER_H_
 
 #include <sys/types.h>
 
@@ -38,7 +38,7 @@
 
 typedef struct kevent KEvent;
 
-namespace kake2 {
+namespace ekam {
 
 class KqueueEventManager: public EventManager {
 public:
@@ -114,6 +114,6 @@ private:
   static void handleContinuousRead(KqueueEventManager* self, const KEvent& event);
 };
 
-}  // namespace kake2
+}  // namespace ekam
 
-#endif  // KAKE2_KQUEUEEVENTMANAGER_H_
+#endif  // EKAM_KQUEUEEVENTMANAGER_H_

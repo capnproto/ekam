@@ -1,4 +1,4 @@
-// kake2 -- http://code.google.com/p/kake2
+// ekam -- http://code.google.com/p/ekam
 // Copyright (c) 2010 Kenton Varda and contributors.  All rights reserved.
 // Portions copyright Google, Inc.
 //
@@ -12,7 +12,7 @@
 // copyright notice, this list of conditions and the following disclaimer
 // in the documentation and/or other materials provided with the
 // distribution.
-//     * Neither the name of the kake2 project nor the names of its
+//     * Neither the name of the ekam project nor the names of its
 // contributors may be used to endorse or promote products derived from
 // this software without specific prior written permission.
 //
@@ -39,7 +39,7 @@
 #include <tr1/unordered_set>
 #include "Debug.h"
 
-namespace kake2 {
+namespace ekam {
 
 // compile action:  produces object file, entities for all symbols declared therein.
 // link action:  triggers on "main" entity.
@@ -459,10 +459,10 @@ void LinkAction::DepsSet::addObject(BuildContext* context, File* objectFile) {
     while (pos != std::string::npos) {
       std::string symbolName(data, prevPos, pos - prevPos);
 
-      // Temporary hack:  Ignore symbol names not containing "kake2" so that we don't get upset
+      // Temporary hack:  Ignore symbol names not containing "ekam" so that we don't get upset
       //   that the libc symbols aren't found.
       // TODO: Remove this.
-      if (symbolName.find("kake2") == std::string::npos) {
+      if (symbolName.find("ekam") == std::string::npos) {
         prevPos = pos + 1;
         pos = data.find_first_of('\n', prevPos);
         continue;
@@ -641,4 +641,4 @@ bool CppActionFactory::tryMakeAction(const EntityId& id, File* file, OwnedPtr<Ac
   }
 }
 
-}  // namespace kake2
+}  // namespace ekam

@@ -1,4 +1,4 @@
-// kake2 -- http://code.google.com/p/kake2
+// ekam -- http://code.google.com/p/ekam
 // Copyright (c) 2010 Kenton Varda and contributors.  All rights reserved.
 // Portions copyright Google, Inc.
 //
@@ -12,7 +12,7 @@
 // copyright notice, this list of conditions and the following disclaimer
 // in the documentation and/or other materials provided with the
 // distribution.
-//     * Neither the name of the kake2 project nor the names of its
+//     * Neither the name of the ekam project nor the names of its
 // contributors may be used to endorse or promote products derived from
 // this software without specific prior written permission.
 //
@@ -28,14 +28,14 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef KAKE2_CPPACTIONFACTORY_H_
-#define KAKE2_CPPACTIONFACTORY_H_
+#ifndef EKAM_CPPACTIONFACTORY_H_
+#define EKAM_CPPACTIONFACTORY_H_
 
 #include <vector>
 #include <iterator>
 #include "Action.h"
 
-namespace kake2 {
+namespace ekam {
 
 class CppActionFactory: public ActionFactory {
 public:
@@ -51,6 +51,6 @@ private:
   static const EntityId MAIN_SYMBOL;
 };
 
-}  // namespace kake2
+}  // namespace ekam
 
-#endif  // KAKE2_CPPACTIONFACTORY_H_
+#endif  // EKAM_CPPACTIONFACTORY_H_
