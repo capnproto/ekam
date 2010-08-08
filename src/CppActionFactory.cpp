@@ -539,11 +539,6 @@ public:
         command.append(depsPaths[i]);
       }
 
-      // Temporary hack:  Add "-lmd" until we auto-detect library deps.
-      // TODO: Remove this.
-      argv.push_back(strdup("-lmd"));
-      command.append(" -lmd");
-
       argv.push_back(NULL);
 
       DEBUG_INFO << "exec: " << command;

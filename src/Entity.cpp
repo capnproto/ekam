@@ -31,7 +31,7 @@
 
 #include "Entity.h"
 
-#include <sha256.h>
+#include "sha256.h"
 #include <stdexcept>
 
 namespace ekam {
