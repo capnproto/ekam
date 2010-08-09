@@ -151,29 +151,39 @@ private:
   int releaseCount;
 };
 
-class Logger : public EventManager::ContinuousReadCallback {
+class Logger : public EventManager::IoCallback {
 public:
-  Logger(BuildContext* context, DoneBarrier* doneBarrier)
-      : context(context), doneBarrier(doneBarrier) {}
+  Logger(BuildContext* context, int fd, DoneBarrier* doneBarrier)
+      : context(context), fd(fd), doneBarrier(doneBarrier) {}
   ~Logger() {
     doneBarrier->release();
   }
 
-  // implements ContinuousReadCallback ---------------------------------------------------
-  void data(const void* buffer, int size) {
-    context->log(std::string(reinterpret_cast<const char*>(buffer), size));
-  }
-  void eof() {
-    DEBUG_INFO << "logger done";
-    doneBarrier->success();
-  }
-  void error(int number) {
-    context->log(std::string("read(log pipe): ") + strerror(number));
-    context->failed();
+  // implements IoCallback ---------------------------------------------------------------
+  Status ready() {
+    char buffer[4096];
+
+    ssize_t n;
+    do {
+      n = read(fd, buffer, sizeof(buffer));
+    } while (n < 0 && errno == EINTR);
+
+    if (n < 0) {
+      context->log("read(log pipe): " + std::string(strerror(errno)));
+      context->failed();
+      return DONE;
+    } else if (n == 0) {
+      doneBarrier->success();
+      return DONE;
+    } else {
+      context->log(std::string(reinterpret_cast<const char*>(buffer), n));
+      return REPEAT;
+    }
   }
 
 private:
   BuildContext* context;
+  int fd;
   DoneBarrier* doneBarrier;
 };
 
@@ -212,19 +222,48 @@ std::string CppAction::getVerb() {
 
 // ---------------------------------------------------------------------------------------
 
-class CppAction::SymbolCollector : public EventManager::ContinuousReadCallback {
+class CppAction::SymbolCollector : public EventManager::IoCallback {
 public:
-  SymbolCollector(BuildContext* context, File* objectFile, DoneBarrier* doneBarrier)
-      : context(context), doneBarrier(doneBarrier) {
+  SymbolCollector(BuildContext* context, int fd, File* objectFile, DoneBarrier* doneBarrier)
+      : context(context), fd(fd), doneBarrier(doneBarrier) {
     objectFile->clone(&this->objectFile);
   }
   ~SymbolCollector() {
     doneBarrier->release();
   }
 
-  // implements ContinuousReadCallback ---------------------------------------------------
-  void data(const void* buffer, int size) {
-    const char* data = reinterpret_cast<const char*>(buffer);
+  // implements IoCallback ---------------------------------------------------------------
+  Status ready() {
+    char buffer[4096];
+
+    ssize_t n;
+    do {
+      n = read(fd, buffer, sizeof(buffer));
+    } while (n < 0 && errno == EINTR);
+
+    if (n < 0) {
+      context->log("read(symbol pipe): " + std::string(strerror(errno)));
+      context->failed();
+      return DONE;
+    } else if (n == 0) {
+      finish();
+      return DONE;
+    } else {
+      consume(buffer, n);
+      return REPEAT;
+    }
+  }
+
+private:
+  BuildContext* context;
+  int fd;
+  OwnedPtr<File> objectFile;
+  DoneBarrier* doneBarrier;
+  std::string leftover;
+  std::vector<EntityId> entities;
+  std::string deps;
+
+  void consume(const char* data, int size) {
     std::string line = leftover;
 
     while (true) {
@@ -240,30 +279,6 @@ public:
       data = eol + 1;
     }
   }
-  void eof() {
-    DEBUG_INFO << "symbols done";
-    context->provide(objectFile.get(), entities);
-
-    OwnedPtr<File> depsFile;
-    getDepsFile(objectFile.get(), &depsFile);
-
-    depsFile->writeAll(deps);
-
-    doneBarrier->success();
-  }
-  void error(int number) {
-    DEBUG_INFO << "symbol pipe broken";
-    context->log(std::string("read(symbol pipe): ") + strerror(number));
-    context->failed();
-  }
-
-private:
-  BuildContext* context;
-  OwnedPtr<File> objectFile;
-  DoneBarrier* doneBarrier;
-  std::string leftover;
-  std::vector<EntityId> entities;
-  std::string deps;
 
   void parseLine(const std::string& line) {
     std::string::size_type pos = line.find_first_of(' ');
@@ -278,6 +293,18 @@ private:
         deps.push_back('\n');
       }
     }
+  }
+
+  void finish() {
+    DEBUG_INFO << "symbols done";
+    context->provide(objectFile.get(), entities);
+
+    OwnedPtr<File> depsFile;
+    getDepsFile(objectFile.get(), &depsFile);
+
+    depsFile->writeAll(deps);
+
+    doneBarrier->success();
   }
 };
 
@@ -339,17 +366,18 @@ public:
       perror("execvp");
       exit(1);
     } else {
-      OwnedPtr<EventManager::ContinuousReadCallback> symbolCallback;
-      symbolCallback.allocateSubclass<SymbolCollector>(context, objectFile.get(), doneBarrier);
-      eventManager->readContinuously(symbolPipe->readEnd(), &symbolCallback);
+      OwnedPtr<EventManager::IoCallback> symbolCallback;
+      symbolCallback.allocateSubclass<SymbolCollector>(context, symbolPipe->readEnd(),
+                                                       objectFile.get(), doneBarrier);
+      eventManager->onReadable(symbolPipe->readEnd(), &symbolCallback);
 
-      OwnedPtr<EventManager::ContinuousReadCallback> loggerCallback;
-      loggerCallback.allocateSubclass<Logger>(context, doneBarrier);
-      eventManager->readContinuously(logPipe->readEnd(), &loggerCallback);
+      OwnedPtr<EventManager::IoCallback> loggerCallback;
+      loggerCallback.allocateSubclass<Logger>(context, logPipe->readEnd(), doneBarrier);
+      eventManager->onReadable(logPipe->readEnd(), &loggerCallback);
 
       OwnedPtr<EventManager::ProcessExitCallback> callback;
       callback.adopt(selfPtr);
-      eventManager->waitPid(pid, &callback);
+      eventManager->onProcessExit(pid, &callback);
     }
   }
 
@@ -548,13 +576,13 @@ public:
       perror("execvp");
       exit(1);
     } else {
-      OwnedPtr<EventManager::ContinuousReadCallback> loggerCallback;
-      loggerCallback.allocateSubclass<Logger>(context, doneBarrier);
-      eventManager->readContinuously(logPipe->readEnd(), &loggerCallback);
+      OwnedPtr<EventManager::IoCallback> loggerCallback;
+      loggerCallback.allocateSubclass<Logger>(context, logPipe->readEnd(), doneBarrier);
+      eventManager->onReadable(logPipe->readEnd(), &loggerCallback);
 
       OwnedPtr<EventManager::ProcessExitCallback> callback;
       callback.adopt(selfPtr);
-      eventManager->waitPid(pid, &callback);
+      eventManager->onProcessExit(pid, &callback);
     }
   }
 

@@ -61,6 +61,7 @@ public:
   DebugMessage& operator<<(unsigned long long value);
   DebugMessage& operator<<(float value);
   DebugMessage& operator<<(double value);
+  DebugMessage& operator<<(const void* ptr);
 
   inline static bool shouldLog(Severity severity, const char*, int) {
     return severity >= logLevel;

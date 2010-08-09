@@ -32,6 +32,7 @@
 #define EKAM_KQUEUEEVENTMANAGER_H_
 
 #include <sys/types.h>
+#include <tr1/unordered_set>
 
 #include "EventManager.h"
 #include "OwnedPtr.h"
@@ -49,69 +50,46 @@ public:
 
   // implements EventManager -------------------------------------------------------------
   void runAsynchronously(OwnedPtr<Callback>* callbackToAdopt);
-  void waitPid(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-               OwnedPtr<Canceler>* output = NULL);
-  void read(int fd, void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-            OwnedPtr<Canceler>* output = NULL);
-  void readAll(int fd, void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-               OwnedPtr<Canceler>* output = NULL);
-  void write(int fd, const void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-             OwnedPtr<Canceler>* output = NULL);
-  void writeAll(int fd, const void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-                OwnedPtr<Canceler>* output = NULL);
-  void readContinuously(int fd, OwnedPtr<ContinuousReadCallback>* callbackToAdopt,
-                        OwnedPtr<Canceler>* output = NULL);
+  void onProcessExit(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
+                     OwnedPtr<Canceler>* output = NULL);
+  void onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
+                  OwnedPtr<Canceler>* output = NULL);
+  void onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
+                  OwnedPtr<Canceler>* output = NULL);
 
 private:
-  struct ReadContext {
-    char* buffer;
-    int size;
-    int pos;
-    OwnedPtr<IoCallback> callback;
+  class KEventHandler;
+  class KEventRegistration;
 
-    inline ReadContext(void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt)
-        : buffer(reinterpret_cast<char*>(buffer)), size(size), pos(0) {
-      callback.adopt(callbackToAdopt);
+  class ProcessExitHandler;
+  class ReadHandler;
+  class WriteHandler;
+
+  struct IntptrShortPairHash {
+    inline bool operator()(const std::pair<intptr_t, short>& p) const {
+      return p.first * 65537 + p.second;
     }
   };
-
-  struct WriteContext {
-    const char* buffer;
-    int size;
-    int pos;
-    OwnedPtr<IoCallback> callback;
-
-    inline WriteContext(const void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt)
-        : buffer(reinterpret_cast<const char*>(buffer)), size(size), pos(0) {
-      callback.adopt(callbackToAdopt);
-    }
-  };
-
-  class ProcessExitCanceler;
-  class ReadCanceler;
-  class WriteCanceler;
-  class ReadContinuouslyCanceler;
 
   int kqueueFd;
 
   OwnedPtrQueue<Callback> asyncCallbacks;
-  OwnedPtrMap<pid_t, ProcessExitCallback> processExitCallbacks;
-  OwnedPtrMap<int, ReadContext> readCallbacks;
-  OwnedPtrMap<int, WriteContext> writeCallbacks;
-  OwnedPtrMap<int, ContinuousReadCallback> continuousReadCallbacks;
+
+  std::tr1::unordered_set<std::pair<intptr_t, short>, IntptrShortPairHash> activeEvents;
+  OwnedPtrMap<KEventRegistration*, KEventRegistration> handlers;
 
   bool handleEvent();
 
-  typedef void EventHandlerFunc(KqueueEventManager* self, const KEvent& event);
-  static void updateKqueue(int kqueueFd, uintptr_t ident, short filter, u_short flags,
-                           u_int fflags, intptr_t data, EventHandlerFunc* handler);
+  enum RepeatCount {
+    ONCE,               // Only call callback the first time the event condition is true.
+    UNTIL_CANCELED      // Keep calling whenever the event condition is true until canceled.
+  };
 
-  static void handleProcessExit(KqueueEventManager* self, const KEvent& event);
-  static void handleRead(KqueueEventManager* self, const KEvent& event);
-  static void handleReadAll(KqueueEventManager* self, const KEvent& event);
-  static void handleWrite(KqueueEventManager* self, const KEvent& event);
-  static void handleWriteAll(KqueueEventManager* self, const KEvent& event);
-  static void handleContinuousRead(KqueueEventManager* self, const KEvent& event);
+  void addHandler(RepeatCount repeatCount, OwnedPtr<KEventHandler>* handlerToAdopt,
+                  OwnedPtr<Canceler>* output);
+
+  static void initKEvent(KEvent* event, uintptr_t ident, short filter, u_int fflags, intptr_t data);
+  void updateKqueue(const KEvent& event);
 };
 
 }  // namespace ekam

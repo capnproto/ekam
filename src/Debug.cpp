@@ -80,5 +80,6 @@ HANDLE_TYPE(long long, "%lld");
 HANDLE_TYPE(unsigned long long, "%llu");
 HANDLE_TYPE(float, "%g");
 HANDLE_TYPE(double, "%g");
+HANDLE_TYPE(const void*, "%p");
 
 }  // namespace ekam

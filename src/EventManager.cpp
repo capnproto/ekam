@@ -37,6 +37,5 @@ EventManager::Canceler::~Canceler() {}
 EventManager::Callback::~Callback() {}
 EventManager::ProcessExitCallback::~ProcessExitCallback() {}
 EventManager::IoCallback::~IoCallback() {}
-EventManager::ContinuousReadCallback::~ContinuousReadCallback() {}
 
 }  // namespace ekam

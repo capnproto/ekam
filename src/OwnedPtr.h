@@ -323,7 +323,14 @@ public:
   }
 
   bool erase(const Key& key) {
-    return map.erase(key) > 0;
+    typename InnerMap::iterator iter = map.find(key);
+    if (iter == map.end()) {
+      return false;
+    } else {
+      delete iter->second;
+      map.erase(iter);
+      return true;
+    }
   }
 
   void clear() {

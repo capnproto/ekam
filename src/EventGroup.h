@@ -54,25 +54,16 @@ public:
 
   // implements EventManager -------------------------------------------------------------
   void runAsynchronously(OwnedPtr<Callback>* callbackToAdopt);
-  void waitPid(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-               OwnedPtr<Canceler>* output = NULL);
-  void read(int fd, void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-            OwnedPtr<Canceler>* output = NULL);
-  void readAll(int fd, void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-               OwnedPtr<Canceler>* output = NULL);
-  void write(int fd, const void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-             OwnedPtr<Canceler>* output = NULL);
-  void writeAll(int fd, const void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-                OwnedPtr<Canceler>* output = NULL);
-  void readContinuously(int fd, OwnedPtr<ContinuousReadCallback>* callbackToAdopt,
-                        OwnedPtr<Canceler>* output = NULL);
+  void onProcessExit(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
+                     OwnedPtr<Canceler>* output = NULL);
+  void onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt, OwnedPtr<Canceler>* output = NULL);
+  void onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt, OwnedPtr<Canceler>* output = NULL);
 
 private:
   class CancelerWrapper;
   class CallbackWrapper;
   class ProcessExitCallbackWrapper;
   class IoCallbackWrapper;
-  class ContinuousReadCallbackWrapper;
 
   struct CallbackContext {
     bool groupCanceled;

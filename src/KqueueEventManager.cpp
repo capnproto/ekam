@@ -38,15 +38,171 @@
 #include <sys/time.h>
 #include <algorithm>
 #include <stdexcept>
+#include <assert.h>
 
 #include "Debug.h"
 
 namespace ekam {
 
-void KqueueEventManager::updateKqueue(int kqueueFd, uintptr_t ident, short filter, u_short flags,
-                                      u_int fflags, intptr_t data, EventHandlerFunc* handler) {
-  KEvent event;
-  EV_SET(&event, ident, filter, flags, fflags, data, reinterpret_cast<void*>(handler));
+class KqueueEventManager::KEventHandler {
+public:
+  virtual ~KEventHandler() {}
+
+  virtual void describe(KEvent* event) = 0;
+  virtual bool handle(const KEvent& event) = 0;
+};
+
+class KqueueEventManager::KEventRegistration {
+  class CancelerImpl : public EventManager::Canceler {
+  public:
+    CancelerImpl(KEventRegistration* eventRegistration)
+        : eventRegistration(eventRegistration) {}
+    ~CancelerImpl() {
+      if (eventRegistration != NULL) {
+        eventRegistration->discardCanceler();
+      }
+    }
+
+    // implements Canceler ---------------------------------------------------------------
+    void cancel() {
+      if (eventRegistration != NULL) {
+        eventRegistration->cancel();
+      }
+    }
+
+  private:
+    KEventRegistration* eventRegistration;
+
+    friend class KqueueEventManager::KEventRegistration;
+  };
+
+  class CancelationDeferrer {
+  public:
+    CancelationDeferrer(KEventRegistration* registration)
+        : registration(registration), isCanceled(false) {
+      registration->cancelationDeferrer = this;
+    }
+    ~CancelationDeferrer() {
+      registration->cancelationDeferrer = NULL;
+      if (isCanceled) {
+        if (!registration->eventManager->handlers.erase(registration)) {
+          DEBUG_ERROR << "Registration not in handlers map?";
+        }
+      }
+    }
+
+    void cancelWhenLeavingScope() {
+      isCanceled = true;
+    }
+
+  private:
+    KEventRegistration* registration;
+    bool isCanceled;
+  };
+
+public:
+  KEventRegistration(KqueueEventManager* eventManager, RepeatCount repeatCount,
+                     OwnedPtr<KEventHandler>* handlerToAdopt, OwnedPtr<Canceler>* output)
+      : eventManager(eventManager), repeatCount(repeatCount),
+        seenAtLeastOnce(false), canceler(NULL), cancelationDeferrer(NULL) {
+    handler.adopt(handlerToAdopt);
+    if (output != NULL) {
+      OwnedPtr<CancelerImpl> canceler;
+      canceler.allocate(this);
+      this->canceler = canceler.get();
+      output->adopt(&canceler);
+    }
+
+    KEvent event;
+    handler->describe(&event);
+
+    if (!eventManager->activeEvents.insert(std::make_pair(event.ident, event.filter)).second) {
+      throw std::invalid_argument("Already waiting on that event.");
+    }
+
+    event.flags = EV_ADD;
+    if (repeatCount == ONCE) {
+      event.flags |= EV_ONESHOT;
+    }
+    event.udata = this;
+
+    eventManager->updateKqueue(event);
+  }
+
+  ~KEventRegistration() {
+    if (canceler != NULL) {
+      canceler->eventRegistration = NULL;
+    }
+
+    if (repeatCount == UNTIL_CANCELED || !seenAtLeastOnce) {
+      // Unregister the event.
+      KEvent event;
+      handler->describe(&event);
+      event.flags = EV_DELETE;
+      eventManager->updateKqueue(event);
+
+      if (eventManager->activeEvents.erase(std::make_pair(event.ident, event.filter)) == 0) {
+        DEBUG_ERROR << "Event not in activeEvents?";
+      }
+    }
+  }
+
+  void handle(const KEvent& event) {
+    seenAtLeastOnce = true;
+
+    CancelationDeferrer deferrer(this);
+
+    if (repeatCount == ONCE) {
+      deferrer.cancelWhenLeavingScope();
+      if (eventManager->activeEvents.erase(std::make_pair(event.ident, event.filter)) == 0) {
+        DEBUG_ERROR << "Event not in activeEvents?";
+      }
+
+      if (!handler->handle(event)) {
+        DEBUG_ERROR << "KEventHandler registered with EventType ONCE did not complete in one run.";
+      }
+    } else {
+      if (handler->handle(event)) {
+        deferrer.cancelWhenLeavingScope();
+      }
+    }
+  }
+
+private:
+  KqueueEventManager* eventManager;
+  RepeatCount repeatCount;
+  bool seenAtLeastOnce;
+  CancelerImpl* canceler;
+  CancelationDeferrer* cancelationDeferrer;
+  OwnedPtr<KEventHandler> handler;
+
+  void cancel() {
+    if (cancelationDeferrer == NULL) {
+      eventManager->handlers.erase(this);
+    } else {
+      cancelationDeferrer->cancelWhenLeavingScope();
+    }
+  }
+
+  void discardCanceler() {
+    canceler = NULL;
+  }
+};
+
+void KqueueEventManager::initKEvent(KEvent* event, uintptr_t ident, short filter,
+                                    u_int fflags, intptr_t data) {
+  EV_SET(event, ident, filter, 0, fflags, data, NULL);
+}
+
+void KqueueEventManager::updateKqueue(const KEvent& event) {
+  if (kqueueFd == -1) {
+    // We're in KqueueEventManager's destructor and the kqueue has already been closed.
+    if (event.flags != EV_DELETE) {
+      DEBUG_ERROR << "Tried to add events to kqueue after it was closed.";
+    }
+    return;
+  }
+
   int n = kevent(kqueueFd, &event, 1, NULL, 0, NULL);
   if (n < 0) {
     DEBUG_ERROR << "kevent: " << strerror(errno);
@@ -54,6 +210,8 @@ void KqueueEventManager::updateKqueue(int kqueueFd, uintptr_t ident, short filte
     DEBUG_ERROR << "kevent() returned events when not asked to.";
   }
 }
+
+// =======================================================================================
 
 KqueueEventManager::KqueueEventManager()
     : kqueueFd(kqueue()) {
@@ -65,8 +223,9 @@ KqueueEventManager::KqueueEventManager()
 
 KqueueEventManager::~KqueueEventManager() {
   if (close(kqueueFd) < 0) {
-    perror("close(kqueue)");
+    DEBUG_ERROR << "close(kqueue): " << strerror(errno);
   }
+  kqueueFd = -1;
 }
 
 void KqueueEventManager::loop() {
@@ -83,10 +242,7 @@ bool KqueueEventManager::handleEvent() {
     return true;
   }
 
-  if (processExitCallbacks.empty() &&
-      readCallbacks.empty() &&
-      writeCallbacks.empty() &&
-      continuousReadCallbacks.empty()) {
+  if (handlers.empty()) {
     DEBUG_INFO << "No more events.";
     return false;
   }
@@ -107,11 +263,18 @@ bool KqueueEventManager::handleEvent() {
       DEBUG_ERROR << "kevent() returned more events than requested.";
     }
 
-    EventHandlerFunc* handler = reinterpret_cast<EventHandlerFunc*>(event.udata);
-    handler(this, event);
+    reinterpret_cast<KEventRegistration*>(event.udata)->handle(event);
   }
 
   return true;
+}
+
+void KqueueEventManager::addHandler(RepeatCount repeatCount,
+                                    OwnedPtr<KEventHandler>* handlerToAdopt,
+                                    OwnedPtr<Canceler>* output) {
+  OwnedPtr<KEventRegistration> eventRegistration;
+  eventRegistration.allocate(this, repeatCount, handlerToAdopt, output);
+  handlers.adopt(eventRegistration.get(), &eventRegistration);
 }
 
 // =======================================================================================
@@ -122,357 +285,124 @@ void KqueueEventManager::runAsynchronously(OwnedPtr<Callback>* callbackToAdopt) 
 
 // =======================================================================================
 
-class KqueueEventManager::ProcessExitCanceler : public Canceler {
+class KqueueEventManager::ProcessExitHandler : public KEventHandler {
 public:
-  ProcessExitCanceler(KqueueEventManager* manager, pid_t pid) : manager(manager), pid(pid) {}
-  ~ProcessExitCanceler() {}
+  ProcessExitHandler(pid_t pid, OwnedPtr<ProcessExitCallback>* callbackToAdopt)
+      : pid(pid) {
+    callback.adopt(callbackToAdopt);
+  }
+  ~ProcessExitHandler() {}
 
-  // implements Canceler -----------------------------------------------------------------
-  void cancel() {
-    if (manager->processExitCallbacks.erase(pid)) {
-      updateKqueue(manager->kqueueFd, pid, EVFILT_PROC, EV_DELETE, 0, 0, NULL);
+  // implements KEventHandler ------------------------------------------------------------
+  void describe(KEvent* event) {
+    initKEvent(event, pid, EVFILT_PROC, NOTE_EXIT, 0);
+  }
+
+  bool handle(const KEvent& event) {
+    if (event.fflags & NOTE_EXIT == 0) {
+      DEBUG_ERROR << "EVFILT_PROC kevent had unexpected fflags: " << event.fflags;
+      return false;
     }
+
+    DEBUG_INFO << "Process " << pid << " exited with status: " << event.data;
+
+    if (WIFEXITED(event.data)) {
+      callback->exited(WEXITSTATUS(event.data));
+    } else if (WIFSIGNALED(event.data)) {
+      callback->signaled(WTERMSIG(event.data));
+    } else {
+      DEBUG_ERROR << "Didn't understand process exit status.";
+      callback->exited(-1);
+    }
+
+    return true;
   }
 
 private:
-  KqueueEventManager* manager;
   pid_t pid;
-};
-
-void KqueueEventManager::waitPid(
-    pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-    OwnedPtr<Canceler>* output) {
-  if (!processExitCallbacks.adoptIfNew(process, callbackToAdopt)) {
-    throw std::invalid_argument("A callback is already registered for this process.");
-  }
-
-  updateKqueue(kqueueFd, process, EVFILT_PROC, EV_ADD | EV_ONESHOT, NOTE_EXIT, 0,
-               &handleProcessExit);
-
-  if (output != NULL) output->allocateSubclass<ProcessExitCanceler>(this, process);
-}
-
-void KqueueEventManager::handleProcessExit(KqueueEventManager* self, const struct kevent& event) {
-  pid_t pid = event.ident;
-
-  if (event.fflags & NOTE_EXIT == 0) {
-    DEBUG_ERROR << "EVFILT_PROC kevent had unexpected fflags: " << event.fflags;
-    return;
-  }
-
-  DEBUG_INFO << "Process " << pid << " exited with status: " << event.data;
-
   OwnedPtr<ProcessExitCallback> callback;
-  if (!self->processExitCallbacks.release(pid, &callback)) {
-    DEBUG_ERROR << "PID not on Action's processExitCallbacks map.";
-    return;
-  }
+};
 
-  if (WIFEXITED(event.data)) {
-    callback->exited(WEXITSTATUS(event.data));
-  } else if (WIFSIGNALED(event.data)) {
-    callback->signaled(WTERMSIG(event.data));
-  } else {
-    DEBUG_ERROR << "Didn't understand process exit status.";
-    callback->exited(-1);
-  }
+void KqueueEventManager::onProcessExit(pid_t process,
+                                       OwnedPtr<ProcessExitCallback>* callbackToAdopt,
+                                       OwnedPtr<Canceler>* output) {
+  OwnedPtr<KEventHandler> handler;
+  handler.allocateSubclass<ProcessExitHandler>(process, callbackToAdopt);
+  addHandler(ONCE, &handler, output);
 }
 
 // =======================================================================================
 
-class KqueueEventManager::ReadCanceler : public Canceler {
+class KqueueEventManager::ReadHandler : public KEventHandler {
 public:
-  ReadCanceler(KqueueEventManager* manager, int fd) : manager(manager), fd(fd) {}
-  ~ReadCanceler() {}
+  ReadHandler(int fd, OwnedPtr<IoCallback>* callbackToAdopt)
+      : fd(fd) {
+    callback.adopt(callbackToAdopt);
+  }
+  ~ReadHandler() {}
 
-  // implements Canceler -----------------------------------------------------------------
-  void cancel() {
-    if (manager->readCallbacks.erase(fd)) {
-      updateKqueue(manager->kqueueFd, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+  // implements KEventHandler ------------------------------------------------------------
+  void describe(KEvent* event) {
+    initKEvent(event, fd, EVFILT_READ, 0, 0);
+  }
+
+  bool handle(const KEvent& event) {
+    DEBUG_INFO << "FD is readable: " << fd;
+    IoCallback::Status status = callback->ready();
+
+    if (event.flags & EV_EOF) {
+      // kqueue will not return this event again, so keep calling the callback until it gets the
+      // message.
+      while (status != IoCallback::DONE) {
+        status = callback->ready();
+      }
     }
+
+    return status == IoCallback::DONE;
   }
 
 private:
-  KqueueEventManager* manager;
   int fd;
+  OwnedPtr<IoCallback> callback;
 };
 
-void KqueueEventManager::read(int fd, void* buffer, int size,
-                              OwnedPtr<IoCallback>* callbackToAdopt,
-                              OwnedPtr<Canceler>* output) {
-  OwnedPtr<ReadContext> context;
-  context.allocate(buffer, size, callbackToAdopt);
-
-  if (continuousReadCallbacks.contains(fd) || !readCallbacks.adoptIfNew(fd, &context)) {
-    throw std::invalid_argument("A read is already in progress on this fd.");
-  }
-
-  updateKqueue(kqueueFd, fd, EVFILT_READ, EV_ADD | EV_ONESHOT, 0, 0, &handleRead);
-
-  if (output != NULL) output->allocateSubclass<ReadCanceler>(this, fd);
-}
-
-void KqueueEventManager::handleRead(KqueueEventManager* self, const struct kevent& event) {
-  int fd = event.ident;
-
-  DEBUG_INFO << "FD is readable: " << fd;
-
-  OwnedPtr<ReadContext> context;
-  if (!self->readCallbacks.release(fd, &context)) {
-    DEBUG_ERROR << "FD not on Action's readCallbacks map.";
-    return;
-  }
-
-  while (true) {
-    int bytesRead = ::read(fd, context->buffer, context->size);
-
-    if (bytesRead >= 0) {
-      context->callback->done(bytesRead);
-      break;
-    } else if (errno != EINTR) {
-      context->callback->error(errno);
-      break;
-    }
-  }
-}
-
-void KqueueEventManager::readAll(int fd, void* buffer, int size,
-                                 OwnedPtr<IoCallback>* callbackToAdopt,
-                                 OwnedPtr<Canceler>* output) {
-  OwnedPtr<ReadContext> context;
-  context.allocate(buffer, size, callbackToAdopt);
-
-  if (continuousReadCallbacks.contains(fd) || !readCallbacks.adoptIfNew(fd, &context)) {
-    throw std::invalid_argument("A read is already in progress on this fd.");
-  }
-
-  updateKqueue(kqueueFd, fd, EVFILT_READ, EV_ADD, 0, 0, &handleReadAll);
-
-  if (output != NULL) output->allocateSubclass<ReadCanceler>(this, fd);
-}
-
-void KqueueEventManager::handleReadAll(KqueueEventManager* self, const struct kevent& event) {
-  int fd = event.ident;
-
-  DEBUG_INFO << "FD is readable: " << fd;
-
-  ReadContext* context = self->readCallbacks.get(fd);
-  if (context == NULL) {
-    DEBUG_ERROR << "FD not on Action's readCallbacks map.";
-    return;
-  }
-
-  try {
-    while (true) {
-      int bytesRead = ::read(fd, context->buffer + context->pos, context->size - context->pos);
-
-      if (bytesRead == 0) {
-        context->callback->done(context->pos);
-        break;
-      } else if (bytesRead > 0) {
-        context->pos += bytesRead;
-        if (context->pos == context->size || (event.flags & EV_EOF)) {
-          context->callback->done(context->pos);
-          break;
-        }
-        return;  // Not done; don't unregister.
-      } else if (errno != EINTR) {
-        context->callback->error(errno);
-        break;
-      }
-    }
-  } catch (...) {
-    updateKqueue(self->kqueueFd, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-    self->readCallbacks.erase(fd);
-    throw;
-  }
-
-  updateKqueue(self->kqueueFd, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-  self->readCallbacks.erase(fd);
+void KqueueEventManager::onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
+                                    OwnedPtr<Canceler>* output) {
+  OwnedPtr<KEventHandler> handler;
+  handler.allocateSubclass<ReadHandler>(fd, callbackToAdopt);
+  addHandler(UNTIL_CANCELED, &handler, output);
 }
 
 // =======================================================================================
 
-class KqueueEventManager::WriteCanceler : public Canceler {
+class KqueueEventManager::WriteHandler : public KEventHandler {
 public:
-  WriteCanceler(KqueueEventManager* manager, int fd) : manager(manager), fd(fd) {}
-  ~WriteCanceler() {}
+  WriteHandler(int fd, OwnedPtr<IoCallback>* callbackToAdopt)
+      : fd(fd) {
+    callback.adopt(callbackToAdopt);
+  }
+  ~WriteHandler() {}
 
-  // implements Canceler -----------------------------------------------------------------
-  void cancel() {
-    if (manager->writeCallbacks.erase(fd)) {
-      updateKqueue(manager->kqueueFd, fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
-    }
+  // implements KEventHandler ------------------------------------------------------------
+  void describe(KEvent* event) {
+    initKEvent(event, fd, EVFILT_WRITE, 0, 0);
+  }
+
+  bool handle(const KEvent& event) {
+    DEBUG_INFO << "FD is writable: " << fd;
+    return callback->ready() == IoCallback::DONE;
   }
 
 private:
-  KqueueEventManager* manager;
   int fd;
+  OwnedPtr<IoCallback> callback;
 };
 
-void KqueueEventManager::write(int fd, const void* buffer, int size,
-                               OwnedPtr<IoCallback>* callbackToAdopt,
-                               OwnedPtr<Canceler>* output) {
-  OwnedPtr<WriteContext> context;
-  context.allocate(buffer, size, callbackToAdopt);
-
-  if (!writeCallbacks.adoptIfNew(fd, &context)) {
-    throw std::invalid_argument("A write is already in progress on this fd.");
-  }
-
-  updateKqueue(kqueueFd, fd, EVFILT_WRITE, EV_ADD | EV_ONESHOT, 0, 0, &handleWrite);
-
-  if (output != NULL) output->allocateSubclass<WriteCanceler>(this, fd);
-}
-
-void KqueueEventManager::handleWrite(KqueueEventManager* self, const struct kevent& event) {
-  int fd = event.ident;
-
-  DEBUG_INFO << "FD is writeable: " << fd;
-
-  OwnedPtr<WriteContext> context;
-  if (!self->writeCallbacks.release(fd, &context)) {
-    DEBUG_ERROR << "FD not on Action's writeCallbacks map.";
-    return;
-  }
-
-  while (true) {
-    int bytesWritten = ::write(fd, context->buffer, context->size);
-
-    if (bytesWritten >= 0) {
-      context->callback->done(bytesWritten);
-      break;
-    } else if (errno != EINTR) {
-      context->callback->error(errno);
-      break;
-    }
-  }
-}
-
-void KqueueEventManager::writeAll(int fd, const void* buffer, int size,
-                                  OwnedPtr<IoCallback>* callbackToAdopt,
-                                  OwnedPtr<Canceler>* output) {
-  OwnedPtr<WriteContext> context;
-  context.allocate(buffer, size, callbackToAdopt);
-
-  if (!writeCallbacks.adoptIfNew(fd, &context)) {
-    throw std::invalid_argument("A write is already in progress on this fd.");
-  }
-
-  updateKqueue(kqueueFd, fd, EVFILT_WRITE, EV_ADD, 0, 0, &handleWriteAll);
-
-  if (output != NULL) output->allocateSubclass<WriteCanceler>(this, fd);
-}
-
-void KqueueEventManager::handleWriteAll(KqueueEventManager* self, const struct kevent& event) {
-  int fd = event.ident;
-
-  DEBUG_INFO << "FD is writable: " << fd;
-
-  WriteContext* context = self->writeCallbacks.get(fd);
-  if (context == NULL) {
-    DEBUG_ERROR << "FD not on Action's writeCallbacks map.";
-    return;
-  }
-
-  try {
-    while (true) {
-      int bytesWritten = ::write(fd, context->buffer + context->pos, context->size - context->pos);
-
-      if (bytesWritten >= 0) {
-        context->pos += bytesWritten;
-        if (context->pos == context->size) {
-          context->callback->done(context->pos);
-          break;
-        }
-        return;  // Not done; don't unregister.
-      } else if (errno != EINTR) {
-        context->callback->error(errno);
-        break;
-      }
-    }
-  } catch (...) {
-    updateKqueue(self->kqueueFd, fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
-    self->writeCallbacks.erase(fd);
-    throw;
-  }
-
-  updateKqueue(self->kqueueFd, fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
-  self->writeCallbacks.erase(fd);
-}
-
-// =======================================================================================
-
-class KqueueEventManager::ReadContinuouslyCanceler : public Canceler {
-public:
-  ReadContinuouslyCanceler(KqueueEventManager* manager, int fd) : manager(manager), fd(fd) {}
-  ~ReadContinuouslyCanceler() {}
-
-  // implements Canceler -----------------------------------------------------------------
-  void cancel() {
-    if (manager->continuousReadCallbacks.erase(fd)) {
-      updateKqueue(manager->kqueueFd, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-    }
-  }
-
-private:
-  KqueueEventManager* manager;
-  int fd;
-};
-
-void KqueueEventManager::readContinuously(
-    int fd, OwnedPtr<ContinuousReadCallback>* callbackToAdopt, OwnedPtr<Canceler>* output) {
-  if (readCallbacks.contains(fd) || !continuousReadCallbacks.adoptIfNew(fd, callbackToAdopt)) {
-    throw std::invalid_argument("A read is already in progress on this fd.");
-  }
-
-  updateKqueue(kqueueFd, fd, EVFILT_READ, EV_ADD, 0, 0, &handleContinuousRead);
-
-  if (output != NULL) output->allocateSubclass<ReadContinuouslyCanceler>(this, fd);
-}
-
-void KqueueEventManager::handleContinuousRead(
-    KqueueEventManager* self, const struct kevent& event) {
-  int fd = event.ident;
-
-  DEBUG_INFO << "FD is readable: " << fd;
-
-  ContinuousReadCallback* callback = self->continuousReadCallbacks.get(fd);
-  if (callback == NULL) {
-    DEBUG_ERROR << "FD not on Action's continuousReadCallbacks map.";
-    return;
-  }
-
-  char buffer[8192];
-
-  try {
-    while (true) {
-      int bytesRead = ::read(fd, buffer, sizeof(buffer));
-      DEBUG_INFO << "Read " << bytesRead << " bytes from " << fd;
-
-      if (bytesRead == 0) {
-        callback->eof();
-        break;
-      } else if (bytesRead > 0) {
-        callback->data(buffer, bytesRead);
-        if (event.flags & EV_EOF) {
-          callback->eof();
-          break;
-        }
-        return;  // Not done; don't unregister.
-      } else if (errno != EINTR) {
-        callback->error(errno);
-        break;
-      }
-    }
-  } catch (...) {
-    updateKqueue(self->kqueueFd, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-    self->continuousReadCallbacks.erase(fd);
-    throw;
-  }
-
-  updateKqueue(self->kqueueFd, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-  self->continuousReadCallbacks.erase(fd);
+void KqueueEventManager::onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
+                                    OwnedPtr<Canceler>* output) {
+  OwnedPtr<KEventHandler> handler;
+  handler.allocateSubclass<WriteHandler>(fd, callbackToAdopt);
+  addHandler(UNTIL_CANCELED, &handler, output);
 }
 
 }  // namespace ekam

@@ -123,36 +123,17 @@ public:
   }
 
   // implements ProcessExitCallback ------------------------------------------------------
-  void done(int bytesTransferred) { HANDLE_EXCEPTIONS(wrapped->done(bytesTransferred)); }
-  void error(int number) { HANDLE_EXCEPTIONS(wrapped->error(number)); }
+  Status ready() {
+    HANDLE_EXCEPTIONS(return wrapped->ready());
+
+    // Control gets here if context.groupCanceled is true or if ready() threw an exception.
+    // Return DONE so that this callback doesn't get called again.
+    return DONE;
+  }
 
 private:
   EventGroup* group;
   OwnedPtr<IoCallback> wrapped;
-  CallbackContext context;
-};
-
-class EventGroup::ContinuousReadCallbackWrapper : public ContinuousReadCallback {
-public:
-  ContinuousReadCallbackWrapper(EventGroup* group,
-                                OwnedPtr<ContinuousReadCallback>* wrappedToAdopt,
-                                CallbackContext** saveContext)
-      : group(group) {
-    wrapped.adopt(wrappedToAdopt);
-    *saveContext = &context;
-  }
-  ~ContinuousReadCallbackWrapper() {
-    group->activeCallbacks.erase(&context);
-  }
-
-  // implements ProcessExitCallback ------------------------------------------------------
-  void data(const void* buffer, int size) { HANDLE_EXCEPTIONS(wrapped->data(buffer, size)); }
-  void eof() { HANDLE_EXCEPTIONS(wrapped->eof()); }
-  void error(int number) { HANDLE_EXCEPTIONS(wrapped->error(number)); }
-
-private:
-  EventGroup* group;
-  OwnedPtr<ContinuousReadCallback> wrapped;
   CallbackContext context;
 };
 
@@ -188,64 +169,32 @@ void EventGroup::runAsynchronously(OwnedPtr<Callback>* callbackToAdopt) {
   activeCallbacks.insert(context);
 }
 
-void EventGroup::waitPid(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-                         OwnedPtr<Canceler>* output) {
+void EventGroup::onProcessExit(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
+                               OwnedPtr<Canceler>* output) {
   OwnedPtr<ProcessExitCallback> wrappedCallback;
   CallbackContext* context;
   wrappedCallback.allocateSubclass<ProcessExitCallbackWrapper>(this, callbackToAdopt, &context);
-  inner->waitPid(process, &wrappedCallback, &context->canceler);
+  inner->onProcessExit(process, &wrappedCallback, &context->canceler);
   activeCallbacks.insert(context);
   CancelerWrapper::wrap(context->canceler.get(), output);
 }
 
-void EventGroup::read(int fd, void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-                      OwnedPtr<Canceler>* output) {
+void EventGroup::onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
+                            OwnedPtr<Canceler>* output) {
   OwnedPtr<IoCallback> wrappedCallback;
   CallbackContext* context;
   wrappedCallback.allocateSubclass<IoCallbackWrapper>(this, callbackToAdopt, &context);
-  inner->read(fd, buffer, size, &wrappedCallback, &context->canceler);
+  inner->onReadable(fd, &wrappedCallback, &context->canceler);
   activeCallbacks.insert(context);
   CancelerWrapper::wrap(context->canceler.get(), output);
 }
 
-void EventGroup::readAll(int fd, void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-                         OwnedPtr<Canceler>* output) {
+void EventGroup::onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
+                            OwnedPtr<Canceler>* output) {
   OwnedPtr<IoCallback> wrappedCallback;
   CallbackContext* context;
   wrappedCallback.allocateSubclass<IoCallbackWrapper>(this, callbackToAdopt, &context);
-  inner->readAll(fd, buffer, size, &wrappedCallback, &context->canceler);
-  activeCallbacks.insert(context);
-  CancelerWrapper::wrap(context->canceler.get(), output);
-}
-
-void EventGroup::write(int fd, const void* buffer, int size,
-                       OwnedPtr<IoCallback>* callbackToAdopt,
-                       OwnedPtr<Canceler>* output) {
-  OwnedPtr<IoCallback> wrappedCallback;
-  CallbackContext* context;
-  wrappedCallback.allocateSubclass<IoCallbackWrapper>(this, callbackToAdopt, &context);
-  inner->write(fd, buffer, size, &wrappedCallback, &context->canceler);
-  activeCallbacks.insert(context);
-  CancelerWrapper::wrap(context->canceler.get(), output);
-}
-
-void EventGroup::writeAll(int fd, const void* buffer, int size,
-                          OwnedPtr<IoCallback>* callbackToAdopt,
-                          OwnedPtr<Canceler>* output) {
-  OwnedPtr<IoCallback> wrappedCallback;
-  CallbackContext* context;
-  wrappedCallback.allocateSubclass<IoCallbackWrapper>(this, callbackToAdopt, &context);
-  inner->writeAll(fd, buffer, size, &wrappedCallback, &context->canceler);
-  activeCallbacks.insert(context);
-  CancelerWrapper::wrap(context->canceler.get(), output);
-}
-
-void EventGroup::readContinuously(int fd, OwnedPtr<ContinuousReadCallback>* callbackToAdopt,
-                                  OwnedPtr<Canceler>* output) {
-  OwnedPtr<ContinuousReadCallback> wrappedCallback;
-  CallbackContext* context;
-  wrappedCallback.allocateSubclass<ContinuousReadCallbackWrapper>(this, callbackToAdopt, &context);
-  inner->readContinuously(fd, &wrappedCallback, &context->canceler);
+  inner->onWritable(fd, &wrappedCallback, &context->canceler);
   activeCallbacks.insert(context);
   CancelerWrapper::wrap(context->canceler.get(), output);
 }

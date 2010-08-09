@@ -56,6 +56,7 @@ public:
     virtual void run() = 0;
   };
 
+  // Queue the callback to run in the event loop.
   virtual void runAsynchronously(OwnedPtr<Callback>* callbackToAdopt) = 0;
 
   class ProcessExitCallback {
@@ -66,57 +67,31 @@ public:
     virtual void signaled(int signalNumber) = 0;
   };
 
-  virtual void waitPid(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-                       OwnedPtr<Canceler>* output = NULL) = 0;
+  // Call the callback when the process exits.
+  virtual void onProcessExit(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
+                             OwnedPtr<Canceler>* output = NULL) = 0;
 
   class IoCallback {
   public:
     virtual ~IoCallback();
 
-    virtual void done(int bytesTransferred) = 0;
-    virtual void error(int number) = 0;
+    enum Status {
+      DONE,
+      REPEAT
+    };
+
+    // File descriptor is ready for I/O.  Return value indicates whether to continue waiting for
+    // more I/O on the same descriptor using the same callback.
+    virtual Status ready() = 0;
   };
 
-  // Wait until data is available on the fd, then read it and call the callback.
-  virtual void read(int fd, void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-                    OwnedPtr<Canceler>* output = NULL) = 0;
+  // Call the callback whenever the file descriptor is readable.
+  virtual void onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
+                          OwnedPtr<Canceler>* output = NULL) = 0;
 
-  // Like read(), but if the initial read does not fill the buffer, read again into the unfilled
-  // portion, and keep doing this until either the buffer is full or EOF.  The only way the
-  // callback's done() method will be passed a value other than |size| is if EOF was reached.
-  virtual void readAll(int fd, void* buffer, int size, OwnedPtr<IoCallback>* callbackToAdopt,
-                       OwnedPtr<Canceler>* output = NULL) = 0;
-
-  // Wait until there is space in the fd's buffer to write some data, then write from the given
-  // buffer, and call the callback.
-  virtual void write(int fd, const void* buffer, int size,
-                     OwnedPtr<IoCallback>* callbackToAdopt,
-                     OwnedPtr<Canceler>* output = NULL) = 0;
-
-  // Like write(), but if the initial write does not consume the entire buffer, write again from
-  // the unconsumed portion, and keep doing this until the whole buffer is written.  The callback's
-  // done() method will always be passed |size| if called (though it of course won't be called in
-  // case of error).
-  virtual void writeAll(int fd, const void* buffer, int size,
-                        OwnedPtr<IoCallback>* callbackToAdopt,
-                        OwnedPtr<Canceler>* output = NULL) = 0;
-
-  class ContinuousReadCallback {
-  public:
-    virtual ~ContinuousReadCallback();
-
-    // Will be called repeatedly whenever data is available.
-    virtual void data(const void* buffer, int size) = 0;
-
-    // After eof() or error() is called, no more calls will be made.
-    virtual void eof() = 0;
-    virtual void error(int number) = 0;
-  };
-
-  // Repeatedly read from the fd and call the callback's data() method with each chunk of data
-  // read.
-  virtual void readContinuously(int fd, OwnedPtr<ContinuousReadCallback>* callbackToAdopt,
-                                OwnedPtr<Canceler>* output = NULL) = 0;
+  // Call the callback whenever the file descriptor is writable.
+  virtual void onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
+                          OwnedPtr<Canceler>* output = NULL) = 0;
 };
 
 }  // namespace ekam
