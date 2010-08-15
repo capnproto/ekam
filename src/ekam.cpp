@@ -34,8 +34,10 @@
 #include <sys/wait.h>
 #include <errno.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "Driver.h"
+#include "Debug.h"
 #include "DiskFile.h"
 #include "Action.h"
 #include "SimpleDashboard.h"
@@ -45,7 +47,50 @@
 
 namespace ekam {
 
-int main(int argc, char* argv) {
+void usage(const char* command, FILE* out) {
+  fprintf(out,
+    "usage: %s [-hv] [-j jobcount]\n", command);
+}
+
+int main(int argc, char* argv[]) {
+  const char* command = argv[0];
+  int maxConcurrentActions = 1;
+
+  while (true) {
+    int opt = getopt(argc, argv, "hvj:");
+    if (opt == -1) break;
+
+    switch (opt) {
+      case 'v':
+        DebugMessage::setLogLevel(DebugMessage::INFO);
+        break;
+      case 'j': {
+        char* endptr;
+        maxConcurrentActions = strtoul(optarg, &endptr, 10);
+        if (*endptr != '\0') {
+          fprintf(stderr, "Expected number after -j.\n");
+          return 1;
+        }
+        break;
+      }
+      case 'h':
+        usage(command, stdout);
+        return 0;
+      default:
+        usage(command, stderr);
+        return 1;
+    }
+  }
+
+  argc -= optind;
+  argv += optind;
+
+  if (argc > 0) {
+    fprintf(stderr, "%s: unknown argument -- %s\n", command, argv[0]);
+    return 1;
+  }
+
+
   DiskFile src("src", NULL);
   DiskFile tmp("tmp", NULL);
   SimpleDashboard dashboard(stdout);
@@ -54,7 +99,7 @@ int main(int argc, char* argv) {
 //  KqueueEventManager eventManager;
   PollEventManager eventManager;
 
-  Driver driver(&eventManager, &dashboard, &src, &tmp, 4);
+  Driver driver(&eventManager, &dashboard, &src, &tmp, maxConcurrentActions);
 
   CppActionFactory cppActionFactory;
   driver.addActionFactory("mock", &cppActionFactory);
@@ -91,6 +136,6 @@ int main(int argc, char* argv) {
 
 }  // namespace ekam
 
-int main(int argc, char* argv) {
+int main(int argc, char* argv[]) {
   ekam::main(argc, argv);
 }

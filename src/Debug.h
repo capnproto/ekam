@@ -67,6 +67,10 @@ public:
     return severity >= logLevel;
   }
 
+  inline static void setLogLevel(Severity severity) {
+    logLevel = severity;
+  }
+
 private:
   static Severity logLevel;
 };
