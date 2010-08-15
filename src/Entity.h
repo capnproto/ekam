@@ -33,6 +33,7 @@
 
 #include <inttypes.h>
 #include <string.h>
+#include <string>
 #include <vector>
 
 namespace ekam {

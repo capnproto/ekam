@@ -30,6 +30,7 @@
 
 #include <string>
 #include <stdio.h>
+#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <errno.h>
@@ -41,7 +42,7 @@
 #include "DiskFile.h"
 #include "Action.h"
 #include "SimpleDashboard.h"
-#include "KqueueEventManager.h"
+//#include "KqueueEventManager.h"
 #include "PollEventManager.h"
 #include "CppActionFactory.h"
 

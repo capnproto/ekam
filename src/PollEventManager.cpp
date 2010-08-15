@@ -32,6 +32,7 @@
 
 #include <stdio.h>
 #include <errno.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/time.h>
@@ -245,8 +246,6 @@ void PollEventManager::handleSignal(const siginfo_t& siginfo) {
       int waitStatus;
       if (waitpid(siginfo.si_pid, &waitStatus, 0) != siginfo.si_pid) {
         DEBUG_ERROR << "waitpid: " << strerror(errno);
-      } else if (waitStatus != siginfo.si_status) {
-        DEBUG_ERROR << "SIGCHLD and waitpid() gave different exit status.";
       }
 
       // Get the handler associated with this PID.
@@ -264,7 +263,7 @@ void PollEventManager::handleSignal(const siginfo_t& siginfo) {
 
       // Call handler.
       ProcessExitEvent event;
-      event.waitStatus = siginfo.si_status;
+      event.waitStatus = waitStatus;
       if (!handler->handle(event)) {
         // Handler is all done; remove it.
         processExitHandlers.erase(handler);
@@ -356,8 +355,10 @@ public:
       DEBUG_INFO << "FD is readable: " << fd;
     } else if (event.pollFlags & POLLERR) {
       DEBUG_INFO << "FD has error: " << fd;
+    } else if (event.pollFlags & POLLHUP) {
+      DEBUG_INFO << "FD hung up: " << fd;
     } else {
-      DEBUG_ERROR << "ReadHandler should only get POLLIN or POLLERR events.";
+      DEBUG_ERROR << "ReadHandler should only get POLLIN, POLLERR, or POLLHUP events.";
       return false;
     }
 

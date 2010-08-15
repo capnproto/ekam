@@ -32,6 +32,7 @@
 #define EKAM_EVENTMANAGER_H_
 
 #include <stddef.h>
+#include <sys/types.h>
 #include "OwnedPtr.h"
 
 namespace ekam {
