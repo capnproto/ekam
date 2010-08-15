@@ -28,19 +28,19 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_SIMPLEDASHBOARD_H_
-#define EKAM_SIMPLEDASHBOARD_H_
+#ifndef EKAM_CONSOLEDASHBOARD_H_
+#define EKAM_CONSOLEDASHBOARD_H_
 
+#include <vector>
 #include <stdio.h>
-
 #include "Dashboard.h"
 
 namespace ekam {
 
-class SimpleDashboard : public Dashboard {
+class ConsoleDashboard : public Dashboard {
 public:
-  SimpleDashboard(FILE* outputStream);
-  ~SimpleDashboard();
+  ConsoleDashboard(FILE* output);
+  ~ConsoleDashboard();
 
   // implements Dashboard ----------------------------------------------------------------
   void beginTask(const std::string& verb, const std::string& noun, OwnedPtr<Task>* output);
@@ -48,9 +48,45 @@ public:
 private:
   class TaskImpl;
 
-  FILE* outputStream;
+  int fd;
+  FILE* out;
+
+  std::vector<TaskImpl*> runningTasks;
+  int runningTasksLineCount;
+
+  enum Color {
+    BLACK,
+    RED,
+    GREEN,
+    YELLOW,
+    BLUE,
+    FUCHSIA,
+    CYAN,
+    WHITE,
+    GRAY,
+    BRIGHT_RED,
+    BRIGHT_GREEN,
+    BRIGHT_YELLOW,
+    BRIGHT_BLUE,
+    BRIGHT_FUCHSIA,
+    BRIGHT_CYAN,
+    BRIGHT_WHITE,
+  };
+
+  static const char* const ANSI_COLOR_CODES[];
+  static const char* const ANSI_CLEAR_COLOR;
+  static const char* const ANSI_MOVE_CURSOR_UP;
+  static const char* const ANSI_CLEAR_BELOW_CURSOR;
+
+  static const Color SUCCESS_COLOR;
+  static const Color PASSED_COLOR;
+  static const Color FAILED_COLOR;
+  static const Color RUNNING_COLOR;
+
+  void clearRunning();
+  void drawRunning();
 };
 
 }  // namespace ekam
 
-#endif  // EKAM_SIMPLEDASHBOARD_H_
+#endif  // EKAM_CONSOLEDASHBOARD_H_

@@ -42,6 +42,7 @@
 #include "DiskFile.h"
 #include "Action.h"
 #include "SimpleDashboard.h"
+#include "ConsoleDashboard.h"
 //#include "KqueueEventManager.h"
 #include "PollEventManager.h"
 #include "CppActionFactory.h"
@@ -94,16 +95,22 @@ int main(int argc, char* argv[]) {
 
   DiskFile src("src", NULL);
   DiskFile tmp("tmp", NULL);
-  SimpleDashboard dashboard(stdout);
+
+  OwnedPtr<Dashboard> dashboard;
+  if (isatty(STDOUT_FILENO)) {
+    dashboard.allocateSubclass<ConsoleDashboard>(stdout);
+  } else {
+    dashboard.allocateSubclass<SimpleDashboard>(stdout);
+  }
 
   // TODO:  Select KqueueEventManager when available.
 //  KqueueEventManager eventManager;
   PollEventManager eventManager;
 
-  Driver driver(&eventManager, &dashboard, &src, &tmp, maxConcurrentActions);
+  Driver driver(&eventManager, dashboard.get(), &src, &tmp, maxConcurrentActions);
 
   CppActionFactory cppActionFactory;
-  driver.addActionFactory("mock", &cppActionFactory);
+  driver.addActionFactory("cpp", &cppActionFactory);
 
   driver.start();
   eventManager.loop();
