@@ -114,6 +114,18 @@ void KqueueEventManager::updateKqueue(const KEvent& event) {
 
   int n = kevent(kqueueFd, &event, 1, NULL, 0, NULL);
   if (n < 0) {
+    if (event.filter == EVFILT_PROC && errno == ESRCH) {
+      // HACK HACK HACK
+      // Child process may have already exited and is now a zombie.  Unfortunately, kevent()
+      // rejects this instead of doing the obvious thing and producing an exit event immediately.
+      // So we must fake it.
+      // NOTE:  I have not observed this actually happen, but have read stuff on the internet
+      //   suggesting this is a problem, possibly only on some kernels (OSX?).
+      DEBUG_INFO << "Child exited before we could wait?  PID: " << event.ident;
+      KEvent fakeEvent = event;
+      fakeEvent.data = -1;  // We'll have to get the status from wait() later.
+      fakeEvents.push(fakeEvent);
+    }
     throw std::runtime_error("kevent: " + std::string(strerror(errno)));
   } else if (n > 0) {
     DEBUG_ERROR << "kevent() returned events when not asked to.";
@@ -151,7 +163,7 @@ bool KqueueEventManager::handleEvent() {
     return true;
   }
 
-  if (handlers.empty()) {
+  if (handlers.empty() && fakeEvents.empty()) {
     DEBUG_INFO << "No more events.";
     return false;
   }
@@ -159,7 +171,14 @@ bool KqueueEventManager::handleEvent() {
   DEBUG_INFO << "Waiting for events...";
 
   struct kevent event;
-  int n = kevent(kqueueFd, NULL, 0, &event, 1, NULL);
+  int n;
+  if (fakeEvents.empty()) {
+    n = kevent(kqueueFd, NULL, 0, &event, 1, NULL);
+  } else {
+    n = 1;
+    event = fakeEvents.front();
+    fakeEvents.pop();
+  }
 
   DEBUG_INFO << "Received event.";
 
@@ -241,12 +260,23 @@ public:
       return false;
     }
 
-    DEBUG_INFO << "Process " << pid << " exited with status: " << event.data;
+    // Clean up zombie child.
+    // Note that we could set signal(SIGCHLD, SIG_IGN) to tell the system not to create zombies
+    // in the first place.  This does not prevent kqueue() from receiving EV_PROC notifications.
+    // However, this could cause a problem if a child process exited before we registered it with
+    // the kqueue.  See hack in updateKqueue() which deals with exactly this.  Note also that
+    // we CANNOT use the exit status from event.data because of said hack.
+    int waitStatus;
+    if (waitpid(pid, &waitStatus, 0) != pid) {
+      DEBUG_ERROR << "waitpid: " << strerror(errno);
+    }
 
-    if (WIFEXITED(event.data)) {
-      callback->exited(WEXITSTATUS(event.data));
-    } else if (WIFSIGNALED(event.data)) {
-      callback->signaled(WTERMSIG(event.data));
+    DEBUG_INFO << "Process " << pid << " exited with status: " << waitStatus;
+
+    if (WIFEXITED(waitStatus)) {
+      callback->exited(WEXITSTATUS(waitStatus));
+    } else if (WIFSIGNALED(waitStatus)) {
+      callback->signaled(WTERMSIG(waitStatus));
     } else {
       DEBUG_ERROR << "Didn't understand process exit status.";
       callback->exited(-1);

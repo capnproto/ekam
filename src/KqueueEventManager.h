@@ -33,6 +33,7 @@
 
 #include <sys/types.h>
 #include <tr1/unordered_set>
+#include <queue>
 
 #include "EventManager.h"
 #include "EventHandler.h"
@@ -75,6 +76,7 @@ private:
   int kqueueFd;
 
   OwnedPtrQueue<Callback> asyncCallbacks;
+  std::queue<KEvent> fakeEvents;
 
   std::tr1::unordered_set<std::pair<intptr_t, short>, IntptrShortPairHash> activeEvents;
 
