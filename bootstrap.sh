@@ -35,8 +35,19 @@ echo "invocation, then rebuilds Ekam using Ekam itself."
 
 SOURCES=`ls src/*.cpp | grep -v KqueueEventManager`
 
-set -ex
+set -e
 
+echo c++ $SOURCES -o bootstrap-ekam
 c++ $SOURCES -o bootstrap-ekam
+
+echo ./bootstrap-ekam
 ./bootstrap-ekam
-rm bootstrap-ekam
+
+echo "*************************************************"
+if test -e tmp/ekam; then
+  echo "SUCCESS: output is at: tmp/ekam"
+	rm bootstrap-ekam
+else
+  echo "FAILED"
+  exit 1
+fi
