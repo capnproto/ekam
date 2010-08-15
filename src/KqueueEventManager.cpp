@@ -44,96 +44,22 @@
 
 namespace ekam {
 
-class KqueueEventManager::KEventHandler {
+class KqueueEventManager::KEventHandler : public EventHandler<KEvent> {
 public:
   virtual ~KEventHandler() {}
 
   virtual void describe(KEvent* event) = 0;
-  virtual bool handle(const KEvent& event) = 0;
 };
 
-class KqueueEventManager::KEventRegistration {
-  class CancelerImpl : public EventManager::Canceler {
-  public:
-    CancelerImpl(KEventRegistration* eventRegistration)
-        : eventRegistration(eventRegistration) {}
-    ~CancelerImpl() {
-      if (eventRegistration != NULL) {
-        eventRegistration->discardCanceler();
-      }
-    }
-
-    // implements Canceler ---------------------------------------------------------------
-    void cancel() {
-      if (eventRegistration != NULL) {
-        eventRegistration->cancel();
-      }
-    }
-
-  private:
-    KEventRegistration* eventRegistration;
-
-    friend class KqueueEventManager::KEventRegistration;
-  };
-
-  class CancelationDeferrer {
-  public:
-    CancelationDeferrer(KEventRegistration* registration)
-        : registration(registration), isCanceled(false) {
-      registration->cancelationDeferrer = this;
-    }
-    ~CancelationDeferrer() {
-      registration->cancelationDeferrer = NULL;
-      if (isCanceled) {
-        if (!registration->eventManager->handlers.erase(registration)) {
-          DEBUG_ERROR << "Registration not in handlers map?";
-        }
-      }
-    }
-
-    void cancelWhenLeavingScope() {
-      isCanceled = true;
-    }
-
-  private:
-    KEventRegistration* registration;
-    bool isCanceled;
-  };
-
+class KqueueEventManager::KEventRegistration : public EventHandler<KEvent> {
 public:
   KEventRegistration(KqueueEventManager* eventManager, RepeatCount repeatCount,
-                     OwnedPtr<KEventHandler>* handlerToAdopt, OwnedPtr<Canceler>* output)
-      : eventManager(eventManager), repeatCount(repeatCount),
-        seenAtLeastOnce(false), canceler(NULL), cancelationDeferrer(NULL) {
+                     OwnedPtr<KEventHandler>* handlerToAdopt)
+      : eventManager(eventManager), repeatCount(repeatCount), seenAtLeastOnce(false) {
     handler.adopt(handlerToAdopt);
-    if (output != NULL) {
-      OwnedPtr<CancelerImpl> canceler;
-      canceler.allocate(this);
-      this->canceler = canceler.get();
-      output->adopt(&canceler);
-    }
-
-    KEvent event;
-    handler->describe(&event);
-
-    if (!eventManager->activeEvents.insert(std::make_pair(event.ident, event.filter)).second) {
-      throw std::invalid_argument("Already waiting on that event.");
-    }
-
-    event.flags = EV_ADD;
-    if (repeatCount == ONCE) {
-      event.flags |= EV_ONESHOT;
-    }
-    event.udata = this;
-
-    eventManager->updateKqueue(event);
   }
 
   ~KEventRegistration() {
-    if (canceler != NULL) {
-      canceler->eventRegistration = NULL;
-    }
-
     if (repeatCount == UNTIL_CANCELED || !seenAtLeastOnce) {
       // Unregister the event.
       KEvent event;
@@ -147,13 +73,11 @@ public:
     }
   }
 
-  void handle(const KEvent& event) {
+  // implements EventHandler -------------------------------------------------------------
+  bool handle(const KEvent& event) {
     seenAtLeastOnce = true;
 
-    CancelationDeferrer deferrer(this);
-
     if (repeatCount == ONCE) {
-      deferrer.cancelWhenLeavingScope();
       if (eventManager->activeEvents.erase(std::make_pair(event.ident, event.filter)) == 0) {
         DEBUG_ERROR << "Event not in activeEvents?";
       }
@@ -161,10 +85,9 @@ public:
       if (!handler->handle(event)) {
         DEBUG_ERROR << "KEventHandler registered with EventType ONCE did not complete in one run.";
       }
+      return true;
     } else {
-      if (handler->handle(event)) {
-        deferrer.cancelWhenLeavingScope();
-      }
+      return handler->handle(event);
     }
   }
 
@@ -172,22 +95,17 @@ private:
   KqueueEventManager* eventManager;
   RepeatCount repeatCount;
   bool seenAtLeastOnce;
-  CancelerImpl* canceler;
-  CancelationDeferrer* cancelationDeferrer;
   OwnedPtr<KEventHandler> handler;
-
-  void cancel() {
-    if (cancelationDeferrer == NULL) {
-      eventManager->handlers.erase(this);
-    } else {
-      cancelationDeferrer->cancelWhenLeavingScope();
-    }
-  }
-
-  void discardCanceler() {
-    canceler = NULL;
-  }
 };
+
+KqueueEventManager::KEventHandlerRegistrar::KEventHandlerRegistrar(
+    KqueueEventManager* eventManager) : eventManager(eventManager) {}
+KqueueEventManager::KEventHandlerRegistrar::~KEventHandlerRegistrar() {}
+void KqueueEventManager::KEventHandlerRegistrar::unregister(EventHandler<KEvent>* handler) {
+  if (!eventManager->handlers.erase(handler)) {
+    DEBUG_ERROR << "Tried to unregister handler that was not registered.";
+  }
+}
 
 void KqueueEventManager::initKEvent(KEvent* event, uintptr_t ident, short filter,
                                     u_int fflags, intptr_t data) {
@@ -205,7 +123,7 @@ void KqueueEventManager::updateKqueue(const KEvent& event) {
 
   int n = kevent(kqueueFd, &event, 1, NULL, 0, NULL);
   if (n < 0) {
-    DEBUG_ERROR << "kevent: " << strerror(errno);
+    throw std::runtime_error("kevent: " + std::string(strerror(errno)));
   } else if (n > 0) {
     DEBUG_ERROR << "kevent() returned events when not asked to.";
   }
@@ -214,7 +132,7 @@ void KqueueEventManager::updateKqueue(const KEvent& event) {
 // =======================================================================================
 
 KqueueEventManager::KqueueEventManager()
-    : kqueueFd(kqueue()) {
+    : kqueueFd(kqueue()), handlerRegistrar(this) {
   if (kqueueFd < 0) {
     std::string error(strerror(errno));
     throw std::runtime_error("kqueue: " + error);
@@ -263,7 +181,11 @@ bool KqueueEventManager::handleEvent() {
       DEBUG_ERROR << "kevent() returned more events than requested.";
     }
 
-    reinterpret_cast<KEventRegistration*>(event.udata)->handle(event);
+    EventHandler<KEvent>* handler = reinterpret_cast<EventHandler<KEvent>*>(event.udata);
+    if (handler->handle(event)) {
+      // Handler is all done; remove it.
+      handlers.erase(handler);
+    }
   }
 
   return true;
@@ -272,9 +194,33 @@ bool KqueueEventManager::handleEvent() {
 void KqueueEventManager::addHandler(RepeatCount repeatCount,
                                     OwnedPtr<KEventHandler>* handlerToAdopt,
                                     OwnedPtr<Canceler>* output) {
-  OwnedPtr<KEventRegistration> eventRegistration;
-  eventRegistration.allocate(this, repeatCount, handlerToAdopt, output);
-  handlers.adopt(eventRegistration.get(), &eventRegistration);
+  KEvent event;
+  (*handlerToAdopt)->describe(&event);
+
+  if (!activeEvents.insert(std::make_pair(event.ident, event.filter)).second) {
+    throw std::invalid_argument("Already waiting on that event.");
+  }
+
+  // Create the handler.
+  OwnedPtr<EventHandler<KEvent> > handler;
+  handler.allocateSubclass<KEventRegistration>(this, repeatCount, handlerToAdopt);
+
+  // If we need a cancel callback, wrap in CancelableEventHandler.
+  if (output != NULL) {
+    handler.allocateSubclass<CancelableEventHandler<KEvent> >(&handler, &handlerRegistrar, output);
+  }
+
+  // Update the kqueue.
+  event.flags = EV_ADD;
+  if (repeatCount == ONCE) {
+    event.flags |= EV_ONESHOT;
+  }
+  event.udata = handler.get();
+
+  updateKqueue(event);
+
+  // Add to handlers.
+  handlers.adopt(handler.get(), &handler);
 }
 
 // =======================================================================================
@@ -353,6 +299,7 @@ public:
     if (event.flags & EV_EOF) {
       // kqueue will not return this event again, so keep calling the callback until it gets the
       // message.
+      DEBUG_INFO << "FD has EV_EOF: " << fd;
       while (status != IoCallback::DONE) {
         status = callback->ready();
       }

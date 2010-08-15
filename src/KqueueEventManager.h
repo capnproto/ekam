@@ -35,6 +35,7 @@
 #include <tr1/unordered_set>
 
 #include "EventManager.h"
+#include "EventHandler.h"
 #include "OwnedPtr.h"
 
 typedef struct kevent KEvent;
@@ -76,7 +77,21 @@ private:
   OwnedPtrQueue<Callback> asyncCallbacks;
 
   std::tr1::unordered_set<std::pair<intptr_t, short>, IntptrShortPairHash> activeEvents;
-  OwnedPtrMap<KEventRegistration*, KEventRegistration> handlers;
+  OwnedPtrMap<EventHandler<KEvent>*, EventHandler<KEvent> > handlers;
+
+  class KEventHandlerRegistrar : public EventHandlerRegistrar<KEvent> {
+  public:
+    KEventHandlerRegistrar(KqueueEventManager* eventManager);
+    ~KEventHandlerRegistrar();
+
+    // implement EventHandlerRegistrar ---------------------------------------------------
+    void unregister(EventHandler<KEvent>* handler);
+
+  private:
+    KqueueEventManager* eventManager;
+  };
+  KEventHandlerRegistrar handlerRegistrar;
+
 
   bool handleEvent();
 

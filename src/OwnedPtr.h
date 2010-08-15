@@ -265,6 +265,10 @@ public:
     return map.empty();
   }
 
+  int size() const {
+    return map.size();
+  }
+
   bool contains(const Key& key) const {
     return map.count(key) > 0;
   }
