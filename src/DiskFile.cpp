@@ -148,10 +148,12 @@ private:
   DIR* dir;
 };
 
-void statOrThrow(const std::string& path, struct stat* output) {
+bool statOrThrow(const std::string& path, struct stat* output) {
   while (true) {
     if (stat(path.c_str(), output) == 0) {
-      return;
+      return true;
+    } else if (errno == ENOENT) {
+      return false;
     } else if (errno != EINTR) {
       // TODO:  Better exception type.
       throw std::runtime_error(path + ": stat: " + strerror(errno));
@@ -223,20 +225,17 @@ void DiskFile::getOnDisk(OwnedPtr<DiskRef>* output) {
 
 bool DiskFile::exists() {
   struct stat stats;
-  statOrThrow(path.c_str(), &stats);
-  return S_ISREG(stats.st_mode) || S_ISDIR(stats.st_mode);
+  return statOrThrow(path.c_str(), &stats) && (S_ISREG(stats.st_mode) || S_ISDIR(stats.st_mode));
 }
 
 bool DiskFile::isFile() {
   struct stat stats;
-  statOrThrow(path.c_str(), &stats);
-  return S_ISREG(stats.st_mode);
+  return statOrThrow(path.c_str(), &stats) && S_ISREG(stats.st_mode);
 }
 
 bool DiskFile::isDirectory() {
   struct stat stats;
-  statOrThrow(path.c_str(), &stats);
-  return S_ISDIR(stats.st_mode);
+  return statOrThrow(path.c_str(), &stats) && S_ISDIR(stats.st_mode);
 }
 
 // File only.

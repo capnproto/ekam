@@ -48,7 +48,7 @@ public:
   bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output);
 
 private:
-  static const EntityId MAIN_SYMBOL;
+  static const EntityId MAIN_SYMBOLS[];
 };
 
 }  // namespace ekam

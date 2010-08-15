@@ -344,7 +344,11 @@ void Driver::ActionDriver::returned() {
 Driver::Driver(EventManager* eventManager, Dashboard* dashboard, File* src, File* tmp,
                int maxConcurrentActions)
     : eventManager(eventManager), dashboard(dashboard), src(src), tmp(tmp),
-      maxConcurrentActions(maxConcurrentActions) {}
+      maxConcurrentActions(maxConcurrentActions) {
+  if (!tmp->exists()) {
+    tmp->createDirectory();
+  }
+}
 
 Driver::~Driver() {
   // Error out all blocked tasks.

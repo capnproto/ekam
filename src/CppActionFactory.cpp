@@ -281,17 +281,43 @@ private:
   }
 
   void parseLine(const std::string& line) {
+    // Awkward:  The output of nm has lines that might look like:
+    //   0000000000000160 T fooBar
+    // or they might look like:
+    //                    U fooBar
+    // We don't care about the address, but we want the one-letter type code and the following
+    // symbol name.
+
+    // TODO:  Make this parsing code less ugly?
+
+    // Seach for the first space.  This will be the first character if there is no address,
+    // otherwise it will be the character after the address.
     std::string::size_type pos = line.find_first_of(' ');
-    if (pos != std::string::npos && pos + 1 < line.size()) {
-      std::string symbolName(line, 0, pos);
-      char type = line[pos + 1];
-      if (strchr("ABCDGRSTV", type) != NULL) {
-        entities.push_back(EntityId::fromName("c++symbol:" + symbolName));
-        DEBUG_INFO << objectFile->basename() << ": " << symbolName;
-      } else if (type == 'U') {
-        deps.append(symbolName);
-        deps.push_back('\n');
-      }
+    if (pos == std::string::npos) return;
+
+    // Search for the first non-space after the first space.  This ought to be the position of
+    // the type code.
+    pos = line.find_first_not_of(' ', pos);
+    if (pos == std::string::npos) return;
+
+    // Record the type code.
+    char type = line[pos];
+
+    // Look for the first non-space after the type code.  Should be the beginning of the symbol
+    // name.
+    pos = line.find_first_not_of(' ', pos + 1);
+    if (pos == std::string::npos) return;
+
+    // The rest of the line is the symbol name.
+    std::string symbolName(line, pos);
+
+    // OK, interpret it.
+    if (strchr("ABCDGRSTV", type) != NULL) {
+      entities.push_back(EntityId::fromName("c++symbol:" + symbolName));
+      DEBUG_INFO << objectFile->basename() << ": " << symbolName;
+    } else if (type == 'U') {
+      deps.append(symbolName);
+      deps.push_back('\n');
     }
   }
 
@@ -633,7 +659,10 @@ void LinkAction::start(EventManager* eventManager, BuildContext* context) {
 
 // =======================================================================================
 
-const EntityId CppActionFactory::MAIN_SYMBOL = EntityId::fromName("c++symbol:main");
+const EntityId CppActionFactory::MAIN_SYMBOLS[] = {
+  EntityId::fromName("c++symbol:main"),
+  EntityId::fromName("c++symbol:_main")
+};
 
 CppActionFactory::CppActionFactory() {}
 CppActionFactory::~CppActionFactory() {}
@@ -652,16 +681,19 @@ bool CppActionFactory::tryMakeAction(File* file, OwnedPtr<Action>* output) {
 
 void CppActionFactory::enumerateTriggerEntities(
     std::back_insert_iterator<std::vector<EntityId> > iter) {
-  *iter++ = MAIN_SYMBOL;
+  for (unsigned int i = 0; i < (sizeof(MAIN_SYMBOLS) / sizeof(MAIN_SYMBOLS[0])); i++) {
+    *iter++ = MAIN_SYMBOLS[i];
+  }
 }
 
 bool CppActionFactory::tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output) {
-  if (id == MAIN_SYMBOL) {
-    output->allocateSubclass<LinkAction>(file);
-    return true;
-  } else {
-    return false;
+  for (unsigned int i = 0; i < (sizeof(MAIN_SYMBOLS) / sizeof(MAIN_SYMBOLS[0])); i++) {
+    if (id == MAIN_SYMBOLS[i]) {
+      output->allocateSubclass<LinkAction>(file);
+      return true;
+    }
   }
+  return false;
 }
 
 }  // namespace ekam
