@@ -28,24 +28,25 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_KQUEUEEVENTMANAGER_H_
-#define EKAM_KQUEUEEVENTMANAGER_H_
+#ifndef EKAM_POLLEVENTMANAGER_H_
+#define EKAM_POLLEVENTMANAGER_H_
 
 #include <sys/types.h>
-#include <tr1/unordered_set>
+#include <stdint.h>
+#include <signal.h>
 
 #include "EventManager.h"
 #include "EventHandler.h"
 #include "OwnedPtr.h"
 
-typedef struct kevent KEvent;
+typedef struct pollfd PollFd;
 
 namespace ekam {
 
-class KqueueEventManager: public EventManager {
+class PollEventManager: public EventManager {
 public:
-  KqueueEventManager();
-  ~KqueueEventManager();
+  PollEventManager();
+  ~PollEventManager();
 
   void loop();
 
@@ -59,42 +60,31 @@ public:
                   OwnedPtr<Canceler>* output = NULL);
 
 private:
-  class KEventHandler;
-  class KEventRegistration;
-
   class ProcessExitHandler;
   class ReadHandler;
   class WriteHandler;
 
-  struct IntptrShortPairHash {
-    inline bool operator()(const std::pair<intptr_t, short>& p) const {
-      return p.first * 65537 + p.second;
-    }
+  struct ProcessExitEvent {
+    int waitStatus;
+  };
+  struct IoEvent {
+    short pollFlags;
   };
 
-  int kqueueFd;
+  OwnedPtrMap<EventHandler<ProcessExitEvent>*, EventHandler<ProcessExitEvent> > processExitHandlers;
+  OwnedPtrMap<EventHandler<IoEvent>*, EventHandler<IoEvent> > ioHandlers;
+  EventHandlerRegistrarImpl<ProcessExitEvent> processExitHandlerRegistrar;
+  EventHandlerRegistrarImpl<IoEvent> ioHandlerRegistrar;
 
   OwnedPtrQueue<Callback> asyncCallbacks;
-
-  std::tr1::unordered_set<std::pair<intptr_t, short>, IntptrShortPairHash> activeEvents;
-
-  OwnedPtrMap<EventHandler<KEvent>*, EventHandler<KEvent> > handlers;
-  EventHandlerRegistrarImpl<KEvent> handlerRegistrar;
+  std::tr1::unordered_map<pid_t, EventHandler<ProcessExitEvent>*> processExitHandlerMap;
+  std::tr1::unordered_map<int, EventHandler<IoEvent>*> readHandlerMap;
+  std::tr1::unordered_map<int, EventHandler<IoEvent>*> writeHandlerMap;
 
   bool handleEvent();
-
-  enum RepeatCount {
-    ONCE,               // Only call callback the first time the event condition is true.
-    UNTIL_CANCELED      // Keep calling whenever the event condition is true until canceled.
-  };
-
-  void addHandler(RepeatCount repeatCount, OwnedPtr<KEventHandler>* handlerToAdopt,
-                  OwnedPtr<Canceler>* output);
-
-  static void initKEvent(KEvent* event, uintptr_t ident, short filter, u_int fflags, intptr_t data);
-  void updateKqueue(const KEvent& event);
+  void handleSignal(const siginfo_t& siginfo);
 };
 
 }  // namespace ekam
 
-#endif  // EKAM_KQUEUEEVENTMANAGER_H_
+#endif  // EKAM_POLLEVENTMANAGER_H_

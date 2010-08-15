@@ -30,12 +30,17 @@
 
 #include <string>
 #include <stdio.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <errno.h>
+#include <string.h>
 
 #include "Driver.h"
 #include "DiskFile.h"
 #include "Action.h"
 #include "SimpleDashboard.h"
 #include "KqueueEventManager.h"
+#include "PollEventManager.h"
 #include "CppActionFactory.h"
 
 namespace ekam {
@@ -44,7 +49,10 @@ int main(int argc, char* argv) {
   DiskFile src("src", NULL);
   DiskFile tmp("tmp", NULL);
   SimpleDashboard dashboard(stdout);
-  KqueueEventManager eventManager;
+
+  // TODO:  Select KqueueEventManager when available.
+//  KqueueEventManager eventManager;
+  PollEventManager eventManager;
 
   Driver driver(&eventManager, &dashboard, &src, &tmp, 4);
 
@@ -54,7 +62,31 @@ int main(int argc, char* argv) {
   driver.start();
   eventManager.loop();
 
-  return 0;
+  // For debugging purposes, check for zombie processes.
+  int zombieCount = 0;
+  while (true) {
+    int status;
+    pid_t pid = wait(&status);
+    if (pid < 0) {
+      if (errno == ECHILD) {
+        // No more children.
+        break;
+      } else {
+        DEBUG_ERROR << "wait: " << strerror(errno);
+      }
+    } else {
+      ++zombieCount;
+    }
+  }
+
+  if (zombieCount > 0) {
+    DEBUG_ERROR << "There were " << zombieCount
+        << " zombie processes after the event loop stopped.";
+    return 1;
+  } else {
+    DEBUG_INFO << "No zombie processes detected.  Hooray.";
+    return 0;
+  }
 }
 
 }  // namespace ekam

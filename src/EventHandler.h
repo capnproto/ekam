@@ -33,6 +33,7 @@
 
 #include "OwnedPtr.h"
 #include "EventManager.h"
+#include "Debug.h"
 
 namespace ekam {
 
@@ -49,7 +50,25 @@ class EventHandlerRegistrar {
 public:
   virtual ~EventHandlerRegistrar() {}
 
-  virtual void unregister(EventHandler<Event>* handler) {}
+  virtual void unregister(EventHandler<Event>* handler) = 0;
+};
+
+template <typename Event>
+class EventHandlerRegistrarImpl : public EventHandlerRegistrar<Event> {
+public:
+  typedef OwnedPtrMap<EventHandler<Event>*, EventHandler<Event> > HandlerMap;
+  EventHandlerRegistrarImpl(HandlerMap* handlerMap) : handlerMap(handlerMap) {}
+  ~EventHandlerRegistrarImpl() {}
+
+  // implements EventHandlerRegistrar ----------------------------------------------------
+  void unregister(EventHandler<Event>* handler) {
+    if (!handlerMap->erase(handler)) {
+      DEBUG_ERROR << "Tried to unregister handler that was not registered.";
+    }
+  }
+
+private:
+  HandlerMap* handlerMap;
 };
 
 template <typename Event>

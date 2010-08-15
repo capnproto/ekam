@@ -98,15 +98,6 @@ private:
   OwnedPtr<KEventHandler> handler;
 };
 
-KqueueEventManager::KEventHandlerRegistrar::KEventHandlerRegistrar(
-    KqueueEventManager* eventManager) : eventManager(eventManager) {}
-KqueueEventManager::KEventHandlerRegistrar::~KEventHandlerRegistrar() {}
-void KqueueEventManager::KEventHandlerRegistrar::unregister(EventHandler<KEvent>* handler) {
-  if (!eventManager->handlers.erase(handler)) {
-    DEBUG_ERROR << "Tried to unregister handler that was not registered.";
-  }
-}
-
 void KqueueEventManager::initKEvent(KEvent* event, uintptr_t ident, short filter,
                                     u_int fflags, intptr_t data) {
   EV_SET(event, ident, filter, 0, fflags, data, NULL);
@@ -132,7 +123,7 @@ void KqueueEventManager::updateKqueue(const KEvent& event) {
 // =======================================================================================
 
 KqueueEventManager::KqueueEventManager()
-    : kqueueFd(kqueue()), handlerRegistrar(this) {
+    : kqueueFd(kqueue()), handlerRegistrar(&handlers) {
   if (kqueueFd < 0) {
     std::string error(strerror(errno));
     throw std::runtime_error("kqueue: " + error);

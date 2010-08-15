@@ -33,8 +33,10 @@
 echo "This script builds a basic Ekam binary using a single massive compiler"
 echo "invocation, then rebuilds Ekam using Ekam itself."
 
+SOURCES=`ls src/*.cpp | grep -v KqueueEventManager`
+
 set -ex
 
-c++ src/*.cpp -o bootstrap-ekam
+c++ $SOURCES -o bootstrap-ekam
 ./bootstrap-ekam
 rm bootstrap-ekam
