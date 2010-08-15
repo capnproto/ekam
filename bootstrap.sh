@@ -40,8 +40,8 @@ set -e
 echo c++ $SOURCES -o bootstrap-ekam
 c++ $SOURCES -o bootstrap-ekam
 
-echo ./bootstrap-ekam
-./bootstrap-ekam
+echo ./bootstrap-ekam -j4
+./bootstrap-ekam -j4
 
 echo "*************************************************"
 if test -e tmp/ekam; then
