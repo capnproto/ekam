@@ -46,7 +46,7 @@ FileDescriptor::ReadAllCallback::~ReadAllCallback() {}
 FileDescriptor::FileDescriptor(const std::string& path, int flags)
     : path(path) {
   do {
-    fd = ::open(path.c_str(), flags, 0777);
+    fd = ::open(path.c_str(), flags, 0666);
   } while (fd < 0 && errno == EINTR);
 
   if (fd < 0) {

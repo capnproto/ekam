@@ -159,7 +159,7 @@ private:
   std::string pathName;
 };
 
-void DiskFile::getOnDisk(OwnedPtr<DiskRef>* output) {
+void DiskFile::getOnDisk(Usage usage, OwnedPtr<DiskRef>* output) {
   output->allocateSubclass<DiskRefImpl>(path);
 }
 

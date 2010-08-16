@@ -110,8 +110,9 @@ private:
   OwnedPtr& operator=(OwnedPtr&);
 
   void reset(T* newValue) {
-    delete ptr;
+    T* oldValue = ptr;
     ptr = newValue;
+    delete oldValue;
   }
 
   T* release() {

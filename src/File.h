@@ -56,7 +56,13 @@ public:
     virtual const std::string& path() = 0;
   };
 
-  virtual void getOnDisk(OwnedPtr<DiskRef>* output) = 0;
+  enum Usage {
+    READ,
+    WRITE,
+    UPDATE
+  };
+
+  virtual void getOnDisk(Usage usage, OwnedPtr<DiskRef>* output) = 0;
 
   virtual bool exists() = 0;
   virtual bool isFile() = 0;

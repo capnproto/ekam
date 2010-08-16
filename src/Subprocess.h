@@ -28,49 +28,70 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_DISKFILE_H_
-#define EKAM_DISKFILE_H_
+#ifndef EKAM_SUBPROCESS_H_
+#define EKAM_SUBPROCESS_H_
 
+#include <string>
+#include <vector>
+
+#include "OwnedPtr.h"
+#include "EventManager.h"
+#include "FileDescriptor.h"
 #include "File.h"
 
 namespace ekam {
 
-class DiskFile: public File {
+class Subprocess {
 public:
-  DiskFile(const std::string& path, File* parent);
-  ~DiskFile();
+  Subprocess();
+  ~Subprocess();
 
-  // implements File ---------------------------------------------------------------------
-  std::string basename();
-  std::string displayName();
-  void clone(OwnedPtr<File>* output);
-  void parent(OwnedPtr<File>* output);
+  void addArgument(const std::string& arg);
+  void addArgument(File* file, File::Usage usage);
 
-  bool equals(File* other);
+  void captureStdout(OwnedPtr<FileDescriptor>* output);
+  void captureStderr(OwnedPtr<FileDescriptor>* output);
+  void captureStdoutAndStderr(OwnedPtr<FileDescriptor>* output);
 
-  void getOnDisk(Usage usage, OwnedPtr<DiskRef>* output);
+  void start(EventManager* eventManager,
+             OwnedPtr<EventManager::ProcessExitCallback>* callbackToAdopt);
 
-  bool exists();
-  bool isFile();
-  bool isDirectory();
-
-  // File only.
-  std::string readAll();
-  void writeAll(const std::string& content);
-  void writeAll(const void* data, int size);
-
-  // Directory only.
-  void list(OwnedPtrVector<File>::Appender output);
-  void relative(const std::string& path, OwnedPtr<File>* output);
-  void createDirectory();
+  // Caller must call this when a capture pipe reaches EOF.  The process exit callback will not
+  // be called until this has been called once for each pipe.
+  // TODO:  If the pipes were an abstract type then maybe we could listen for EOFs automatically.
+  void pipeDone();
 
 private:
-  class DiskRefImpl;
+  class CallbackWrapper;
 
-  std::string path;
-  OwnedPtr<File> parentRef;
+  std::string executableName;
+  bool doPathLookup;
+
+  std::vector<std::string> args;
+  OwnedPtrVector<File::DiskRef> diskRefs;
+
+  OwnedPtr<Pipe> stdoutPipe;
+  OwnedPtr<Pipe> stderrPipe;
+  OwnedPtr<Pipe> stdoutAndStderrPipe;
+  int pipeCount;
+
+  pid_t pid;
+  OwnedPtr<EventManager::Canceler> canceler;
+
+  enum State {
+    NOT_STARTED,
+    RUNNING,
+    EXITED,
+    SIGNALED
+  };
+  State state;
+  int exitStatusOrSignalNumber;
+  OwnedPtr<EventManager::ProcessExitCallback> finalCallback;
+
+  void done(State state, int exitStatusOrSignalNumber);
+  void maybeCallFinalCallback();
 };
 
 }  // namespace ekam
 
-#endif  // EKAM_DISKFILE_H_
+#endif  // EKAM_SUBPROCESS_H_

@@ -202,6 +202,11 @@ void Driver::ActionDriver::newOutput(const std::string& basename, OwnedPtr<File>
 }
 
 void Driver::ActionDriver::success() {
+  if (state == FAILED) {
+    // Ignore success() after failed().
+    return;
+  }
+
   ensureRunning();
 
   if (!missingDependencies.empty()) {

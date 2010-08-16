@@ -42,6 +42,7 @@
 
 #include "Debug.h"
 #include "FileDescriptor.h"
+#include "Subprocess.h"
 
 namespace ekam {
 
@@ -68,38 +69,12 @@ void getDepsFile(File* objectFile, OwnedPtr<File>* output) {
   dir->relative(objectFile->basename() + ".deps", output);
 }
 
-class DoneBarrier {
-public:
-  DoneBarrier(BuildContext* context, int count)
-      : context(context), count(count), successCount(0), releaseCount(0) {}
-  ~DoneBarrier() {}
-
-  void success() {
-    DEBUG_INFO << "successCount = " << successCount;
-    if (++successCount == count) {
-      context->success();
-    }
-  }
-
-  void release() {
-    if (++releaseCount == count) {
-      delete this;
-    }
-  }
-
-private:
-  BuildContext* context;
-  int count;
-  int successCount;
-  int releaseCount;
-};
-
 class Logger : public FileDescriptor::ReadAllCallback {
 public:
-  Logger(BuildContext* context, DoneBarrier* doneBarrier)
-      : context(context), doneBarrier(doneBarrier) {}
+  Logger(BuildContext* context, Subprocess* subprocess)
+      : context(context), subprocess(subprocess) {}
   ~Logger() {
-    doneBarrier->release();
+    subprocess->pipeDone();
   }
 
   // implements ReadAllCallback ----------------------------------------------------------
@@ -107,9 +82,7 @@ public:
     context->log(std::string(reinterpret_cast<const char*>(buffer), size));
   }
 
-  void eof() {
-    doneBarrier->success();
-  }
+  void eof() {}
 
   void error(int number) {
     context->log("read(log pipe): " + std::string(strerror(errno)));
@@ -118,7 +91,7 @@ public:
 
 private:
   BuildContext* context;
-  DoneBarrier* doneBarrier;
+  Subprocess* subprocess;
 };
 
 }  // anonymous cppActionFactoryAnonNamespace
@@ -158,12 +131,12 @@ std::string CppAction::getVerb() {
 
 class CppAction::SymbolCollector : public FileDescriptor::ReadAllCallback {
 public:
-  SymbolCollector(BuildContext* context, File* objectFile, DoneBarrier* doneBarrier)
-      : context(context), doneBarrier(doneBarrier) {
+  SymbolCollector(BuildContext* context, File* objectFile, Subprocess* subprocess)
+      : context(context), subprocess(subprocess) {
     objectFile->clone(&this->objectFile);
   }
   ~SymbolCollector() {
-    doneBarrier->release();
+    subprocess->pipeDone();
   }
 
   // implements ReadAllCallback ----------------------------------------------------------
@@ -193,8 +166,6 @@ public:
     getDepsFile(objectFile.get(), &depsFile);
 
     depsFile->writeAll(deps);
-
-    doneBarrier->success();
   }
 
   void error(int number) {
@@ -205,7 +176,7 @@ public:
 private:
   BuildContext* context;
   OwnedPtr<File> objectFile;
-  DoneBarrier* doneBarrier;
+  Subprocess* subprocess;
   std::string leftover;
   std::vector<EntityId> entities;
   std::string deps;
@@ -257,81 +228,39 @@ private:
 class CppAction::CompileProcess : public EventManager::ProcessExitCallback {
 public:
   CompileProcess(CppAction* action, EventManager* eventManager, BuildContext* context)
-      : action(action), eventManager(eventManager), context(context),
-        doneBarrier(new DoneBarrier(context, 3)) {}
-  ~CompileProcess() {
-    doneBarrier->release();
-  }
+      : action(action), eventManager(eventManager), context(context) {}
+  ~CompileProcess() {}
 
   void start(OwnedPtr<CompileProcess>* selfPtr) {
     std::string base, ext;
     splitExtension(action->file->basename(), &base, &ext);
-
     context->newOutput(base + ".o", &objectFile);
-    action->file->getOnDisk(&sourceRef);
-    objectFile->getOnDisk(&objectRef);
 
-    std::string sourcePath = sourceRef->path();
-    std::string objectPath = objectRef->path();
+    subprocess.addArgument("./c++wrap.sh");
+    subprocess.addArgument(action->file.get(), File::READ);
+    subprocess.addArgument(objectFile.get(), File::WRITE);
 
-    Pipe symbolPipe;
-    Pipe logPipe;
+    subprocess.captureStdout(&symbolStream);
+    subprocess.captureStderr(&logStream);
 
-    pid_t pid = fork();
+    OwnedPtr<EventManager::ProcessExitCallback> callback;
+    callback.adopt(selfPtr);
+    subprocess.start(eventManager, &callback);
 
-    if (pid < 0) {
-      context->log(std::string("fork: ") + strerror(errno));
-      context->failed();
-    } else if (pid == 0) {
-      // In child.
-      symbolPipe.attachWriteEndForExec(STDOUT_FILENO);
-      logPipe.attachWriteEndForExec(STDERR_FILENO);
+    OwnedPtr<FileDescriptor::ReadAllCallback> symbolCallback;
+    symbolCallback.allocateSubclass<SymbolCollector>(context, objectFile.get(), &subprocess);
+    symbolStream->readAll(eventManager, &symbolCallback);
 
-      const char* argv[] = {
-        "./c++wrap.sh", sourcePath.c_str(), objectPath.c_str(), NULL
-      };
-      char* mutableArgv[ARRAY_SIZE(argv)];
-
-      std::string command;
-      for (unsigned int i = 0; i < ARRAY_SIZE(argv); i++) {
-        if (argv[i] == NULL) {
-          mutableArgv[i] = NULL;
-        } else {
-          mutableArgv[i] = strdup(argv[i]);
-          if (!command.empty()) command.push_back(' ');
-          command.append(argv[i]);
-        }
-      }
-
-      DEBUG_INFO << "exec: " << command;
-
-      execvp(argv[0], mutableArgv);
-
-      perror("execvp");
-      exit(1);
-    } else {
-      symbolPipe.releaseReadEnd(&symbolStream);
-      logPipe.releaseReadEnd(&logStream);
-
-      OwnedPtr<FileDescriptor::ReadAllCallback> symbolCallback;
-      symbolCallback.allocateSubclass<SymbolCollector>(context, objectFile.get(), doneBarrier);
-      symbolStream->readAll(eventManager, &symbolCallback);
-
-      OwnedPtr<FileDescriptor::ReadAllCallback> loggerCallback;
-      loggerCallback.allocateSubclass<Logger>(context, doneBarrier);
-      logStream->readAll(eventManager, &loggerCallback);
-
-      OwnedPtr<EventManager::ProcessExitCallback> callback;
-      callback.adopt(selfPtr);
-      eventManager->onProcessExit(pid, &callback);
-    }
+    OwnedPtr<FileDescriptor::ReadAllCallback> loggerCallback;
+    loggerCallback.allocateSubclass<Logger>(context, &subprocess);
+    logStream->readAll(eventManager, &loggerCallback);
   }
 
   // implements ProcessExitCallback ----------------------------------------------------
   void exited(int exitCode) {
     if (exitCode == 0) {
       DEBUG_INFO << "proc done";
-      doneBarrier->success();
+      context->success();
     } else {
       context->failed();
     }
@@ -344,10 +273,9 @@ private:
   CppAction* action;
   EventManager* eventManager;
   BuildContext* context;
-  DoneBarrier* doneBarrier;
   OwnedPtr<File> objectFile;
-  OwnedPtr<File::DiskRef> sourceRef;
-  OwnedPtr<File::DiskRef> objectRef;
+
+  Subprocess subprocess;
   OwnedPtr<FileDescriptor> symbolStream;
   OwnedPtr<FileDescriptor> logStream;
 };
@@ -462,82 +390,41 @@ class LinkAction::LinkProcess : public EventManager::ProcessExitCallback {
 public:
   LinkProcess(LinkAction* action, EventManager* eventManager, BuildContext* context,
               OwnedPtrVector<File>* depsToAdopt)
-      : action(action), eventManager(eventManager), context(context),
-        doneBarrier(new DoneBarrier(context, 2)) {
+      : action(action), eventManager(eventManager), context(context) {
     deps.swap(depsToAdopt);
   }
-  ~LinkProcess() {
-    doneBarrier->release();
-  }
+  ~LinkProcess() {}
 
   void start(OwnedPtr<LinkProcess>* selfPtr) {
     // TODO:  Reuse code with CppAction.
     std::string base, ext;
     splitExtension(action->file->basename(), &base, &ext);
 
-    context->newOutput(base, &executableFile);
-    executableFile->getOnDisk(&executableRef);
-    std::string executablePath = executableRef->path();
+    subprocess.addArgument("c++");
+    subprocess.addArgument("-o");
 
-    std::vector<std::string> depsPaths;
+    context->newOutput(base, &executableFile);
+    subprocess.addArgument(executableFile.get(), File::WRITE);
 
     for (int i = 0; i < deps.size(); i++) {
-      OwnedPtr<File::DiskRef> ref;
-      deps.get(i)->getOnDisk(&ref);
-      depsPaths.push_back(ref->path());
-      depsRefs.adoptBack(&ref);
+      subprocess.addArgument(deps.get(i), File::READ);
     }
 
-    Pipe logPipe;
+    subprocess.captureStdout(&logStream);
 
-    pid_t pid = fork();
+    OwnedPtr<EventManager::ProcessExitCallback> callback;
+    callback.adopt(selfPtr);
+    subprocess.start(eventManager, &callback);
 
-    if (pid < 0) {
-      context->log(std::string("fork: ") + strerror(errno));
-      context->failed();
-    } else if (pid == 0) {
-      // In child.
-      logPipe.attachWriteEndForExec(STDERR_FILENO);
-      dup2(STDERR_FILENO, STDOUT_FILENO);
-
-      std::vector<char*> argv;
-      argv.push_back(strdup("c++"));
-      argv.push_back(strdup("-o"));
-      argv.push_back(strdup(executablePath.c_str()));
-
-      std::string command = "c++ -o " + executablePath;
-
-      for (unsigned int i = 0; i < depsPaths.size(); i++) {
-        argv.push_back(strdup(depsPaths[i].c_str()));
-        command.push_back(' ');
-        command.append(depsPaths[i]);
-      }
-
-      argv.push_back(NULL);
-
-      DEBUG_INFO << "exec: " << command;
-
-      execvp(argv[0], &argv[0]);
-
-      perror("execvp");
-      exit(1);
-    } else {
-      logPipe.releaseReadEnd(&logStream);
-
-      OwnedPtr<FileDescriptor::ReadAllCallback> loggerCallback;
-      loggerCallback.allocateSubclass<Logger>(context, doneBarrier);
-      logStream->readAll(eventManager, &loggerCallback);
-
-      OwnedPtr<EventManager::ProcessExitCallback> callback;
-      callback.adopt(selfPtr);
-      eventManager->onProcessExit(pid, &callback);
-    }
+    OwnedPtr<FileDescriptor::ReadAllCallback> loggerCallback;
+    loggerCallback.allocateSubclass<Logger>(context, &subprocess);
+    logStream->readAll(eventManager, &loggerCallback);
   }
 
   // implements ProcessExitCallback ----------------------------------------------------
   void exited(int exitCode) {
     if (exitCode == 0) {
-      doneBarrier->success();
+      context->success();
     } else {
       context->failed();
     }
@@ -550,14 +437,11 @@ private:
   LinkAction* action;
   EventManager* eventManager;
   BuildContext* context;
-  DoneBarrier* doneBarrier;
 
   OwnedPtrVector<File> deps;
   OwnedPtr<File> executableFile;
 
-  OwnedPtrVector<File::DiskRef> depsRefs;
-  OwnedPtr<File::DiskRef> executableRef;
-
+  Subprocess subprocess;
   OwnedPtr<FileDescriptor> logStream;
 };
 
