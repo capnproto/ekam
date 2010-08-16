@@ -37,10 +37,22 @@ SOURCES=`ls src/*.cpp | grep -v KqueueEventManager`
 
 set -e
 
-echo c++ $SOURCES -o bootstrap-ekam
+echo "*************************************************"
+echo "Building using one massive compile..."
+echo "*************************************************"
+
+echo \$ c++ $SOURCES -o bootstrap-ekam
 c++ $SOURCES -o bootstrap-ekam
 
-echo ./bootstrap-ekam -j4
+echo "*************************************************"
+echo "Building again using Ekam..."
+echo "*************************************************"
+
+if test -e tmp/ekam; then
+  rm -f tmp/ekam
+fi
+
+echo \$ ./bootstrap-ekam -j4
 ./bootstrap-ekam -j4
 
 echo "*************************************************"
