@@ -29,6 +29,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "CppActionFactory.h"
+
 #include <sys/types.h>
 #include <unistd.h>
 #include <string.h>
@@ -38,7 +39,9 @@
 #include <fcntl.h>
 #include <stdexcept>
 #include <tr1/unordered_set>
+
 #include "Debug.h"
+#include "FileDescriptor.h"
 
 namespace ekam {
 
@@ -64,67 +67,6 @@ void getDepsFile(File* objectFile, OwnedPtr<File>* output) {
   objectFile->parent(&dir);
   dir->relative(objectFile->basename() + ".deps", output);
 }
-
-class Pipe {
-public:
-  Pipe() {
-    if (pipe(fds) != 0) {
-      // TODO:  Better exception.
-      throw std::runtime_error(std::string("pipe: ") + strerror(errno));
-    }
-  }
-
-  ~Pipe() {
-    // TODO:  Check close() errors?
-    closeReadEnd();
-    closeWriteEnd();
-  }
-
-  int readEnd() {
-    closeWriteEnd();
-    fcntl(fds[0], F_SETFD, FD_CLOEXEC);
-    return fds[0];
-  }
-
-  int writeEnd() {
-    closeReadEnd();
-    fcntl(fds[1], F_SETFD, FD_CLOEXEC);
-    return fds[1];
-  }
-
-  void attachReadEnd(int target) {
-    dup2(readEnd(), target);
-    close(fds[1]);
-    fds[1] = -1;
-  }
-
-  void attachWriteEnd(int target) {
-    dup2(writeEnd(), target);
-    close(fds[0]);
-    fds[0] = -1;
-  }
-
-private:
-  int fds[2];
-
-  void closeReadEnd() {
-    if (fds[0] != -1) {
-      if (close(fds[0]) != 0) {
-        DEBUG_ERROR << "close(pipe): " << strerror(errno);
-      }
-      fds[0] = -1;
-    }
-  }
-
-  void closeWriteEnd() {
-    if (fds[1] != -1) {
-      if (close(fds[1]) != 0) {
-        DEBUG_ERROR << "close(pipe): " << strerror(errno);
-      }
-      fds[1] = -1;
-    }
-  }
-};
 
 class DoneBarrier {
 public:
@@ -152,39 +94,30 @@ private:
   int releaseCount;
 };
 
-class Logger : public EventManager::IoCallback {
+class Logger : public FileDescriptor::ReadAllCallback {
 public:
-  Logger(BuildContext* context, int fd, DoneBarrier* doneBarrier)
-      : context(context), fd(fd), doneBarrier(doneBarrier) {}
+  Logger(BuildContext* context, DoneBarrier* doneBarrier)
+      : context(context), doneBarrier(doneBarrier) {}
   ~Logger() {
     doneBarrier->release();
   }
 
-  // implements IoCallback ---------------------------------------------------------------
-  Status ready() {
-    char buffer[4096];
+  // implements ReadAllCallback ----------------------------------------------------------
+  void consume(const void* buffer, size_t size) {
+    context->log(std::string(reinterpret_cast<const char*>(buffer), size));
+  }
 
-    ssize_t n;
-    do {
-      n = read(fd, buffer, sizeof(buffer));
-    } while (n < 0 && errno == EINTR);
+  void eof() {
+    doneBarrier->success();
+  }
 
-    if (n < 0) {
-      context->log("read(log pipe): " + std::string(strerror(errno)));
-      context->failed();
-      return DONE;
-    } else if (n == 0) {
-      doneBarrier->success();
-      return DONE;
-    } else {
-      context->log(std::string(reinterpret_cast<const char*>(buffer), n));
-      return REPEAT;
-    }
+  void error(int number) {
+    context->log("read(log pipe): " + std::string(strerror(errno)));
+    context->failed();
   }
 
 private:
   BuildContext* context;
-  int fd;
   DoneBarrier* doneBarrier;
 };
 
@@ -223,48 +156,19 @@ std::string CppAction::getVerb() {
 
 // ---------------------------------------------------------------------------------------
 
-class CppAction::SymbolCollector : public EventManager::IoCallback {
+class CppAction::SymbolCollector : public FileDescriptor::ReadAllCallback {
 public:
-  SymbolCollector(BuildContext* context, int fd, File* objectFile, DoneBarrier* doneBarrier)
-      : context(context), fd(fd), doneBarrier(doneBarrier) {
+  SymbolCollector(BuildContext* context, File* objectFile, DoneBarrier* doneBarrier)
+      : context(context), doneBarrier(doneBarrier) {
     objectFile->clone(&this->objectFile);
   }
   ~SymbolCollector() {
     doneBarrier->release();
   }
 
-  // implements IoCallback ---------------------------------------------------------------
-  Status ready() {
-    char buffer[4096];
-
-    ssize_t n;
-    do {
-      n = read(fd, buffer, sizeof(buffer));
-    } while (n < 0 && errno == EINTR);
-
-    if (n < 0) {
-      context->log("read(symbol pipe): " + std::string(strerror(errno)));
-      context->failed();
-      return DONE;
-    } else if (n == 0) {
-      finish();
-      return DONE;
-    } else {
-      consume(buffer, n);
-      return REPEAT;
-    }
-  }
-
-private:
-  BuildContext* context;
-  int fd;
-  OwnedPtr<File> objectFile;
-  DoneBarrier* doneBarrier;
-  std::string leftover;
-  std::vector<EntityId> entities;
-  std::string deps;
-
-  void consume(const char* data, int size) {
+  // implements ReadAllCallback ----------------------------------------------------------
+  void consume(const void* buffer, size_t size) {
+    const char* data = reinterpret_cast<const char*>(buffer);
     std::string line = leftover;
 
     while (true) {
@@ -280,6 +184,31 @@ private:
       data = eol + 1;
     }
   }
+
+  void eof() {
+    DEBUG_INFO << "symbols done";
+    context->provide(objectFile.get(), entities);
+
+    OwnedPtr<File> depsFile;
+    getDepsFile(objectFile.get(), &depsFile);
+
+    depsFile->writeAll(deps);
+
+    doneBarrier->success();
+  }
+
+  void error(int number) {
+    context->log("read(symbol pipe): " + std::string(strerror(errno)));
+    context->failed();
+  }
+
+private:
+  BuildContext* context;
+  OwnedPtr<File> objectFile;
+  DoneBarrier* doneBarrier;
+  std::string leftover;
+  std::vector<EntityId> entities;
+  std::string deps;
 
   void parseLine(const std::string& line) {
     // Awkward:  The output of nm has lines that might look like:
@@ -321,18 +250,6 @@ private:
       deps.push_back('\n');
     }
   }
-
-  void finish() {
-    DEBUG_INFO << "symbols done";
-    context->provide(objectFile.get(), entities);
-
-    OwnedPtr<File> depsFile;
-    getDepsFile(objectFile.get(), &depsFile);
-
-    depsFile->writeAll(deps);
-
-    doneBarrier->success();
-  }
 };
 
 // ---------------------------------------------------------------------------------------
@@ -357,8 +274,8 @@ public:
     std::string sourcePath = sourceRef->path();
     std::string objectPath = objectRef->path();
 
-    symbolPipe.allocate();
-    logPipe.allocate();
+    Pipe symbolPipe;
+    Pipe logPipe;
 
     pid_t pid = fork();
 
@@ -367,8 +284,8 @@ public:
       context->failed();
     } else if (pid == 0) {
       // In child.
-      symbolPipe->attachWriteEnd(STDOUT_FILENO);
-      logPipe->attachWriteEnd(STDERR_FILENO);
+      symbolPipe.attachWriteEndForExec(STDOUT_FILENO);
+      logPipe.attachWriteEndForExec(STDERR_FILENO);
 
       const char* argv[] = {
         "./c++wrap.sh", sourcePath.c_str(), objectPath.c_str(), NULL
@@ -393,14 +310,16 @@ public:
       perror("execvp");
       exit(1);
     } else {
-      OwnedPtr<EventManager::IoCallback> symbolCallback;
-      symbolCallback.allocateSubclass<SymbolCollector>(context, symbolPipe->readEnd(),
-                                                       objectFile.get(), doneBarrier);
-      eventManager->onReadable(symbolPipe->readEnd(), &symbolCallback);
+      symbolPipe.releaseReadEnd(&symbolStream);
+      logPipe.releaseReadEnd(&logStream);
 
-      OwnedPtr<EventManager::IoCallback> loggerCallback;
-      loggerCallback.allocateSubclass<Logger>(context, logPipe->readEnd(), doneBarrier);
-      eventManager->onReadable(logPipe->readEnd(), &loggerCallback);
+      OwnedPtr<FileDescriptor::ReadAllCallback> symbolCallback;
+      symbolCallback.allocateSubclass<SymbolCollector>(context, objectFile.get(), doneBarrier);
+      symbolStream->readAll(eventManager, &symbolCallback);
+
+      OwnedPtr<FileDescriptor::ReadAllCallback> loggerCallback;
+      loggerCallback.allocateSubclass<Logger>(context, doneBarrier);
+      logStream->readAll(eventManager, &loggerCallback);
 
       OwnedPtr<EventManager::ProcessExitCallback> callback;
       callback.adopt(selfPtr);
@@ -429,8 +348,8 @@ private:
   OwnedPtr<File> objectFile;
   OwnedPtr<File::DiskRef> sourceRef;
   OwnedPtr<File::DiskRef> objectRef;
-  OwnedPtr<Pipe> symbolPipe;
-  OwnedPtr<Pipe> logPipe;
+  OwnedPtr<FileDescriptor> symbolStream;
+  OwnedPtr<FileDescriptor> logStream;
 };
 
 void CppAction::start(EventManager* eventManager, BuildContext* context) {
@@ -569,7 +488,7 @@ public:
       depsRefs.adoptBack(&ref);
     }
 
-    logPipe.allocate();
+    Pipe logPipe;
 
     pid_t pid = fork();
 
@@ -578,7 +497,7 @@ public:
       context->failed();
     } else if (pid == 0) {
       // In child.
-      logPipe->attachWriteEnd(STDERR_FILENO);
+      logPipe.attachWriteEndForExec(STDERR_FILENO);
       dup2(STDERR_FILENO, STDOUT_FILENO);
 
       std::vector<char*> argv;
@@ -603,9 +522,11 @@ public:
       perror("execvp");
       exit(1);
     } else {
-      OwnedPtr<EventManager::IoCallback> loggerCallback;
-      loggerCallback.allocateSubclass<Logger>(context, logPipe->readEnd(), doneBarrier);
-      eventManager->onReadable(logPipe->readEnd(), &loggerCallback);
+      logPipe.releaseReadEnd(&logStream);
+
+      OwnedPtr<FileDescriptor::ReadAllCallback> loggerCallback;
+      loggerCallback.allocateSubclass<Logger>(context, doneBarrier);
+      logStream->readAll(eventManager, &loggerCallback);
 
       OwnedPtr<EventManager::ProcessExitCallback> callback;
       callback.adopt(selfPtr);
@@ -637,7 +558,7 @@ private:
   OwnedPtrVector<File::DiskRef> depsRefs;
   OwnedPtr<File::DiskRef> executableRef;
 
-  OwnedPtr<Pipe> logPipe;
+  OwnedPtr<FileDescriptor> logStream;
 };
 
 void LinkAction::start(EventManager* eventManager, BuildContext* context) {

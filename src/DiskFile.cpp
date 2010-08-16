@@ -41,75 +41,13 @@
 #include <sys/stat.h>
 
 #include "Debug.h"
+#include "FileDescriptor.h"
 
 namespace ekam {
 
-// TODO:  Handle EINTR.  :(
 // TODO:  Use new openat() and friends?  Very capability-like!
-// TODO:  Better exception type (currently using std::runtime_error everywhere).
 
 namespace {
-
-class FileDescriptor {
-public:
-  FileDescriptor(const std::string& path, int flags)
-      : path(path) {
-    while (true) {
-      fd = ::open(path.c_str(), flags, 0777);
-      if (fd >= 0) {
-        return;
-      } else if (errno != EINTR) {
-        // TODO:  Better exception type.
-        throw std::runtime_error(path + ": open: " + strerror(errno));
-      }
-    }
-  }
-
-  ~FileDescriptor() {
-    if (close(fd) < 0) {
-      DEBUG_ERROR << "close: " << strerror(errno);
-    }
-  }
-
-  ssize_t read(void* buffer, size_t size) {
-    while (true) {
-      ssize_t result = ::read(fd, buffer, size);
-      if (result >= 0) {
-        return result;
-      } else if (errno != EINTR) {
-        // TODO:  Better exception type.
-        throw std::runtime_error(path + ": read: " + strerror(errno));
-      }
-    }
-  }
-
-  ssize_t write(const void* buffer, size_t size) {
-    while (true) {
-      ssize_t result = ::write(fd, buffer, size);
-      if (result >= 0) {
-        return result;
-      } else if (errno != EINTR) {
-        // TODO:  Better exception type.
-        throw std::runtime_error(path + ": write: " + strerror(errno));
-      }
-    }
-  }
-
-  void stat(struct stat* stats) {
-    while (true) {
-      if (fstat(fd, stats) >= 0) {
-        return;
-      } else if (errno != EINTR) {
-        // TODO:  Better exception type.
-        throw std::runtime_error(path + ": fstat: " + strerror(errno));
-      }
-    }
-  }
-
-private:
-  const std::string& path;
-  int fd;
-};
 
 class DirectoryReader {
 public:
@@ -118,7 +56,7 @@ public:
         dir(opendir(path.c_str())) {
     if (dir == NULL) {
       // TODO:  Better exception type.
-      throw std::runtime_error(path + ": Not a directory.");
+      throw OsError(path, "opendir", ENOTDIR);
     }
   }
 
@@ -132,8 +70,7 @@ public:
     struct dirent entry, *entryPointer;
     int error = readdir_r(dir, &entry, &entryPointer);
     if (error != 0) {
-      // TODO:  Better exception type.
-      throw std::runtime_error(path + ": readdir: " + strerror(error));
+      throw OsError(path, "readdir", error);
     }
 
     if (entryPointer == NULL) {
@@ -149,16 +86,18 @@ private:
   DIR* dir;
 };
 
-bool statOrThrow(const std::string& path, struct stat* output) {
-  while (true) {
-    if (stat(path.c_str(), output) == 0) {
-      return true;
-    } else if (errno == ENOENT) {
-      return false;
-    } else if (errno != EINTR) {
-      // TODO:  Better exception type.
-      throw std::runtime_error(path + ": stat: " + strerror(errno));
-    }
+bool statIfExists(const std::string& path, struct stat* output) {
+  int result;
+  do {
+    result = stat(path.c_str(), output);
+  } while (result < 0 && errno == EINTR);
+
+  if (result == 0) {
+    return true;
+  } else if (errno == ENOENT) {
+    return false;
+  } else {
+    throw OsError(path, "stat", errno);
   }
 }
 
@@ -226,17 +165,17 @@ void DiskFile::getOnDisk(OwnedPtr<DiskRef>* output) {
 
 bool DiskFile::exists() {
   struct stat stats;
-  return statOrThrow(path.c_str(), &stats) && (S_ISREG(stats.st_mode) || S_ISDIR(stats.st_mode));
+  return statIfExists(path.c_str(), &stats) && (S_ISREG(stats.st_mode) || S_ISDIR(stats.st_mode));
 }
 
 bool DiskFile::isFile() {
   struct stat stats;
-  return statOrThrow(path.c_str(), &stats) && S_ISREG(stats.st_mode);
+  return statIfExists(path.c_str(), &stats) && S_ISREG(stats.st_mode);
 }
 
 bool DiskFile::isDirectory() {
   struct stat stats;
-  return statOrThrow(path.c_str(), &stats) && S_ISDIR(stats.st_mode);
+  return statIfExists(path.c_str(), &stats) && S_ISDIR(stats.st_mode);
 }
 
 // File only.
@@ -352,8 +291,7 @@ void DiskFile::createDirectory() {
     if (mkdir(path.c_str(), 0777) == 0) {
       return;
     } else if (errno != EINTR) {
-      // TODO:  Better exception type.
-      throw std::runtime_error(path + ": mkdir: " + strerror(errno));
+      throw OsError(path, "mkdir", errno);
     }
   }
 }
