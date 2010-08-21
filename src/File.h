@@ -79,6 +79,8 @@ public:
   virtual void createDirectory() = 0;
 };
 
+void splitExtension(const std::string& name, std::string* base, std::string* ext);
+
 }  // namespace ekam
 
 #endif  // EKAM_FILE_H_

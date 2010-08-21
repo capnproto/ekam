@@ -62,6 +62,7 @@ static const int SIGPOLL_ERROR = -1;
 static const int SIGPOLL_SIGNALED = -2;
 
 void signalHandler(int number, siginfo_t* info, void* context) {
+  DEBUG_INFO << "Got signal: " << number;
   *saveSignalTo = *info;
   siglongjmp(sigJumpBuf, 1);
 }
@@ -223,7 +224,7 @@ bool PollEventManager::handleEvent() {
       if (pollFds[i].revents != 0) {
         IoEvent event;
         event.pollFlags = pollFds[i].revents;
-        if (!handlers[i]->handle(event)) {
+        if (handlers[i]->handle(event)) {
           // Handler is all done; remove it.
           ioHandlers.erase(handlers[i]);
         }
@@ -264,7 +265,7 @@ void PollEventManager::handleSignal(const siginfo_t& siginfo) {
       // Call handler.
       ProcessExitEvent event;
       event.waitStatus = waitStatus;
-      if (!handler->handle(event)) {
+      if (handler->handle(event)) {
         // Handler is all done; remove it.
         processExitHandlers.erase(handler);
       }
@@ -362,7 +363,7 @@ public:
       return false;
     }
 
-    return callback->ready();
+    return callback->ready() == IoCallback::DONE;
   }
 
 private:
@@ -411,7 +412,7 @@ public:
       return false;
     }
 
-    return callback->ready();
+    return callback->ready() == IoCallback::DONE;
   }
 
 private:

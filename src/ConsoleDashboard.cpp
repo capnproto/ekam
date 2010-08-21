@@ -33,6 +33,8 @@
 #include <sys/ioctl.h>
 #include <termios.h>
 
+#include "Debug.h"
+
 namespace ekam {
 
 class ConsoleDashboard::TaskImpl : public Dashboard::Task {
@@ -183,7 +185,8 @@ const ConsoleDashboard::Color ConsoleDashboard::FAILED_COLOR = BRIGHT_RED;
 const ConsoleDashboard::Color ConsoleDashboard::RUNNING_COLOR = BRIGHT_FUCHSIA;
 
 ConsoleDashboard::ConsoleDashboard(FILE* output)
-    : fd(fileno(output)), out(output), runningTasksLineCount(0) {}
+    : fd(fileno(output)), out(output), runningTasksLineCount(0),
+      lastDebugMessageCount(DebugMessage::getMessageCount()) {}
 ConsoleDashboard::~ConsoleDashboard() {}
 
 void ConsoleDashboard::beginTask(const std::string& verb, const std::string& noun,
@@ -192,6 +195,11 @@ void ConsoleDashboard::beginTask(const std::string& verb, const std::string& nou
 }
 
 void ConsoleDashboard::clearRunning() {
+  if (lastDebugMessageCount != DebugMessage::getMessageCount()) {
+    // Some debug messages were printed.  We don't want to clobber them.  So we can't clear.
+    return;
+  }
+
   if (runningTasksLineCount > 0) {
     fprintf(out, ANSI_MOVE_CURSOR_UP, runningTasksLineCount);
     fputs(ANSI_CLEAR_BELOW_CURSOR, out);
@@ -230,6 +238,8 @@ void ConsoleDashboard::drawRunning() {
   }
 
   fflush(out);
+
+  lastDebugMessageCount = DebugMessage::getMessageCount();
 }
 
 }  // namespace ekam

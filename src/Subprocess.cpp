@@ -45,30 +45,37 @@ namespace ekam {
 
 class Subprocess::CallbackWrapper : public EventManager::ProcessExitCallback {
 public:
-  CallbackWrapper(Subprocess* subprocess)
-      : subprocess(subprocess) {}
+  CallbackWrapper(Subprocess* subprocess,
+                  OwnedPtr<EventManager::ProcessExitCallback>* finalCallbackToAdopt)
+      : subprocess(subprocess) {
+    finalCallback.adopt(finalCallbackToAdopt);
+  }
   ~CallbackWrapper() {}
 
   // implements ProcessExitCallback ------------------------------------------------------
 
   void exited(int exitCode) {
-    subprocess->done(EXITED, exitCode);
+    subprocess->canceler.clear();
+    finalCallback->exited(exitCode);
   }
 
   void signaled(int signalNumber) {
-    subprocess->done(SIGNALED, signalNumber);
+    subprocess->canceler.clear();
+    finalCallback->signaled(signalNumber);
   }
 
 private:
   Subprocess* subprocess;
+  OwnedPtr<EventManager::ProcessExitCallback> finalCallback;
 };
 
 // =======================================================================================
 
-Subprocess::Subprocess() : doPathLookup(false), pipeCount(0), pid(-1), state(NOT_STARTED) {}
+Subprocess::Subprocess() : doPathLookup(false), pid(-1) {}
 
 Subprocess::~Subprocess() {
   if (canceler != NULL) {
+    DEBUG_INFO << "Killing pid: " << pid;
     canceler->cancel();
     kill(pid, SIGKILL);
     int dummy;
@@ -125,17 +132,6 @@ void Subprocess::start(EventManager* eventManager,
   } else if (pid == 0) {
     // In child.
 
-    if (stdoutPipe != NULL) {
-      stdoutPipe->attachWriteEndForExec(STDOUT_FILENO);
-    }
-    if (stderrPipe != NULL) {
-      stderrPipe->attachWriteEndForExec(STDERR_FILENO);
-    }
-    if (stdoutAndStderrPipe != NULL) {
-      stdoutAndStderrPipe->attachWriteEndForExec(STDOUT_FILENO);
-      dup2(STDOUT_FILENO, STDERR_FILENO);
-    }
-
     std::vector<char*> argv;
     std::string command;
 
@@ -150,6 +146,17 @@ void Subprocess::start(EventManager* eventManager,
 
     DEBUG_INFO << "exec: " << command;
 
+    if (stdoutPipe != NULL) {
+      stdoutPipe->attachWriteEndForExec(STDOUT_FILENO);
+    }
+    if (stderrPipe != NULL) {
+      stderrPipe->attachWriteEndForExec(STDERR_FILENO);
+    }
+    if (stdoutAndStderrPipe != NULL) {
+      stdoutAndStderrPipe->attachWriteEndForExec(STDOUT_FILENO);
+      dup2(STDOUT_FILENO, STDERR_FILENO);
+    }
+
     if (doPathLookup) {
       execvp(executableName.c_str(), &argv[0]);
     } else {
@@ -159,52 +166,19 @@ void Subprocess::start(EventManager* eventManager,
     perror("exec");
     exit(1);
   } else {
-    state = RUNNING;
     if (stdoutPipe != NULL) {
       stdoutPipe.clear();
-      ++pipeCount;
     }
     if (stderrPipe != NULL) {
       stderrPipe.clear();
-      ++pipeCount;
     }
     if (stdoutAndStderrPipe != NULL) {
       stdoutAndStderrPipe.clear();
-      ++pipeCount;
     }
-
-    finalCallback.adopt(callbackToAdopt);
 
     OwnedPtr<EventManager::ProcessExitCallback> callback;
-    callback.allocateSubclass<CallbackWrapper>(this);
+    callback.allocateSubclass<CallbackWrapper>(this, callbackToAdopt);
     eventManager->onProcessExit(pid, &callback, &canceler);
-  }
-}
-
-void Subprocess::pipeDone() {
-  --pipeCount;
-  maybeCallFinalCallback();
-}
-
-void Subprocess::done(State state, int exitStatusOrSignalNumber) {
-  this->state = state;
-  this->exitStatusOrSignalNumber = exitStatusOrSignalNumber;
-  canceler.clear();
-  pid = -1;
-  diskRefs.clear();
-
-  maybeCallFinalCallback();
-}
-
-void Subprocess::maybeCallFinalCallback() {
-  if (pipeCount == 0) {
-    if (state == EXITED) {
-      finalCallback->exited(exitStatusOrSignalNumber);
-      finalCallback.clear();  // Warning:  May delete this.
-    } else if (state == SIGNALED) {
-      finalCallback->signaled(exitStatusOrSignalNumber);
-      finalCallback.clear();  // Warning:  May delete this.
-    }
   }
 }
 

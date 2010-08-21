@@ -42,6 +42,8 @@
 
 namespace ekam {
 
+class ActionFactory;
+
 class ProcessExitCallback {
 public:
   virtual ~ProcessExitCallback();
@@ -61,6 +63,8 @@ public:
   virtual void log(const std::string& text) = 0;
 
   virtual void newOutput(const std::string& basename, OwnedPtr<File>* output) = 0;
+
+  virtual void addActionType(OwnedPtr<ActionFactory>* factoryToAdopt) = 0;
 
   virtual void success() = 0;
   virtual void passed() = 0;

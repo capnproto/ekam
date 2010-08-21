@@ -49,7 +49,7 @@ public:
          int maxConcurrentActions);
   ~Driver();
 
-  void addActionFactory(const std::string& name, ActionFactory* factory);
+  void addActionFactory(ActionFactory* factory);
 
   void start();
 
@@ -64,8 +64,8 @@ private:
 
   int maxConcurrentActions;
 
-  typedef std::tr1::unordered_map<std::string, ActionFactory*> ActionFactoryMap;
-  ActionFactoryMap actionFactories;
+  std::vector<ActionFactory*> actionFactories;
+  OwnedPtrVector<ActionFactory> ownedFactories;
 
   typedef std::tr1::unordered_multimap<EntityId, ActionFactory*, EntityId::HashFunc> TriggerMap;
   TriggerMap triggers;
@@ -85,9 +85,16 @@ private:
   typedef std::tr1::unordered_map<pid_t, ActionDriver*> ProcessMap;
   ProcessMap processMap;
 
+  struct SrcTmpPair {
+    OwnedPtr<File> srcFile;
+    OwnedPtr<File> tmpLocation;
+  };
+  OwnedPtrVector<SrcTmpPair> allScannedFiles;
+
   void startSomeActions();
 
   void scanForActions(File* src, File* tmp);
+  void rescanForNewFactory(ActionFactory* factory);
 
   void queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file, File* tmpLocation);
 };

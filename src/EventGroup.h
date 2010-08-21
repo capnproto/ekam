@@ -68,8 +68,10 @@ private:
   struct CallbackContext {
     bool groupCanceled;
     OwnedPtr<Canceler> canceler;
+    CancelerWrapper* cancelerWrapper;
 
-    CallbackContext() : groupCanceled(false) {}
+    CallbackContext() : groupCanceled(false), cancelerWrapper(NULL) {}
+    ~CallbackContext();
   };
 
   EventManager* inner;

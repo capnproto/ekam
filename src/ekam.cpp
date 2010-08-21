@@ -110,7 +110,7 @@ int main(int argc, char* argv[]) {
   Driver driver(&eventManager, dashboard.get(), &src, &tmp, maxConcurrentActions);
 
   CppActionFactory cppActionFactory;
-  driver.addActionFactory("cpp", &cppActionFactory);
+  driver.addActionFactory(&cppActionFactory);
 
   driver.start();
   eventManager.loop();

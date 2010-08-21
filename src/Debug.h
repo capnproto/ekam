@@ -71,8 +71,13 @@ public:
     logLevel = severity;
   }
 
+  // Useful for detecting if any log messages have been printed, e.g. to avoid clobbering them
+  // with terminal manipulations.
+  inline static int getMessageCount() { return counter; }
+
 private:
   static Severity logLevel;
+  static int counter;
 };
 
 #define DEBUG_LOG(SEVERITY) \

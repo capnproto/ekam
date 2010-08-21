@@ -35,6 +35,7 @@
 namespace ekam {
 
 DebugMessage::Severity DebugMessage::logLevel = WARNING;
+int DebugMessage::counter = 0;
 
 static const char* SEVERITY_NAMES[] = {
   "INFO", "WARNING", "ERROR"
@@ -49,6 +50,7 @@ DebugMessage::~DebugMessage() {
   //   text when multiprocessing.
   fputs("\n", stderr);
   fflush(stderr);
+  ++counter;
 }
 
 DebugMessage& DebugMessage::operator<<(const char* value) {

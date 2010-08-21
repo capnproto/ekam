@@ -40,21 +40,35 @@ EventGroup::ExceptionHandler::~ExceptionHandler() {}
 
 class EventGroup::CancelerWrapper : public Canceler {
 public:
-  CancelerWrapper(Canceler* inner) : inner(inner) {}
-  ~CancelerWrapper() {}
+  CancelerWrapper(CallbackContext* inner) : inner(inner) {
+    inner->cancelerWrapper = this;
+  }
+  ~CancelerWrapper() {
+    if (inner != NULL) inner->cancelerWrapper = NULL;
+  }
 
-  static void wrap(Canceler* inner, OwnedPtr<Canceler>* output) {
+  static void wrap(CallbackContext* inner, OwnedPtr<Canceler>* output) {
     if (output != NULL) {
       output->allocateSubclass<CancelerWrapper>(inner);
     }
   }
 
   // implements Canceler -----------------------------------------------------------------
-  void cancel() { inner->cancel(); }
+  void cancel() {
+    if (inner != NULL) inner->canceler->cancel();
+  }
 
 private:
-  Canceler* inner;
+  friend struct CallbackContext;
+
+  CallbackContext* inner;
 };
+
+EventGroup::CallbackContext::~CallbackContext() {
+  if (cancelerWrapper != NULL) {
+    cancelerWrapper->inner = NULL;
+  }
+}
 
 #define HANDLE_EXCEPTIONS(STATEMENT)                               \
   if (!context.groupCanceled) {                                    \
@@ -176,7 +190,7 @@ void EventGroup::onProcessExit(pid_t process, OwnedPtr<ProcessExitCallback>* cal
   wrappedCallback.allocateSubclass<ProcessExitCallbackWrapper>(this, callbackToAdopt, &context);
   inner->onProcessExit(process, &wrappedCallback, &context->canceler);
   activeCallbacks.insert(context);
-  CancelerWrapper::wrap(context->canceler.get(), output);
+  CancelerWrapper::wrap(context, output);
 }
 
 void EventGroup::onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
@@ -186,7 +200,7 @@ void EventGroup::onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
   wrappedCallback.allocateSubclass<IoCallbackWrapper>(this, callbackToAdopt, &context);
   inner->onReadable(fd, &wrappedCallback, &context->canceler);
   activeCallbacks.insert(context);
-  CancelerWrapper::wrap(context->canceler.get(), output);
+  CancelerWrapper::wrap(context, output);
 }
 
 void EventGroup::onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
@@ -196,7 +210,7 @@ void EventGroup::onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
   wrappedCallback.allocateSubclass<IoCallbackWrapper>(this, callbackToAdopt, &context);
   inner->onWritable(fd, &wrappedCallback, &context->canceler);
   activeCallbacks.insert(context);
-  CancelerWrapper::wrap(context->canceler.get(), output);
+  CancelerWrapper::wrap(context, output);
 }
 
 }  // namespace ekam

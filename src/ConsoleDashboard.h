@@ -53,6 +53,7 @@ private:
 
   std::vector<TaskImpl*> runningTasks;
   int runningTasksLineCount;
+  int lastDebugMessageCount;
 
   enum Color {
     BLACK,

@@ -42,7 +42,7 @@ public:
   CppActionFactory();
   ~CppActionFactory();
 
-  // implements ActionFactory --------------------------------------------------
+  // implements ActionFactory ------------------------------------------------------------
   bool tryMakeAction(File* file, OwnedPtr<Action>* output);
   void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter);
   bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output);

@@ -59,6 +59,8 @@ public:
 
   void newOutput(const std::string& basename, OwnedPtr<File>* output);
 
+  void addActionType(OwnedPtr<ActionFactory>* factoryToAdopt);
+
   void success();
   void passed();
   void failed();
@@ -199,6 +201,12 @@ void Driver::ActionDriver::newOutput(const std::string& basename, OwnedPtr<File>
   tmpdir->relative(basename, &file);
   file->clone(output);
   outputs.adoptBack(&file);
+}
+
+void Driver::ActionDriver::addActionType(OwnedPtr<ActionFactory>* factoryToAdopt) {
+  driver->addActionFactory(factoryToAdopt->get());
+  driver->rescanForNewFactory(factoryToAdopt->get());
+  driver->ownedFactories.adoptBack(factoryToAdopt);
 }
 
 void Driver::ActionDriver::success() {
@@ -362,8 +370,8 @@ Driver::~Driver() {
   }
 }
 
-void Driver::addActionFactory(const std::string& name, ActionFactory* factory) {
-  actionFactories[name] = factory;
+void Driver::addActionFactory(ActionFactory* factory) {
+  actionFactories.push_back(factory);
 
   std::vector<EntityId> triggerEntities;
   factory->enumerateTriggerEntities(std::back_inserter(triggerEntities));
@@ -392,13 +400,6 @@ void Driver::startSomeActions() {
     }
   }
 }
-
-namespace {
-struct SrcTmpPair {
-  OwnedPtr<File> srcFile;
-  OwnedPtr<File> tmpLocation;
-};
-}  // namespace
 
 void Driver::scanForActions(File* src, File* tmp) {
   OwnedPtrVector<SrcTmpPair> fileQueue;
@@ -429,15 +430,26 @@ void Driver::scanForActions(File* src, File* tmp) {
         current->tmpLocation->relative(newPair->srcFile->basename(), &newPair->tmpLocation);
         fileQueue.adoptBack(&newPair);
       }
-    } else {
-      for (ActionFactoryMap::const_iterator iter = actionFactories.begin();
-           iter != actionFactories.end(); ++iter) {
-        ActionFactory* factory = iter->second;
-        OwnedPtr<Action> action;
-        if (factory->tryMakeAction(current->srcFile.get(), &action)) {
-          queueNewAction(&action, current->srcFile.get(), current->tmpLocation.get());
-        }
+    }
+
+    for (unsigned int i = 0; i < actionFactories.size(); i++) {
+      ActionFactory* factory = actionFactories[i];
+      OwnedPtr<Action> action;
+      if (factory->tryMakeAction(current->srcFile.get(), &action)) {
+        queueNewAction(&action, current->srcFile.get(), current->tmpLocation.get());
       }
+    }
+
+    allScannedFiles.adoptBack(&current);
+  }
+}
+
+void Driver::rescanForNewFactory(ActionFactory* factory) {
+  for (int i = 0; i < allScannedFiles.size(); i++) {
+    OwnedPtr<Action> action;
+    if (factory->tryMakeAction(allScannedFiles.get(i)->srcFile.get(), &action)) {
+      queueNewAction(&action, allScannedFiles.get(i)->srcFile.get(),
+                              allScannedFiles.get(i)->tmpLocation.get());
     }
   }
 }

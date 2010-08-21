@@ -124,6 +124,128 @@ private:
   template <typename U>
   friend class OwnedPtr;
   template <typename U>
+  friend class SmartPtr;
+  template <typename U>
+  friend class OwnedPtrVector;
+  template <typename U>
+  friend class OwnedPtrQueue;
+  template <typename Key, typename U, typename HashFunc, typename EqualsFunc>
+  friend class OwnedPtrMap;
+};
+
+template <typename T>
+class SmartPtr {
+public:
+  SmartPtr() : ptr(NULL), refcount(NULL) {}
+  ~SmartPtr() {
+    if (refcount != NULL && --*refcount == 0) {
+      delete ptr;
+    }
+  }
+
+  SmartPtr(const SmartPtr& other) : ptr(other.ptr), refcount(other.refcount) {
+    if (refcount != NULL) ++*refcount;
+  }
+  SmartPtr& operator=(const SmartPtr& other) {
+    reset(other.ptr, other.refcount);
+    return this;
+  }
+
+  T* get() const { return ptr; }
+  T* operator->() const { assert(ptr != NULL); return ptr; }
+  const T& operator*() const { assert(ptr != NULL); return *ptr; }
+
+  template <typename U>
+  void adopt(OwnedPtr<U>* other) {
+    reset(other->release());
+  }
+
+  template <typename U>
+  bool release(OwnedPtr<U>* other) {
+    if (*refcount != 1) {
+      return false;
+    }
+
+    T* result = ptr;
+    ptr = NULL;
+    delete refcount;
+    other->reset(result);
+    return true;
+  }
+
+  void clear() {
+    reset(NULL);
+  }
+
+  bool operator==(const T* other) { return ptr == other; }
+  bool operator!=(const T* other) { return ptr != other; }
+  bool operator==(const SmartPtr<T>& other) { return ptr == other.ptr; }
+  bool operator!=(const SmartPtr<T>& other) { return ptr != other.ptr; }
+
+  void allocate() {
+    reset(new T());
+  }
+  template <typename P1>
+  void allocate(const P1& p1) {
+    reset(new T(p1));
+  }
+  template <typename P1, typename P2>
+  void allocate(const P1& p1, const P2& p2) {
+    reset(new T(p1, p2));
+  }
+  template <typename P1, typename P2, typename P3>
+  void allocate(const P1& p1, const P2& p2, const P3& p3) {
+    reset(new T(p1, p2, p3));
+  }
+  template <typename P1, typename P2, typename P3, typename P4>
+  void allocate(const P1& p1, const P2& p2, const P3& p3, const P4& p4) {
+    reset(new T(p1, p2, p3, p4));
+  }
+
+  template <typename Sub>
+  void allocateSubclass() {
+    reset(new Sub());
+  }
+  template <typename Sub, typename P1>
+  void allocateSubclass(const P1& p1) {
+    reset(new Sub(p1));
+  }
+  template <typename Sub, typename P1, typename P2>
+  void allocateSubclass(const P1& p1, const P2& p2) {
+    reset(new Sub(p1, p2));
+  }
+  template <typename Sub, typename P1, typename P2, typename P3>
+  void allocateSubclass(const P1& p1, const P2& p2, const P3& p3) {
+    reset(new Sub(p1, p2, p3));
+  }
+  template <typename Sub, typename P1, typename P2, typename P3, typename P4>
+  void allocateSubclass(const P1& p1, const P2& p2, const P3& p3, const P4& p4) {
+    reset(new Sub(p1, p2, p3, p4));
+  }
+
+private:
+  T* ptr;
+  int* refcount;
+
+  inline void reset(T* newValue) {
+    reset(newValue, newValue == NULL ? NULL : new int(0));
+  }
+
+  void reset(T* newValue, int* newRefcount) {
+    T* oldValue = ptr;
+    int* oldRefcount = refcount;
+    ptr = newValue;
+    refcount = newRefcount;
+    if (refcount != NULL) ++*refcount;
+    if (oldRefcount != NULL && --*oldRefcount == 0) {
+      delete oldRefcount;
+      delete oldValue;
+    }
+  }
+
+  template <typename U>
+  friend class OwnedPtr;
+  template <typename U>
   friend class OwnedPtrVector;
   template <typename U>
   friend class OwnedPtrQueue;

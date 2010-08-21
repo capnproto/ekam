@@ -56,11 +56,6 @@ public:
   void start(EventManager* eventManager,
              OwnedPtr<EventManager::ProcessExitCallback>* callbackToAdopt);
 
-  // Caller must call this when a capture pipe reaches EOF.  The process exit callback will not
-  // be called until this has been called once for each pipe.
-  // TODO:  If the pipes were an abstract type then maybe we could listen for EOFs automatically.
-  void pipeDone();
-
 private:
   class CallbackWrapper;
 
@@ -73,23 +68,9 @@ private:
   OwnedPtr<Pipe> stdoutPipe;
   OwnedPtr<Pipe> stderrPipe;
   OwnedPtr<Pipe> stdoutAndStderrPipe;
-  int pipeCount;
 
   pid_t pid;
   OwnedPtr<EventManager::Canceler> canceler;
-
-  enum State {
-    NOT_STARTED,
-    RUNNING,
-    EXITED,
-    SIGNALED
-  };
-  State state;
-  int exitStatusOrSignalNumber;
-  OwnedPtr<EventManager::ProcessExitCallback> finalCallback;
-
-  void done(State state, int exitStatusOrSignalNumber);
-  void maybeCallFinalCallback();
 };
 
 }  // namespace ekam

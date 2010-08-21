@@ -35,4 +35,15 @@ namespace ekam {
 File::~File() {}
 File::DiskRef::~DiskRef() {};
 
+void splitExtension(const std::string& name, std::string* base, std::string* ext) {
+  std::string::size_type pos = name.find_last_of('.');
+  if (pos == std::string::npos) {
+    base->assign(name);
+    ext->clear();
+  } else {
+    base->assign(name, 0, pos);
+    ext->assign(name, pos, std::string::npos);
+  }
+}
+
 }  // namespace ekam

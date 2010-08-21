@@ -52,33 +52,52 @@ namespace ekam {
 // Not a real anonymous namespace because of: http://gcc.gnu.org/bugzilla/show_bug.cgi?id=29365
 namespace cppActionFactoryAnonNamespace {
 
-void splitExtension(const std::string& name, std::string* base, std::string* ext) {
-  std::string::size_type pos = name.find_last_of('.');
-  if (pos == std::string::npos) {
-    base->assign(name);
-    ext->clear();
-  } else {
-    base->assign(name, 0, pos);
-    ext->assign(name, pos, std::string::npos);
-  }
-}
-
 void getDepsFile(File* objectFile, OwnedPtr<File>* output) {
   OwnedPtr<File> dir;
   objectFile->parent(&dir);
   dir->relative(objectFile->basename() + ".deps", output);
 }
 
+class Barrier {
+public:
+  Barrier(BuildContext* context) : context(context), hadFailure(false) {}
+  ~Barrier() {
+    if (!hadFailure) {
+      context->success();
+    }
+  }
+
+  void failed() {
+    if (!hadFailure) {
+      hadFailure = true;
+      context->failed();
+    }
+  }
+
+private:
+  BuildContext* context;
+  bool hadFailure;
+};
+
 class Logger : public FileDescriptor::ReadAllCallback {
 public:
-  Logger(BuildContext* context, Subprocess* subprocess)
-      : context(context), subprocess(subprocess) {}
+  Logger(BuildContext* context,
+         OwnedPtr<FileDescriptor>* streamToAdopt,
+         const SmartPtr<Barrier>& barrier)
+      : context(context), barrier(barrier) {
+    stream.adopt(streamToAdopt);
+  }
   ~Logger() {
-    subprocess->pipeDone();
+    DEBUG_INFO << "Logger done";
+  }
+
+  void start(EventManager* eventManager, OwnedPtr<ReadAllCallback>* selfToAdopt) {
+    stream->readAll(eventManager, selfToAdopt);
   }
 
   // implements ReadAllCallback ----------------------------------------------------------
   void consume(const void* buffer, size_t size) {
+    DEBUG_INFO << "consume some log: " << size;
     context->log(std::string(reinterpret_cast<const char*>(buffer), size));
   }
 
@@ -86,12 +105,13 @@ public:
 
   void error(int number) {
     context->log("read(log pipe): " + std::string(strerror(errno)));
-    context->failed();
+    barrier->failed();
   }
 
 private:
   BuildContext* context;
-  Subprocess* subprocess;
+  OwnedPtr<FileDescriptor> stream;
+  SmartPtr<Barrier> barrier;
 };
 
 }  // anonymous cppActionFactoryAnonNamespace
@@ -131,16 +151,23 @@ std::string CppAction::getVerb() {
 
 class CppAction::SymbolCollector : public FileDescriptor::ReadAllCallback {
 public:
-  SymbolCollector(BuildContext* context, File* objectFile, Subprocess* subprocess)
-      : context(context), subprocess(subprocess) {
+  SymbolCollector(BuildContext* context, File* objectFile,
+                  OwnedPtr<FileDescriptor>* streamToAdopt, const SmartPtr<Barrier>& barrier)
+      : context(context), barrier(barrier) {
+    stream.adopt(streamToAdopt);
     objectFile->clone(&this->objectFile);
   }
   ~SymbolCollector() {
-    subprocess->pipeDone();
+    DEBUG_INFO << "Symbol collector done";
+  }
+
+  void start(EventManager* eventManager, OwnedPtr<ReadAllCallback>* selfToAdopt) {
+    stream->readAll(eventManager, selfToAdopt);
   }
 
   // implements ReadAllCallback ----------------------------------------------------------
   void consume(const void* buffer, size_t size) {
+    DEBUG_INFO << "consume some symbols: " << size;
     const char* data = reinterpret_cast<const char*>(buffer);
     std::string line = leftover;
 
@@ -170,13 +197,14 @@ public:
 
   void error(int number) {
     context->log("read(symbol pipe): " + std::string(strerror(errno)));
-    context->failed();
+    barrier->failed();
   }
 
 private:
   BuildContext* context;
   OwnedPtr<File> objectFile;
-  Subprocess* subprocess;
+  OwnedPtr<FileDescriptor> stream;
+  SmartPtr<Barrier> barrier;
   std::string leftover;
   std::vector<EntityId> entities;
   std::string deps;
@@ -229,7 +257,9 @@ class CppAction::CompileProcess : public EventManager::ProcessExitCallback {
 public:
   CompileProcess(CppAction* action, EventManager* eventManager, BuildContext* context)
       : action(action), eventManager(eventManager), context(context) {}
-  ~CompileProcess() {}
+  ~CompileProcess() {
+    DEBUG_INFO << "Compile process done";
+  }
 
   void start(OwnedPtr<CompileProcess>* selfPtr) {
     std::string base, ext;
@@ -247,26 +277,26 @@ public:
     callback.adopt(selfPtr);
     subprocess.start(eventManager, &callback);
 
+    barrier.allocate(context);
+
     OwnedPtr<FileDescriptor::ReadAllCallback> symbolCallback;
-    symbolCallback.allocateSubclass<SymbolCollector>(context, objectFile.get(), &subprocess);
-    symbolStream->readAll(eventManager, &symbolCallback);
+    symbolCallback.allocateSubclass<SymbolCollector>(
+        context, objectFile.get(), &symbolStream, barrier);
+    static_cast<SymbolCollector*>(symbolCallback.get())->start(eventManager, &symbolCallback);
 
     OwnedPtr<FileDescriptor::ReadAllCallback> loggerCallback;
-    loggerCallback.allocateSubclass<Logger>(context, &subprocess);
-    logStream->readAll(eventManager, &loggerCallback);
+    loggerCallback.allocateSubclass<Logger>(context, &logStream, barrier);
+    static_cast<Logger*>(loggerCallback.get())->start(eventManager, &loggerCallback);
   }
 
   // implements ProcessExitCallback ----------------------------------------------------
   void exited(int exitCode) {
-    if (exitCode == 0) {
-      DEBUG_INFO << "proc done";
-      context->success();
-    } else {
-      context->failed();
+    if (exitCode != 0) {
+      barrier->failed();
     }
   }
   void signaled(int signalNumber) {
-    context->failed();
+    barrier->failed();
   }
 
 private:
@@ -276,6 +306,7 @@ private:
   OwnedPtr<File> objectFile;
 
   Subprocess subprocess;
+  SmartPtr<Barrier> barrier;
   OwnedPtr<FileDescriptor> symbolStream;
   OwnedPtr<FileDescriptor> logStream;
 };
@@ -416,21 +447,21 @@ public:
     callback.adopt(selfPtr);
     subprocess.start(eventManager, &callback);
 
+    barrier.allocate(context);
+
     OwnedPtr<FileDescriptor::ReadAllCallback> loggerCallback;
-    loggerCallback.allocateSubclass<Logger>(context, &subprocess);
-    logStream->readAll(eventManager, &loggerCallback);
+    loggerCallback.allocateSubclass<Logger>(context, &logStream, barrier);
+    static_cast<Logger*>(loggerCallback.get())->start(eventManager, &loggerCallback);
   }
 
   // implements ProcessExitCallback ----------------------------------------------------
   void exited(int exitCode) {
-    if (exitCode == 0) {
-      context->success();
-    } else {
-      context->failed();
+    if (exitCode != 0) {
+      barrier->failed();
     }
   }
   void signaled(int signalNumber) {
-    context->failed();
+    barrier->failed();
   }
 
 private:
@@ -442,6 +473,7 @@ private:
   OwnedPtr<File> executableFile;
 
   Subprocess subprocess;
+  SmartPtr<Barrier> barrier;
   OwnedPtr<FileDescriptor> logStream;
 };
 
