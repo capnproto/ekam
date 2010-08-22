@@ -30,27 +30,19 @@
 
 #include "CppActionFactory.h"
 
-#include <sys/types.h>
-#include <unistd.h>
-#include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <stdexcept>
 #include <tr1/unordered_set>
 
 #include "Debug.h"
 #include "FileDescriptor.h"
 #include "Subprocess.h"
+#include "ActionUtil.h"
 
 namespace ekam {
 
 // compile action:  produces object file, entities for all symbols declared therein.
 // link action:  triggers on "main" entity.
 
-// Not a real anonymous namespace because of: http://gcc.gnu.org/bugzilla/show_bug.cgi?id=29365
-namespace cppActionFactoryAnonNamespace {
+namespace {
 
 void getDepsFile(File* objectFile, OwnedPtr<File>* output) {
   OwnedPtr<File> dir;
@@ -58,30 +50,7 @@ void getDepsFile(File* objectFile, OwnedPtr<File>* output) {
   dir->relative(objectFile->basename() + ".deps", output);
 }
 
-class Logger : public FileDescriptor::ReadAllCallback {
-public:
-  Logger(BuildContext* context)
-      : context(context) {}
-  ~Logger() {}
-
-  // implements ReadAllCallback ----------------------------------------------------------
-  void consume(const void* buffer, size_t size) {
-    context->log(std::string(reinterpret_cast<const char*>(buffer), size));
-  }
-
-  void eof() {}
-
-  void error(int number) {
-    context->log("read(log pipe): " + std::string(strerror(errno)));
-    context->failed();
-  }
-
-private:
-  BuildContext* context;
-};
-
-}  // anonymous cppActionFactoryAnonNamespace
-using namespace cppActionFactoryAnonNamespace;
+}  // namespace
 
 // =======================================================================================
 
@@ -116,55 +85,20 @@ std::string CppAction::getVerb() {
 
 // ---------------------------------------------------------------------------------------
 
-class CppAction::SymbolCollector : public FileDescriptor::ReadAllCallback {
+class CppAction::SymbolCollector : public LineReader::Callback {
 public:
   SymbolCollector(BuildContext* context, File* objectFile)
-      : context(context) {
+      : context(context), lineReader(this) {
     objectFile->clone(&this->objectFile);
   }
   ~SymbolCollector() {}
 
-  // implements ReadAllCallback ----------------------------------------------------------
-  void consume(const void* buffer, size_t size) {
-    const char* data = reinterpret_cast<const char*>(buffer);
-    std::string line = leftover;
-
-    while (true) {
-      const char* eol = reinterpret_cast<const char*>(memchr(data, '\n', size));
-      if (eol == NULL) {
-        leftover.assign(data, size);
-        break;
-      }
-      line.append(data, eol);
-      parseLine(line);
-      line.clear();
-      size -= eol + 1 - data;
-      data = eol + 1;
-    }
+  FileDescriptor::ReadAllCallback* asReadAllCallback() {
+    return &lineReader;
   }
 
-  void eof() {
-    context->provide(objectFile.get(), entities);
-
-    OwnedPtr<File> depsFile;
-    getDepsFile(objectFile.get(), &depsFile);
-
-    depsFile->writeAll(deps);
-  }
-
-  void error(int number) {
-    context->log("read(symbol pipe): " + std::string(strerror(errno)));
-    context->failed();
-  }
-
-private:
-  BuildContext* context;
-  OwnedPtr<File> objectFile;
-  std::string leftover;
-  std::vector<EntityId> entities;
-  std::string deps;
-
-  void parseLine(const std::string& line) {
+  // implements LineReader::Callback -----------------------------------------------------
+  void consume(const std::string& line) {
     // Awkward:  The output of nm has lines that might look like:
     //   0000000000000160 T fooBar
     // or they might look like:
@@ -204,6 +138,27 @@ private:
       deps.push_back('\n');
     }
   }
+
+  void eof() {
+    context->provide(objectFile.get(), entities);
+
+    OwnedPtr<File> depsFile;
+    getDepsFile(objectFile.get(), &depsFile);
+
+    depsFile->writeAll(deps);
+  }
+
+  void error(int number) {
+    context->log("read(symbol pipe): " + std::string(strerror(number)));
+    context->failed();
+  }
+
+private:
+  BuildContext* context;
+  LineReader lineReader;
+  OwnedPtr<File> objectFile;
+  std::vector<EntityId> entities;
+  std::string deps;
 };
 
 // ---------------------------------------------------------------------------------------
@@ -211,7 +166,7 @@ private:
 class CppAction::CompileProcess : public AsyncOperation, public EventManager::ProcessExitCallback {
 public:
   CompileProcess(CppAction* action, EventManager* eventManager, BuildContext* context)
-      : action(action), eventManager(eventManager), context(context) {
+      : action(action), context(context) {
     std::string base, ext;
     splitExtension(action->file->basename(), &base, &ext);
     context->newOutput(base + ".o", &objectFile);
@@ -226,7 +181,7 @@ public:
     subprocess.start(eventManager, this);
 
     symbolCollector.allocate(context, objectFile.get());
-    symbolStream->readAll(eventManager, symbolCollector.get(), &symbolsOp);
+    symbolStream->readAll(eventManager, symbolCollector->asReadAllCallback(), &symbolsOp);
 
     logger.allocate(context);
     logStream->readAll(eventManager, logger.get(), &logOp);
@@ -245,7 +200,6 @@ public:
 
 private:
   CppAction* action;
-  EventManager* eventManager;
   BuildContext* context;
   OwnedPtr<File> objectFile;
 
@@ -368,7 +322,7 @@ class LinkAction::LinkProcess : public AsyncOperation, public EventManager::Proc
 public:
   LinkProcess(LinkAction* action, EventManager* eventManager, BuildContext* context,
               OwnedPtrVector<File>* depsToAdopt)
-      : action(action), eventManager(eventManager), context(context) {
+      : action(action), context(context) {
     deps.swap(depsToAdopt);
 
     std::string base, ext;
@@ -405,7 +359,6 @@ public:
 
 private:
   LinkAction* action;
-  EventManager* eventManager;
   BuildContext* context;
 
   OwnedPtrVector<File> deps;
