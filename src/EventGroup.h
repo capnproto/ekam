@@ -37,7 +37,11 @@
 
 namespace ekam {
 
-// TODO:  Rename to ExceptionHandlingEventManager or something.
+// A wrapper around an EventManager which keeps track of all the events being waited on
+// through it and calls a callback when there is nothing left to do.  Additionally, exceptions
+// thrown by callbacks are caught and reported.
+//
+// TODO:  Better name?
 class EventGroup: public EventManager {
 public:
   class ExceptionHandler {
@@ -46,6 +50,7 @@ public:
 
     virtual void threwException(const std::exception& e) = 0;
     virtual void threwUnknownException() = 0;
+    virtual void noMoreEvents() = 0;
   };
 
   EventGroup(EventManager* inner, ExceptionHandler* exceptionHandler);
@@ -65,6 +70,7 @@ private:
 
   EventManager* inner;
   ExceptionHandler* exceptionHandler;
+  int eventCount;
 };
 
 }  // namespace ekam

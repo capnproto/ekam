@@ -37,6 +37,7 @@ namespace ekam {
 EventGroup::ExceptionHandler::~ExceptionHandler() {}
 
 #define HANDLE_EXCEPTIONS(STATEMENT)                             \
+  EventGroup* group = this->group;                               \
   try {                                                          \
     STATEMENT;                                                   \
   } catch (const std::exception& exception) {                    \
@@ -44,12 +45,19 @@ EventGroup::ExceptionHandler::~ExceptionHandler() {}
   } catch (...) {                                                \
     group->exceptionHandler->threwUnknownException();            \
   }                                                              \
+  if (group->eventCount == 0) {                                  \
+    group->exceptionHandler->noMoreEvents();                     \
+  }
 
 class EventGroup::CallbackWrapper : public Callback, public AsyncOperation {
 public:
   CallbackWrapper(EventGroup* group, Callback* wrapped)
-      : group(group), wrapped(wrapped) {}
-  ~CallbackWrapper() {}
+      : group(group), wrapped(wrapped) {
+    ++group->eventCount;
+  }
+  ~CallbackWrapper() {
+    --group->eventCount;
+  }
 
   OwnedPtr<AsyncOperation> inner;
 
@@ -64,30 +72,47 @@ private:
 class EventGroup::ProcessExitCallbackWrapper : public ProcessExitCallback, public AsyncOperation {
 public:
   ProcessExitCallbackWrapper(EventGroup* group, ProcessExitCallback* wrapped)
-      : group(group), wrapped(wrapped) {}
-  ~ProcessExitCallbackWrapper() {}
+      : group(group), wrapped(wrapped), done(false) {
+    ++group->eventCount;
+  }
+  ~ProcessExitCallbackWrapper() {
+    if (!done) --group->eventCount;
+  }
 
   OwnedPtr<AsyncOperation> inner;
 
   // implements ProcessExitCallback ------------------------------------------------------
-  void exited(int exitCode) { HANDLE_EXCEPTIONS(wrapped->exited(exitCode)); }
-  void signaled(int signalNumber) { HANDLE_EXCEPTIONS(wrapped->signaled(signalNumber)); }
+  void exited(int exitCode) {
+    --group->eventCount;
+    done = true;
+    HANDLE_EXCEPTIONS(wrapped->exited(exitCode));
+  }
+  void signaled(int signalNumber) {
+    --group->eventCount;
+    done = true;
+    HANDLE_EXCEPTIONS(wrapped->signaled(signalNumber));
+  }
 
 private:
   EventGroup* group;
   ProcessExitCallback* wrapped;
+  bool done;
 };
 
 class EventGroup::IoCallbackWrapper : public IoCallback, public AsyncOperation {
 public:
   IoCallbackWrapper(EventGroup* group, IoCallback* wrapped)
-      : group(group), wrapped(wrapped) {}
-  ~IoCallbackWrapper() {}
+      : group(group), wrapped(wrapped) {
+    ++group->eventCount;
+  }
+  ~IoCallbackWrapper() {
+    --group->eventCount;
+  }
 
   OwnedPtr<AsyncOperation> inner;
 
   // implements ProcessExitCallback ------------------------------------------------------
-  void ready() { HANDLE_EXCEPTIONS(return wrapped->ready()); }
+  void ready() { HANDLE_EXCEPTIONS(wrapped->ready()); }
 
 private:
   EventGroup* group;
@@ -99,7 +124,7 @@ private:
 // =======================================================================================
 
 EventGroup::EventGroup(EventManager* inner, ExceptionHandler* exceptionHandler)
-    : inner(inner), exceptionHandler(exceptionHandler) {}
+    : inner(inner), exceptionHandler(exceptionHandler), eventCount(0) {}
 
 EventGroup::~EventGroup() {}
 

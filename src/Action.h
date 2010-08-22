@@ -66,7 +66,6 @@ public:
 
   virtual void addActionType(OwnedPtr<ActionFactory>* factoryToAdopt) = 0;
 
-  virtual void done() = 0;
   virtual void passed() = 0;
   virtual void failed() = 0;
 };

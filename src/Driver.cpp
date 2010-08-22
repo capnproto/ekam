@@ -61,13 +61,13 @@ public:
 
   void addActionType(OwnedPtr<ActionFactory>* factoryToAdopt);
 
-  void done();
   void passed();
   void failed();
 
   // implements ExceptionHandler ---------------------------------------------------------
   void threwException(const std::exception& e);
   void threwUnknownException();
+  void noMoreEvents();
 
 private:
   class StartCallback : public EventManager::Callback {
@@ -214,20 +214,11 @@ void Driver::ActionDriver::addActionType(OwnedPtr<ActionFactory>* factoryToAdopt
   driver->ownedFactories.adoptBack(factoryToAdopt);
 }
 
-void Driver::ActionDriver::done() {
-  if (state == FAILED) {
-    // Ignore success() after failed().
-    return;
+void Driver::ActionDriver::noMoreEvents() {
+  if (state == RUNNING) {
+    state = DONE;
+    queueDoneCallback();
   }
-
-  ensureRunning();
-
-  if (!missingDependencies.empty()) {
-    throw std::runtime_error("Action reported success despite missing dependencies.");
-  }
-
-  state = DONE;
-  queueDoneCallback();
 }
 
 void Driver::ActionDriver::passed() {

@@ -58,19 +58,10 @@ void getDepsFile(File* objectFile, OwnedPtr<File>* output) {
   dir->relative(objectFile->basename() + ".deps", output);
 }
 
-class Barrier {
-public:
-  Barrier(BuildContext* context) : context(context) {}
-  ~Barrier() { context->done(); }
-
-private:
-  BuildContext* context;
-};
-
 class Logger : public FileDescriptor::ReadAllCallback {
 public:
-  Logger(BuildContext* context, const SmartPtr<Barrier>& barrier)
-      : context(context), barrier(barrier) {}
+  Logger(BuildContext* context)
+      : context(context) {}
   ~Logger() {}
 
   // implements ReadAllCallback ----------------------------------------------------------
@@ -78,9 +69,7 @@ public:
     context->log(std::string(reinterpret_cast<const char*>(buffer), size));
   }
 
-  void eof() {
-    barrier.clear();
-  }
+  void eof() {}
 
   void error(int number) {
     context->log("read(log pipe): " + std::string(strerror(errno)));
@@ -89,7 +78,6 @@ public:
 
 private:
   BuildContext* context;
-  SmartPtr<Barrier> barrier;
 };
 
 }  // anonymous cppActionFactoryAnonNamespace
@@ -130,8 +118,8 @@ std::string CppAction::getVerb() {
 
 class CppAction::SymbolCollector : public FileDescriptor::ReadAllCallback {
 public:
-  SymbolCollector(BuildContext* context, File* objectFile, const SmartPtr<Barrier>& barrier)
-      : context(context), barrier(barrier) {
+  SymbolCollector(BuildContext* context, File* objectFile)
+      : context(context) {
     objectFile->clone(&this->objectFile);
   }
   ~SymbolCollector() {}
@@ -162,7 +150,6 @@ public:
     getDepsFile(objectFile.get(), &depsFile);
 
     depsFile->writeAll(deps);
-    barrier.clear();
   }
 
   void error(int number) {
@@ -173,7 +160,6 @@ public:
 private:
   BuildContext* context;
   OwnedPtr<File> objectFile;
-  SmartPtr<Barrier> barrier;
   std::string leftover;
   std::vector<EntityId> entities;
   std::string deps;
@@ -239,21 +225,17 @@ public:
 
     subprocess.start(eventManager, this);
 
-    barrier.allocate(context);
-
-    symbolCollector.allocate(context, objectFile.get(), barrier);
+    symbolCollector.allocate(context, objectFile.get());
     symbolStream->readAll(eventManager, symbolCollector.get(), &symbolsOp);
 
-    logger.allocate(context, barrier);
+    logger.allocate(context);
     logStream->readAll(eventManager, logger.get(), &logOp);
   }
   ~CompileProcess() {}
 
   // implements ProcessExitCallback ----------------------------------------------------
   void exited(int exitCode) {
-    if (exitCode == 0) {
-      barrier.clear();
-    } else {
+    if (exitCode != 0) {
       context->failed();
     }
   }
@@ -268,7 +250,6 @@ private:
   OwnedPtr<File> objectFile;
 
   Subprocess subprocess;
-  SmartPtr<Barrier> barrier;
   OwnedPtr<FileDescriptor> symbolStream;
   OwnedPtr<FileDescriptor> logStream;
 
@@ -407,18 +388,14 @@ public:
 
     subprocess.start(eventManager, this);
 
-    barrier.allocate(context);
-
-    logger.allocate(context, barrier);
+    logger.allocate(context);
     logStream->readAll(eventManager, logger.get(), &logOp);
   }
   ~LinkProcess() {}
 
   // implements ProcessExitCallback ----------------------------------------------------
   void exited(int exitCode) {
-    if (exitCode == 0) {
-      barrier.clear();
-    } else {
+    if (exitCode != 0) {
       context->failed();
     }
   }
@@ -435,7 +412,6 @@ private:
   OwnedPtr<File> executableFile;
 
   Subprocess subprocess;
-  SmartPtr<Barrier> barrier;
   OwnedPtr<FileDescriptor> logStream;
   OwnedPtr<Logger> logger;
   OwnedPtr<AsyncOperation> logOp;
