@@ -34,9 +34,10 @@
 #include <sys/types.h>
 #include <stdint.h>
 #include <signal.h>
+#include <deque>
+#include <tr1/unordered_map>
 
 #include "EventManager.h"
-#include "EventHandler.h"
 #include "OwnedPtr.h"
 
 typedef struct pollfd PollFd;
@@ -51,35 +52,24 @@ public:
   void loop();
 
   // implements EventManager -------------------------------------------------------------
-  void runAsynchronously(OwnedPtr<Callback>* callbackToAdopt);
-  void onProcessExit(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-                     OwnedPtr<Canceler>* output = NULL);
-  void onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                  OwnedPtr<Canceler>* output = NULL);
-  void onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                  OwnedPtr<Canceler>* output = NULL);
+  void runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output);
+  void onProcessExit(pid_t pid, ProcessExitCallback* callback,
+                     OwnedPtr<AsyncOperation>* output);
+  void onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
+  void onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
 
 private:
+  class IoHandler;
+
+  class AsyncCallbackHandler;
   class ProcessExitHandler;
   class ReadHandler;
   class WriteHandler;
 
-  struct ProcessExitEvent {
-    int waitStatus;
-  };
-  struct IoEvent {
-    short pollFlags;
-  };
-
-  OwnedPtrMap<EventHandler<ProcessExitEvent>*, EventHandler<ProcessExitEvent> > processExitHandlers;
-  OwnedPtrMap<EventHandler<IoEvent>*, EventHandler<IoEvent> > ioHandlers;
-  EventHandlerRegistrarImpl<ProcessExitEvent> processExitHandlerRegistrar;
-  EventHandlerRegistrarImpl<IoEvent> ioHandlerRegistrar;
-
-  OwnedPtrQueue<Callback> asyncCallbacks;
-  std::tr1::unordered_map<pid_t, EventHandler<ProcessExitEvent>*> processExitHandlerMap;
-  std::tr1::unordered_map<int, EventHandler<IoEvent>*> readHandlerMap;
-  std::tr1::unordered_map<int, EventHandler<IoEvent>*> writeHandlerMap;
+  std::deque<AsyncCallbackHandler*> asyncCallbacks;
+  std::tr1::unordered_map<pid_t, ProcessExitHandler*> processExitHandlerMap;
+  std::tr1::unordered_map<int, IoHandler*> readHandlerMap;
+  std::tr1::unordered_map<int, IoHandler*> writeHandlerMap;
 
   bool handleEvent();
   void handleSignal(const siginfo_t& siginfo);

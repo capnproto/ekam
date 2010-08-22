@@ -44,63 +44,107 @@
 
 namespace ekam {
 
-class KqueueEventManager::KEventHandler : public EventHandler<KEvent> {
+class KqueueEventManager::KEventHandler : public AsyncOperation {
 public:
   virtual ~KEventHandler() {}
 
-  virtual void describe(KEvent* event) = 0;
+  virtual void handle(const KEvent& event) = 0;
 };
 
-class KqueueEventManager::KEventRegistration : public EventHandler<KEvent> {
+class KqueueEventManager::AsyncCallbackHandler : public AsyncOperation {
 public:
-  KEventRegistration(KqueueEventManager* eventManager, RepeatCount repeatCount,
-                     OwnedPtr<KEventHandler>* handlerToAdopt)
-      : eventManager(eventManager), repeatCount(repeatCount), seenAtLeastOnce(false) {
-    handler.adopt(handlerToAdopt);
+  AsyncCallbackHandler(KqueueEventManager* eventManager, Callback* callback)
+      : eventManager(eventManager), called(false), callback(callback) {
+    eventManager->asyncCallbacks.push_back(this);
   }
-
-  ~KEventRegistration() {
-    if (repeatCount == UNTIL_CANCELED || !seenAtLeastOnce) {
-      // Unregister the event.
-      KEvent event;
-      handler->describe(&event);
-      event.flags = EV_DELETE;
-      eventManager->updateKqueue(event);
-
-      if (eventManager->activeEvents.erase(std::make_pair(event.ident, event.filter)) == 0) {
-        DEBUG_ERROR << "Event not in activeEvents?";
+  ~AsyncCallbackHandler() {
+    if (!called) {
+      for (std::deque<AsyncCallbackHandler*>::iterator iter = eventManager->asyncCallbacks.begin();
+           iter != eventManager->asyncCallbacks.end(); ++iter) {
+        if (*iter == this) {
+          eventManager->asyncCallbacks.erase(iter);
+          return;
+        }
       }
+      DEBUG_ERROR << "AsyncCallbackHandler not called but not in asyncCallbacks.";
     }
   }
 
-  // implements EventHandler -------------------------------------------------------------
-  bool handle(const KEvent& event) {
-    seenAtLeastOnce = true;
-
-    if (repeatCount == ONCE) {
-      if (eventManager->activeEvents.erase(std::make_pair(event.ident, event.filter)) == 0) {
-        DEBUG_ERROR << "Event not in activeEvents?";
-      }
-
-      if (!handler->handle(event)) {
-        DEBUG_ERROR << "KEventHandler registered with EventType ONCE did not complete in one run.";
-      }
-      return true;
-    } else {
-      return handler->handle(event);
-    }
+  void run() {
+    called = true;
+    callback->run();
   }
 
 private:
   KqueueEventManager* eventManager;
-  RepeatCount repeatCount;
-  bool seenAtLeastOnce;
-  OwnedPtr<KEventHandler> handler;
+  bool called;
+  Callback* callback;
 };
 
-void KqueueEventManager::initKEvent(KEvent* event, uintptr_t ident, short filter,
-                                    u_int fflags, intptr_t data) {
-  EV_SET(event, ident, filter, 0, fflags, data, NULL);
+// =======================================================================================
+
+KqueueEventManager::KqueueEventManager()
+    : kqueueFd(kqueue()), handlerCount(0) {
+  if (kqueueFd < 0) {
+    std::string error(strerror(errno));
+    throw std::runtime_error("kqueue: " + error);
+  }
+}
+
+KqueueEventManager::~KqueueEventManager() {
+  if (close(kqueueFd) < 0) {
+    DEBUG_ERROR << "close(kqueue): " << strerror(errno);
+  }
+  kqueueFd = -1;
+}
+
+void KqueueEventManager::loop() {
+  while (handleEvent()) {}
+}
+
+bool KqueueEventManager::handleEvent() {
+  // Run any async callbacks first.
+  // TODO:  Avoid starvation of the kqueue?  Probably doesn't matter.
+  if (!asyncCallbacks.empty()) {
+    AsyncCallbackHandler* handler = asyncCallbacks.front();
+    asyncCallbacks.pop_front();
+    handler->run();
+    return true;
+  }
+
+  if (handlerCount == 0) {
+    DEBUG_INFO << "No more events.";
+    return false;
+  }
+
+  DEBUG_INFO << "Waiting for events...";
+
+  struct kevent event;
+  int n;
+  if (fakeEvents.empty()) {
+    n = kevent(kqueueFd, NULL, 0, &event, 1, NULL);
+  } else {
+    n = 1;
+    event = fakeEvents.front();
+    fakeEvents.pop_front();
+  }
+
+  DEBUG_INFO << "Received event.";
+
+  if (n < 0) {
+    DEBUG_ERROR << "kevent: " << strerror(errno);
+  } else if (n == 0) {
+    DEBUG_ERROR << "kevent() timed out, but timeout was infinite.";
+  } else {
+    if (n > 1) {
+      DEBUG_ERROR << "kevent() returned more events than requested.";
+    }
+
+    KEventHandler* handler = reinterpret_cast<KEventHandler*>(event.udata);
+    handler->handle(event);
+  }
+
+  return true;
 }
 
 void KqueueEventManager::updateKqueue(const KEvent& event) {
@@ -124,7 +168,7 @@ void KqueueEventManager::updateKqueue(const KEvent& event) {
       DEBUG_INFO << "Child exited before we could wait?  PID: " << event.ident;
       KEvent fakeEvent = event;
       fakeEvent.data = -1;  // We'll have to get the status from wait() later.
-      fakeEvents.push(fakeEvent);
+      fakeEvents.push_back(fakeEvent);
     }
     throw std::runtime_error("kevent: " + std::string(strerror(errno)));
   } else if (n > 0) {
@@ -132,133 +176,53 @@ void KqueueEventManager::updateKqueue(const KEvent& event) {
   }
 }
 
-// =======================================================================================
-
-KqueueEventManager::KqueueEventManager()
-    : kqueueFd(kqueue()), handlerRegistrar(&handlers) {
-  if (kqueueFd < 0) {
-    std::string error(strerror(errno));
-    throw std::runtime_error("kqueue: " + error);
-  }
-}
-
-KqueueEventManager::~KqueueEventManager() {
-  if (close(kqueueFd) < 0) {
-    DEBUG_ERROR << "close(kqueue): " << strerror(errno);
-  }
-  kqueueFd = -1;
-}
-
-void KqueueEventManager::loop() {
-  while (handleEvent()) {}
-}
-
-bool KqueueEventManager::handleEvent() {
-  // Run any async callbacks first.
-  // TODO:  Avoid starvation of the kqueue?  Probably doesn't matter.
-  if (!asyncCallbacks.empty()) {
-    OwnedPtr<Callback> callback;
-    asyncCallbacks.release(&callback);
-    callback->run();
-    return true;
-  }
-
-  if (handlers.empty() && fakeEvents.empty()) {
-    DEBUG_INFO << "No more events.";
-    return false;
-  }
-
-  DEBUG_INFO << "Waiting for events...";
-
-  struct kevent event;
-  int n;
-  if (fakeEvents.empty()) {
-    n = kevent(kqueueFd, NULL, 0, &event, 1, NULL);
-  } else {
-    n = 1;
-    event = fakeEvents.front();
-    fakeEvents.pop();
-  }
-
-  DEBUG_INFO << "Received event.";
-
-  if (n < 0) {
-    DEBUG_ERROR << "kevent: " << strerror(errno);
-  } else if (n == 0) {
-    DEBUG_ERROR << "kevent() timed out, but timeout was infinite.";
-  } else {
-    if (n > 1) {
-      DEBUG_ERROR << "kevent() returned more events than requested.";
-    }
-
-    EventHandler<KEvent>* handler = reinterpret_cast<EventHandler<KEvent>*>(event.udata);
-    if (handler->handle(event)) {
-      // Handler is all done; remove it.
-      handlers.erase(handler);
-    }
-  }
-
-  return true;
-}
-
-void KqueueEventManager::addHandler(RepeatCount repeatCount,
-                                    OwnedPtr<KEventHandler>* handlerToAdopt,
-                                    OwnedPtr<Canceler>* output) {
+void KqueueEventManager::updateKqueue(uintptr_t ident, short filter, u_short flags,
+                                      KEventHandler* handler, u_int fflags, intptr_t data) {
   KEvent event;
-  (*handlerToAdopt)->describe(&event);
-
-  if (!activeEvents.insert(std::make_pair(event.ident, event.filter)).second) {
-    throw std::invalid_argument("Already waiting on that event.");
-  }
-
-  // Create the handler.
-  OwnedPtr<EventHandler<KEvent> > handler;
-  handler.allocateSubclass<KEventRegistration>(this, repeatCount, handlerToAdopt);
-
-  // If we need a cancel callback, wrap in CancelableEventHandler.
-  if (output != NULL) {
-    handler.allocateSubclass<CancelableEventHandler<KEvent> >(&handler, &handlerRegistrar, output);
-  }
-
-  // Update the kqueue.
-  event.flags = EV_ADD;
-  if (repeatCount == ONCE) {
-    event.flags |= EV_ONESHOT;
-  }
-  event.udata = handler.get();
-
+  EV_SET(&event, ident, filter, flags, fflags, data, handler);
   updateKqueue(event);
-
-  // Add to handlers.
-  handlers.adopt(handler.get(), &handler);
 }
 
 // =======================================================================================
 
-void KqueueEventManager::runAsynchronously(OwnedPtr<Callback>* callbackToAdopt) {
-  asyncCallbacks.adopt(callbackToAdopt);
+void KqueueEventManager::runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output) {
+  output->allocateSubclass<AsyncCallbackHandler>(this, callback);
 }
 
 // =======================================================================================
 
 class KqueueEventManager::ProcessExitHandler : public KEventHandler {
 public:
-  ProcessExitHandler(pid_t pid, OwnedPtr<ProcessExitCallback>* callbackToAdopt)
-      : pid(pid) {
-    callback.adopt(callbackToAdopt);
+  ProcessExitHandler(KqueueEventManager* eventManager, pid_t pid, ProcessExitCallback* callback)
+      : eventManager(eventManager), pid(pid), exited(false), callback(callback) {
+    eventManager->updateKqueue(pid, EVFILT_PROC, EV_ADD | EV_ONESHOT, this, NOTE_EXIT);
+    ++eventManager->handlerCount;
   }
-  ~ProcessExitHandler() {}
+  ~ProcessExitHandler() {
+    if (!exited) {
+      --eventManager->handlerCount;
+      eventManager->updateKqueue(pid, EVFILT_PROC, EV_DELETE);
+
+      // Also make sure there are no dangling fake events targeting us.
+      for (std::deque<KEvent>::iterator iter = eventManager->fakeEvents.begin();
+           iter != eventManager->fakeEvents.end(); ++iter) {
+        if (iter->udata == this) {
+          eventManager->fakeEvents.erase(iter);
+          break;
+        }
+      }
+    }
+  }
 
   // implements KEventHandler ------------------------------------------------------------
-  void describe(KEvent* event) {
-    initKEvent(event, pid, EVFILT_PROC, NOTE_EXIT, 0);
-  }
-
-  bool handle(const KEvent& event) {
+  void handle(const KEvent& event) {
     if (event.fflags & NOTE_EXIT == 0) {
       DEBUG_ERROR << "EVFILT_PROC kevent had unexpected fflags: " << event.fflags;
-      return false;
+      return;
     }
+
+    exited = true;
+    --eventManager->handlerCount;
 
     // Clean up zombie child.
     // Note that we could set signal(SIGCHLD, SIG_IGN) to tell the system not to create zombies
@@ -281,96 +245,95 @@ public:
       DEBUG_ERROR << "Didn't understand process exit status.";
       callback->exited(-1);
     }
-
-    return true;
+    // WARNING:  May have been deleted!
   }
 
 private:
+  KqueueEventManager* eventManager;
   pid_t pid;
-  OwnedPtr<ProcessExitCallback> callback;
+  bool exited;
+  ProcessExitCallback* callback;
 };
 
-void KqueueEventManager::onProcessExit(pid_t process,
-                                       OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-                                       OwnedPtr<Canceler>* output) {
-  OwnedPtr<KEventHandler> handler;
-  handler.allocateSubclass<ProcessExitHandler>(process, callbackToAdopt);
-  addHandler(ONCE, &handler, output);
+void KqueueEventManager::onProcessExit(pid_t pid,
+                                       ProcessExitCallback* callback,
+                                       OwnedPtr<AsyncOperation>* output) {
+  output->allocateSubclass<ProcessExitHandler>(this, pid, callback);
 }
 
 // =======================================================================================
 
 class KqueueEventManager::ReadHandler : public KEventHandler {
 public:
-  ReadHandler(int fd, OwnedPtr<IoCallback>* callbackToAdopt)
-      : fd(fd) {
-    callback.adopt(callbackToAdopt);
+  ReadHandler(KqueueEventManager* eventManager, int fd, IoCallback* callback)
+      : eventManager(eventManager), fd(fd), callback(callback) {
+    eventManager->updateKqueue(fd, EVFILT_READ, EV_ADD, this);
+    deleted.allocate(false);
+    ++eventManager->handlerCount;
   }
-  ~ReadHandler() {}
+  ~ReadHandler() {
+    --eventManager->handlerCount;
+    eventManager->updateKqueue(fd, EVFILT_READ, EV_DELETE);
+    *deleted = true;
+  }
 
   // implements KEventHandler ------------------------------------------------------------
-  void describe(KEvent* event) {
-    initKEvent(event, fd, EVFILT_READ, 0, 0);
-  }
+  void handle(const KEvent& event) {
+    SmartPtr<bool> deleted = this->deleted;
 
-  bool handle(const KEvent& event) {
     DEBUG_INFO << "FD is readable: " << fd;
-    IoCallback::Status status = callback->ready();
+    callback->ready();
 
     if (event.flags & EV_EOF) {
       // kqueue will not return this event again, so keep calling the callback until it gets the
       // message.
-      DEBUG_INFO << "FD has EV_EOF: " << fd;
-      while (status != IoCallback::DONE) {
-        status = callback->ready();
+      while (!*deleted) {
+        callback->ready();
       }
     }
-
-    return status == IoCallback::DONE;
   }
 
 private:
+  KqueueEventManager* eventManager;
   int fd;
-  OwnedPtr<IoCallback> callback;
+  IoCallback* callback;
+  SmartPtr<bool> deleted;
 };
 
-void KqueueEventManager::onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                                    OwnedPtr<Canceler>* output) {
-  OwnedPtr<KEventHandler> handler;
-  handler.allocateSubclass<ReadHandler>(fd, callbackToAdopt);
-  addHandler(UNTIL_CANCELED, &handler, output);
+void KqueueEventManager::onReadable(int fd, IoCallback* callback,
+                                    OwnedPtr<AsyncOperation>* output) {
+  output->allocateSubclass<ReadHandler>(this, fd, callback);
 }
 
 // =======================================================================================
 
 class KqueueEventManager::WriteHandler : public KEventHandler {
 public:
-  WriteHandler(int fd, OwnedPtr<IoCallback>* callbackToAdopt)
-      : fd(fd) {
-    callback.adopt(callbackToAdopt);
+  WriteHandler(KqueueEventManager* eventManager, int fd, IoCallback* callback)
+      : eventManager(eventManager), fd(fd), callback(callback) {
+    eventManager->updateKqueue(fd, EVFILT_WRITE, EV_ADD, this);
+    ++eventManager->handlerCount;
   }
-  ~WriteHandler() {}
+  ~WriteHandler() {
+    --eventManager->handlerCount;
+    eventManager->updateKqueue(fd, EVFILT_WRITE, EV_DELETE);
+  }
 
   // implements KEventHandler ------------------------------------------------------------
-  void describe(KEvent* event) {
-    initKEvent(event, fd, EVFILT_WRITE, 0, 0);
-  }
-
-  bool handle(const KEvent& event) {
+  void handle(const KEvent& event) {
     DEBUG_INFO << "FD is writable: " << fd;
-    return callback->ready() == IoCallback::DONE;
+    callback->ready();
   }
 
 private:
+  KqueueEventManager* eventManager;
   int fd;
-  OwnedPtr<IoCallback> callback;
+  IoCallback* callback;
 };
 
-void KqueueEventManager::onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                                    OwnedPtr<Canceler>* output) {
-  OwnedPtr<KEventHandler> handler;
-  handler.allocateSubclass<WriteHandler>(fd, callbackToAdopt);
-  addHandler(UNTIL_CANCELED, &handler, output);
+void KqueueEventManager::onWritable(int fd, IoCallback* callback,
+                                    OwnedPtr<AsyncOperation>* output) {
+  output->allocateSubclass<WriteHandler>(this, fd, callback);
 }
 
 }  // namespace ekam

@@ -32,8 +32,8 @@
 
 namespace ekam {
 
+AsyncOperation::~AsyncOperation() {}
 EventManager::~EventManager() {}
-EventManager::Canceler::~Canceler() {}
 EventManager::Callback::~Callback() {}
 EventManager::ProcessExitCallback::~ProcessExitCallback() {}
 EventManager::IoCallback::~IoCallback() {}

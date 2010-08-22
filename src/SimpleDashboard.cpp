@@ -54,7 +54,7 @@ private:
 const char* const SimpleDashboard::TaskImpl::STATE_NAMES[] = {
   "PENDING",
   "RUNNING",
-  "SUCCESS",
+  "DONE   ",
   "PASSED ",
   "FAILED ",
   "BLOCKED"

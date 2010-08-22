@@ -111,16 +111,16 @@ void FileDescriptor::stat(struct stat* stats) {
   }
 }
 
-class FileDescriptor::ReadEventCallback : public EventManager::IoCallback {
+class FileDescriptor::ReadEventCallback : public AsyncOperation, public EventManager::IoCallback {
 public:
-  ReadEventCallback(int fd, OwnedPtr<ReadAllCallback>* callbackToAdopt)
-      : fd(fd) {
-    callback.adopt(callbackToAdopt);
-  }
+  ReadEventCallback(int fd, ReadAllCallback* callback)
+      : fd(fd), callback(callback) {}
   ~ReadEventCallback() {}
 
+  OwnedPtr<AsyncOperation> inner;
+
   // implements IoCallback ---------------------------------------------------------------
-  Status ready() {
+  void ready() {
     char buffer[4096];
     ssize_t size;
     do {
@@ -129,27 +129,27 @@ public:
 
     if (size > 0) {
       callback->consume(buffer, size);
-      return REPEAT;
     } else if (size == 0) {
       callback->eof();
-      return DONE;
+      inner.clear();
     } else {
       callback->error(errno);
-      return DONE;
+      inner.clear();
     }
   }
 
 private:
   int fd;
-  OwnedPtr<ReadAllCallback> callback;
+  ReadAllCallback* callback;
 };
 
 void FileDescriptor::readAll(EventManager* eventManager,
-                             OwnedPtr<ReadAllCallback>* callbackToAdopt,
-                             OwnedPtr<EventManager::Canceler>* output) {
-  OwnedPtr<EventManager::IoCallback> eventCallback;
-  eventCallback.allocateSubclass<ReadEventCallback>(fd, callbackToAdopt);
-  eventManager->onReadable(fd, &eventCallback, output);
+                             ReadAllCallback* callback,
+                             OwnedPtr<AsyncOperation>* output) {
+  OwnedPtr<ReadEventCallback> eventCallback;
+  eventCallback.allocate(fd, callback);
+  eventManager->onReadable(fd, eventCallback.get(), &eventCallback->inner);
+  output->adopt(&eventCallback);
 }
 
 // =======================================================================================

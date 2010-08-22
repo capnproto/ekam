@@ -48,7 +48,7 @@ public:
 
   T* get() const { return ptr; }
   T* operator->() const { assert(ptr != NULL); return ptr; }
-  const T& operator*() const { assert(ptr != NULL); return *ptr; }
+  T& operator*() const { assert(ptr != NULL); return *ptr; }
 
   template <typename U>
   void adopt(OwnedPtr<U>* other) {
@@ -153,7 +153,7 @@ public:
 
   T* get() const { return ptr; }
   T* operator->() const { assert(ptr != NULL); return ptr; }
-  const T& operator*() const { assert(ptr != NULL); return *ptr; }
+  T& operator*() const { assert(ptr != NULL); return *ptr; }
 
   template <typename U>
   void adopt(OwnedPtr<U>* other) {

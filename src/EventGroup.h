@@ -37,6 +37,7 @@
 
 namespace ekam {
 
+// TODO:  Rename to ExceptionHandlingEventManager or something.
 class EventGroup: public EventManager {
 public:
   class ExceptionHandler {
@@ -50,33 +51,20 @@ public:
   EventGroup(EventManager* inner, ExceptionHandler* exceptionHandler);
   ~EventGroup();
 
-  void cancelAll();
-
   // implements EventManager -------------------------------------------------------------
-  void runAsynchronously(OwnedPtr<Callback>* callbackToAdopt);
-  void onProcessExit(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-                     OwnedPtr<Canceler>* output = NULL);
-  void onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt, OwnedPtr<Canceler>* output = NULL);
-  void onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt, OwnedPtr<Canceler>* output = NULL);
+  void runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output);
+  void onProcessExit(pid_t pid, ProcessExitCallback* callback,
+                     OwnedPtr<AsyncOperation>* output);
+  void onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
+  void onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
 
 private:
-  class CancelerWrapper;
   class CallbackWrapper;
   class ProcessExitCallbackWrapper;
   class IoCallbackWrapper;
 
-  struct CallbackContext {
-    bool groupCanceled;
-    OwnedPtr<Canceler> canceler;
-    CancelerWrapper* cancelerWrapper;
-
-    CallbackContext() : groupCanceled(false), cancelerWrapper(NULL) {}
-    ~CallbackContext();
-  };
-
   EventManager* inner;
   ExceptionHandler* exceptionHandler;
-  std::tr1::unordered_set<CallbackContext*> activeCallbacks;
 };
 
 }  // namespace ekam

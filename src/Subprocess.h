@@ -54,7 +54,7 @@ public:
   void captureStdoutAndStderr(OwnedPtr<FileDescriptor>* output);
 
   void start(EventManager* eventManager,
-             OwnedPtr<EventManager::ProcessExitCallback>* callbackToAdopt);
+             EventManager::ProcessExitCallback* callback);
 
 private:
   class CallbackWrapper;
@@ -70,7 +70,8 @@ private:
   OwnedPtr<Pipe> stdoutAndStderrPipe;
 
   pid_t pid;
-  OwnedPtr<EventManager::Canceler> canceler;
+  OwnedPtr<AsyncOperation> waitOperation;
+  OwnedPtr<CallbackWrapper> callbackWrapper;
 };
 
 }  // namespace ekam

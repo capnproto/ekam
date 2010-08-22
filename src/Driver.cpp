@@ -61,7 +61,7 @@ public:
 
   void addActionType(OwnedPtr<ActionFactory>* factoryToAdopt);
 
-  void success();
+  void done();
   void passed();
   void failed();
 
@@ -72,12 +72,14 @@ public:
 private:
   class StartCallback : public EventManager::Callback {
   public:
-    StartCallback(ActionDriver* action) : actionDriver(action) {}
+    StartCallback(ActionDriver* actionDriver) : actionDriver(actionDriver) {}
     ~StartCallback() {}
 
     // implements Callback ---------------------------------------------------------------
     void run() {
-      actionDriver->action->start(&actionDriver->eventGroup, actionDriver);
+      actionDriver->asyncCallbackOp.clear();
+      actionDriver->action->start(&actionDriver->eventGroup, actionDriver,
+                                  &actionDriver->runningAction);
     }
 
   private:
@@ -86,18 +88,19 @@ private:
 
   class DoneCallback : public EventManager::Callback {
   public:
-    DoneCallback(ActionDriver* action) : action(action) {}
+    DoneCallback(ActionDriver* actionDriver) : actionDriver(actionDriver) {}
     ~DoneCallback() {}
 
     // implements Callback ---------------------------------------------------------------
     void run() {
-      Driver* driver = action->driver;
-      action->returned();  // may delete action
+      actionDriver->asyncCallbackOp.clear();
+      Driver* driver = actionDriver->driver;
+      actionDriver->returned();  // may delete actionDriver
       driver->startSomeActions();
     }
 
   private:
-    ActionDriver* action;
+    ActionDriver* actionDriver;
   };
 
 
@@ -109,17 +112,21 @@ private:
   enum {
     PENDING,
     RUNNING,
-    SUCCEEDED,
+    DONE,
     PASSED,
     FAILED
   } state;
 
   EventGroup eventGroup;
 
+  StartCallback startCallback;
+  DoneCallback doneCallback;
+  OwnedPtr<AsyncOperation> asyncCallbackOp;
+
+  OwnedPtr<AsyncOperation> runningAction;
+
   typedef std::tr1::unordered_map<EntityId, std::string, EntityId::HashFunc> MissingDependencyMap;
   MissingDependencyMap missingDependencies;
-
-  OwnedPtrMap<pid_t, ProcessExitCallback> processExitCallbacks;
 
   OwnedPtrVector<File> outputs;
 
@@ -139,14 +146,13 @@ private:
 
 Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* tmploc,
                                    OwnedPtr<Dashboard::Task>* taskToAdopt)
-    : driver(driver), state(PENDING), eventGroup(driver->eventManager, this) {
+    : driver(driver), state(PENDING), eventGroup(driver->eventManager, this),
+      startCallback(this), doneCallback(this) {
   action.adopt(actionToAdopt);
   tmploc->parent(&this->tmpdir);
   dashboardTask.adopt(taskToAdopt);
 }
-Driver::ActionDriver::~ActionDriver() {
-  eventGroup.cancelAll();
-}
+Driver::ActionDriver::~ActionDriver() {}
 
 void Driver::ActionDriver::start() {
   if (state != PENDING) {
@@ -156,8 +162,7 @@ void Driver::ActionDriver::start() {
   dashboardTask->setState(Dashboard::RUNNING);
 
   OwnedPtr<EventManager::Callback> callback;
-  callback.allocateSubclass<StartCallback>(this);
-  eventGroup.runAsynchronously(&callback);
+  eventGroup.runAsynchronously(&startCallback, &asyncCallbackOp);
 }
 
 File* Driver::ActionDriver::findProvider(EntityId id, const std::string& title) {
@@ -209,7 +214,7 @@ void Driver::ActionDriver::addActionType(OwnedPtr<ActionFactory>* factoryToAdopt
   driver->ownedFactories.adoptBack(factoryToAdopt);
 }
 
-void Driver::ActionDriver::success() {
+void Driver::ActionDriver::done() {
   if (state == FAILED) {
     // Ignore success() after failed().
     return;
@@ -221,11 +226,16 @@ void Driver::ActionDriver::success() {
     throw std::runtime_error("Action reported success despite missing dependencies.");
   }
 
-  state = SUCCEEDED;
+  state = DONE;
   queueDoneCallback();
 }
 
 void Driver::ActionDriver::passed() {
+  if (state == FAILED) {
+    // Ignore passed() after failed().
+    return;
+  }
+
   ensureRunning();
 
   if (!missingDependencies.empty()) {
@@ -237,9 +247,20 @@ void Driver::ActionDriver::passed() {
 }
 
 void Driver::ActionDriver::failed() {
-  ensureRunning();
-  state = FAILED;
-  queueDoneCallback();
+  if (state == FAILED) {
+    // Ignore redundant call to failed().
+    return;
+  } else if (state == DONE) {
+    // (done callback should already be queued)
+    throw std::runtime_error("Called failed() after success().");
+  } else if (state == PASSED) {
+    // (done callback should already be queued)
+    throw std::runtime_error("Called failed() after passed().");
+  } else {
+    ensureRunning();
+    state = FAILED;
+    queueDoneCallback();
+  }
 }
 
 void Driver::ActionDriver::ensureRunning() {
@@ -249,23 +270,27 @@ void Driver::ActionDriver::ensureRunning() {
 }
 
 void Driver::ActionDriver::queueDoneCallback() {
-  OwnedPtr<EventManager::Callback> callback;
-  callback.allocateSubclass<DoneCallback>(this);
-  driver->eventManager->runAsynchronously(&callback);
+  driver->eventManager->runAsynchronously(&doneCallback, &asyncCallbackOp);
 }
 
 void Driver::ActionDriver::threwException(const std::exception& e) {
-  dashboardTask->addOutput(std::string("uncaught exception: ") + e.what() + "\n");
-  if (state == RUNNING) {
-    failed();
+  if (state == PENDING) {
+    DEBUG_ERROR << "State should not be PENDING here.";
   }
+  dashboardTask->addOutput(std::string("uncaught exception: ") + e.what() + "\n");
+  asyncCallbackOp.clear();
+  state = FAILED;
+  returned();
 }
 
 void Driver::ActionDriver::threwUnknownException() {
-  dashboardTask->addOutput("uncaught exception of unknown type\n");
-  if (state == RUNNING) {
-    failed();
+  if (state == PENDING) {
+    DEBUG_ERROR << "State should not be PENDING here.";
   }
+  dashboardTask->addOutput("uncaught exception of unknown type\n");
+  asyncCallbackOp.clear();
+  state = FAILED;
+  returned();
 }
 
 void Driver::ActionDriver::returned() {
@@ -273,6 +298,10 @@ void Driver::ActionDriver::returned() {
     DEBUG_ERROR << "State should not be PENDING here.";
   }
 
+  // Cancel anything still running.
+  runningAction.clear();
+
+  // Pull self out of driver->activeActions.
   OwnedPtr<ActionDriver> self;
   for (int i = 0; i < driver->activeActions.size(); i++) {
     if (driver->activeActions.get(i) == this) {
@@ -286,7 +315,6 @@ void Driver::ActionDriver::returned() {
 
     // Reset state to PENDING.
     state = PENDING;
-    eventGroup.cancelAll();
     provisions.clear();
     outputs.clear();
     dashboardTask->setState(Dashboard::BLOCKED);
@@ -298,8 +326,8 @@ void Driver::ActionDriver::returned() {
       driver->blockedActions.insert(std::make_pair(iter->first, this));
     }
   } else {
-    if (state == SUCCEEDED || state == PASSED) {
-      dashboardTask->setState(state == PASSED ? Dashboard::PASSED : Dashboard::SUCCESS);
+    if (state == DONE || state == PASSED) {
+      dashboardTask->setState(state == PASSED ? Dashboard::PASSED : Dashboard::DONE);
 
       // Register providers.
       for (int i = 0; i < provisions.size(); i++) {

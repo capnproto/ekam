@@ -79,7 +79,7 @@ private:
   static const char* const ANSI_MOVE_CURSOR_UP;
   static const char* const ANSI_CLEAR_BELOW_CURSOR;
 
-  static const Color SUCCESS_COLOR;
+  static const Color DONE_COLOR;
   static const Color PASSED_COLOR;
   static const Color FAILED_COLOR;
   static const Color RUNNING_COLOR;

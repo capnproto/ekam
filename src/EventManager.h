@@ -37,18 +37,19 @@
 
 namespace ekam {
 
+// Any function which begins an operation that completes asynchronously should return an
+// AsyncOperation.  Deleting the AsyncOperation immediately cancels it, freeing any resources
+// associated with the operation.  Note that if there is a callback associated with an operation,
+// that callback can be destroyed as soon as the AsyncOperation has been destroyed.  Note also
+// that it is always safe to destroy an AsyncOperation *during* a callback.
+class AsyncOperation {
+public:
+  virtual ~AsyncOperation();
+};
+
 class EventManager {
 public:
   virtual ~EventManager();
-
-  class Canceler {
-  public:
-    virtual ~Canceler();
-
-    // Cancel the event.  Note that this is just a hint -- the callback may still be called after
-    // this returns.  Wait for the callback to be deleted before cleaning up.
-    virtual void cancel() = 0;
-  };
 
   class Callback {
   public:
@@ -58,7 +59,7 @@ public:
   };
 
   // Queue the callback to run in the event loop.
-  virtual void runAsynchronously(OwnedPtr<Callback>* callbackToAdopt) = 0;
+  virtual void runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output) = 0;
 
   class ProcessExitCallback {
   public:
@@ -69,30 +70,22 @@ public:
   };
 
   // Call the callback when the process exits.
-  virtual void onProcessExit(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-                             OwnedPtr<Canceler>* output = NULL) = 0;
+  virtual void onProcessExit(pid_t pid, ProcessExitCallback* callback,
+                             OwnedPtr<AsyncOperation>* output) = 0;
 
   class IoCallback {
   public:
     virtual ~IoCallback();
 
-    enum Status {
-      DONE,
-      REPEAT
-    };
-
-    // File descriptor is ready for I/O.  Return value indicates whether to continue waiting for
-    // more I/O on the same descriptor using the same callback.
-    virtual Status ready() = 0;
+    // File descriptor is ready for I/O.
+    virtual void ready() = 0;
   };
 
   // Call the callback whenever the file descriptor is readable.
-  virtual void onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                          OwnedPtr<Canceler>* output = NULL) = 0;
+  virtual void onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) = 0;
 
   // Call the callback whenever the file descriptor is writable.
-  virtual void onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                          OwnedPtr<Canceler>* output = NULL) = 0;
+  virtual void onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) = 0;
 };
 
 }  // namespace ekam

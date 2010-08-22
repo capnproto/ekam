@@ -33,10 +33,9 @@
 
 #include <sys/types.h>
 #include <tr1/unordered_set>
-#include <queue>
+#include <deque>
 
 #include "EventManager.h"
-#include "EventHandler.h"
 #include "OwnedPtr.h"
 
 typedef struct kevent KEvent;
@@ -51,18 +50,16 @@ public:
   void loop();
 
   // implements EventManager -------------------------------------------------------------
-  void runAsynchronously(OwnedPtr<Callback>* callbackToAdopt);
-  void onProcessExit(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-                     OwnedPtr<Canceler>* output = NULL);
-  void onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                  OwnedPtr<Canceler>* output = NULL);
-  void onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                  OwnedPtr<Canceler>* output = NULL);
+  void runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output);
+  void onProcessExit(pid_t pid, ProcessExitCallback* callback,
+                     OwnedPtr<AsyncOperation>* output);
+  void onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
+  void onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
 
 private:
   class KEventHandler;
-  class KEventRegistration;
 
+  class AsyncCallbackHandler;
   class ProcessExitHandler;
   class ReadHandler;
   class WriteHandler;
@@ -75,26 +72,15 @@ private:
 
   int kqueueFd;
 
-  OwnedPtrQueue<Callback> asyncCallbacks;
-  std::queue<KEvent> fakeEvents;
-
-  std::tr1::unordered_set<std::pair<intptr_t, short>, IntptrShortPairHash> activeEvents;
-
-  OwnedPtrMap<EventHandler<KEvent>*, EventHandler<KEvent> > handlers;
-  EventHandlerRegistrarImpl<KEvent> handlerRegistrar;
+  std::deque<AsyncCallbackHandler*> asyncCallbacks;
+  std::deque<KEvent> fakeEvents;
+  int handlerCount;
 
   bool handleEvent();
 
-  enum RepeatCount {
-    ONCE,               // Only call callback the first time the event condition is true.
-    UNTIL_CANCELED      // Keep calling whenever the event condition is true until canceled.
-  };
-
-  void addHandler(RepeatCount repeatCount, OwnedPtr<KEventHandler>* handlerToAdopt,
-                  OwnedPtr<Canceler>* output);
-
-  static void initKEvent(KEvent* event, uintptr_t ident, short filter, u_int fflags, intptr_t data);
   void updateKqueue(const KEvent& event);
+  void updateKqueue(uintptr_t ident, short filter, u_short flags,
+                    KEventHandler* handler = NULL, u_int fflags = 0, intptr_t data = 0);
 };
 
 }  // namespace ekam

@@ -43,8 +43,8 @@ public:
   enum TaskState {
     PENDING,  // Default state.
     RUNNING,
-    SUCCESS,
-    PASSED,   // Like SUCCESS, but should be displayed prominently (hint: test result).
+    DONE,
+    PASSED,   // Like DONE, but should be displayed prominently (hint: test result).
     FAILED,
     BLOCKED
   };

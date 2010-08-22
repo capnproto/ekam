@@ -53,21 +53,10 @@ private:
   std::string noun;
   std::string outputText;
 
-  static const char* const STATE_NAMES[];
-
   void removeFromRunning();
   void writeFinalLog(Color verbColor);
 
   friend class ConsoleDashboard;
-};
-
-const char* const ConsoleDashboard::TaskImpl::STATE_NAMES[] = {
-  "PENDING",
-  "RUNNING",
-  "SUCCESS",
-  "PASSED ",
-  "FAILED ",
-  "BLOCKED"
 };
 
 ConsoleDashboard::TaskImpl::TaskImpl(ConsoleDashboard* dashboard,
@@ -103,8 +92,8 @@ void ConsoleDashboard::TaskImpl::setState(TaskState state) {
     case RUNNING:
       dashboard->runningTasks.push_back(this);
       break;
-    case SUCCESS:
-      writeFinalLog(SUCCESS_COLOR);
+    case DONE:
+      writeFinalLog(DONE_COLOR);
       break;
     case PASSED:
       writeFinalLog(PASSED_COLOR);
@@ -179,7 +168,7 @@ const char* const ConsoleDashboard::ANSI_CLEAR_COLOR = "\033[0m";
 const char* const ConsoleDashboard::ANSI_MOVE_CURSOR_UP = "\033[%dA\r";
 const char* const ConsoleDashboard::ANSI_CLEAR_BELOW_CURSOR = "\033[0J";
 
-const ConsoleDashboard::Color ConsoleDashboard::SUCCESS_COLOR = BRIGHT_BLUE;
+const ConsoleDashboard::Color ConsoleDashboard::DONE_COLOR = BRIGHT_BLUE;
 const ConsoleDashboard::Color ConsoleDashboard::PASSED_COLOR = BRIGHT_GREEN;
 const ConsoleDashboard::Color ConsoleDashboard::FAILED_COLOR = BRIGHT_RED;
 const ConsoleDashboard::Color ConsoleDashboard::RUNNING_COLOR = BRIGHT_FUCHSIA;

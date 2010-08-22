@@ -45,28 +45,25 @@ namespace ekam {
 
 class Subprocess::CallbackWrapper : public EventManager::ProcessExitCallback {
 public:
-  CallbackWrapper(Subprocess* subprocess,
-                  OwnedPtr<EventManager::ProcessExitCallback>* finalCallbackToAdopt)
-      : subprocess(subprocess) {
-    finalCallback.adopt(finalCallbackToAdopt);
-  }
+  CallbackWrapper(Subprocess* subprocess, EventManager::ProcessExitCallback* finalCallback)
+      : subprocess(subprocess), finalCallback(finalCallback) {}
   ~CallbackWrapper() {}
 
   // implements ProcessExitCallback ------------------------------------------------------
 
   void exited(int exitCode) {
-    subprocess->canceler.clear();
+    subprocess->waitOperation.clear();
     finalCallback->exited(exitCode);
   }
 
   void signaled(int signalNumber) {
-    subprocess->canceler.clear();
+    subprocess->waitOperation.clear();
     finalCallback->signaled(signalNumber);
   }
 
 private:
   Subprocess* subprocess;
-  OwnedPtr<EventManager::ProcessExitCallback> finalCallback;
+  EventManager::ProcessExitCallback* finalCallback;
 };
 
 // =======================================================================================
@@ -74,9 +71,9 @@ private:
 Subprocess::Subprocess() : doPathLookup(false), pid(-1) {}
 
 Subprocess::~Subprocess() {
-  if (canceler != NULL) {
+  if (waitOperation != NULL) {
     DEBUG_INFO << "Killing pid: " << pid;
-    canceler->cancel();
+    waitOperation.clear();
     kill(pid, SIGKILL);
     int dummy;
     waitpid(pid, &dummy, 0);
@@ -123,8 +120,7 @@ void Subprocess::captureStdoutAndStderr(OwnedPtr<FileDescriptor>* output) {
   stderrPipe.clear();
 }
 
-void Subprocess::start(EventManager* eventManager,
-                       OwnedPtr<EventManager::ProcessExitCallback>* callbackToAdopt) {
+void Subprocess::start(EventManager* eventManager, EventManager::ProcessExitCallback* callback) {
   pid = fork();
 
   if (pid < 0) {
@@ -176,9 +172,8 @@ void Subprocess::start(EventManager* eventManager,
       stdoutAndStderrPipe.clear();
     }
 
-    OwnedPtr<EventManager::ProcessExitCallback> callback;
-    callback.allocateSubclass<CallbackWrapper>(this, callbackToAdopt);
-    eventManager->onProcessExit(pid, &callback, &canceler);
+    callbackWrapper.allocate(this, callback);
+    eventManager->onProcessExit(pid, callbackWrapper.get(), &waitOperation);
   }
 }
 

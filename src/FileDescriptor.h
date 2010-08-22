@@ -62,8 +62,8 @@ public:
     virtual void error(int number) = 0;
   };
 
-  void readAll(EventManager* eventManager, OwnedPtr<ReadAllCallback>* callbackToAdopt,
-               OwnedPtr<EventManager::Canceler>* output = NULL);
+  void readAll(EventManager* eventManager, ReadAllCallback* callback,
+               OwnedPtr<AsyncOperation>* output);
 
 private:
   class ReadEventCallback;

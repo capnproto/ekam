@@ -36,83 +36,38 @@ namespace ekam {
 
 EventGroup::ExceptionHandler::~ExceptionHandler() {}
 
-// =======================================================================================
+#define HANDLE_EXCEPTIONS(STATEMENT)                             \
+  try {                                                          \
+    STATEMENT;                                                   \
+  } catch (const std::exception& exception) {                    \
+    group->exceptionHandler->threwException(exception);          \
+  } catch (...) {                                                \
+    group->exceptionHandler->threwUnknownException();            \
+  }                                                              \
 
-class EventGroup::CancelerWrapper : public Canceler {
+class EventGroup::CallbackWrapper : public Callback, public AsyncOperation {
 public:
-  CancelerWrapper(CallbackContext* inner) : inner(inner) {
-    inner->cancelerWrapper = this;
-  }
-  ~CancelerWrapper() {
-    if (inner != NULL) inner->cancelerWrapper = NULL;
-  }
+  CallbackWrapper(EventGroup* group, Callback* wrapped)
+      : group(group), wrapped(wrapped) {}
+  ~CallbackWrapper() {}
 
-  static void wrap(CallbackContext* inner, OwnedPtr<Canceler>* output) {
-    if (output != NULL) {
-      output->allocateSubclass<CancelerWrapper>(inner);
-    }
-  }
+  OwnedPtr<AsyncOperation> inner;
 
-  // implements Canceler -----------------------------------------------------------------
-  void cancel() {
-    if (inner != NULL) inner->canceler->cancel();
-  }
-
-private:
-  friend struct CallbackContext;
-
-  CallbackContext* inner;
-};
-
-EventGroup::CallbackContext::~CallbackContext() {
-  if (cancelerWrapper != NULL) {
-    cancelerWrapper->inner = NULL;
-  }
-}
-
-#define HANDLE_EXCEPTIONS(STATEMENT)                               \
-  if (!context.groupCanceled) {                                    \
-    try {                                                          \
-      STATEMENT;                                                   \
-    } catch (const std::exception& exception) {                    \
-      group->exceptionHandler->threwException(exception);          \
-    } catch (...) {                                                \
-      group->exceptionHandler->threwUnknownException();            \
-    }                                                              \
-  }
-
-class EventGroup::CallbackWrapper : public Callback {
-public:
-  CallbackWrapper(EventGroup* group, OwnedPtr<Callback>* wrappedToAdopt,
-                  CallbackContext** saveContext)
-      : group(group) {
-    wrapped.adopt(wrappedToAdopt);
-    *saveContext = &context;
-  }
-  ~CallbackWrapper() {
-    group->activeCallbacks.erase(&context);
-  }
-
-  // implements ProcessExitCallback ------------------------------------------------------
+  // implements Callback -----------------------------------------------------------------
   void run() { HANDLE_EXCEPTIONS(wrapped->run()); }
 
 private:
   EventGroup* group;
-  OwnedPtr<Callback> wrapped;
-  CallbackContext context;
+  Callback* wrapped;
 };
 
-class EventGroup::ProcessExitCallbackWrapper : public ProcessExitCallback {
+class EventGroup::ProcessExitCallbackWrapper : public ProcessExitCallback, public AsyncOperation {
 public:
-  ProcessExitCallbackWrapper(EventGroup* group, OwnedPtr<ProcessExitCallback>* wrappedToAdopt,
-                             CallbackContext** saveContext)
-      : group(group) {
-    wrapped.adopt(wrappedToAdopt);
-    *saveContext = &context;
-  }
-  ~ProcessExitCallbackWrapper() {
-    group->activeCallbacks.erase(&context);
-  }
+  ProcessExitCallbackWrapper(EventGroup* group, ProcessExitCallback* wrapped)
+      : group(group), wrapped(wrapped) {}
+  ~ProcessExitCallbackWrapper() {}
+
+  OwnedPtr<AsyncOperation> inner;
 
   // implements ProcessExitCallback ------------------------------------------------------
   void exited(int exitCode) { HANDLE_EXCEPTIONS(wrapped->exited(exitCode)); }
@@ -120,35 +75,23 @@ public:
 
 private:
   EventGroup* group;
-  OwnedPtr<ProcessExitCallback> wrapped;
-  CallbackContext context;
+  ProcessExitCallback* wrapped;
 };
 
-class EventGroup::IoCallbackWrapper : public IoCallback {
+class EventGroup::IoCallbackWrapper : public IoCallback, public AsyncOperation {
 public:
-  IoCallbackWrapper(EventGroup* group, OwnedPtr<IoCallback>* wrappedToAdopt,
-                    CallbackContext** saveContext)
-      : group(group) {
-    wrapped.adopt(wrappedToAdopt);
-    *saveContext = &context;
-  }
-  ~IoCallbackWrapper() {
-    group->activeCallbacks.erase(&context);
-  }
+  IoCallbackWrapper(EventGroup* group, IoCallback* wrapped)
+      : group(group), wrapped(wrapped) {}
+  ~IoCallbackWrapper() {}
+
+  OwnedPtr<AsyncOperation> inner;
 
   // implements ProcessExitCallback ------------------------------------------------------
-  Status ready() {
-    HANDLE_EXCEPTIONS(return wrapped->ready());
-
-    // Control gets here if context.groupCanceled is true or if ready() threw an exception.
-    // Return DONE so that this callback doesn't get called again.
-    return DONE;
-  }
+  void ready() { HANDLE_EXCEPTIONS(return wrapped->ready()); }
 
 private:
   EventGroup* group;
-  OwnedPtr<IoCallback> wrapped;
-  CallbackContext context;
+  IoCallback* wrapped;
 };
 
 #undef HANDLE_EXCEPTIONS
@@ -158,59 +101,35 @@ private:
 EventGroup::EventGroup(EventManager* inner, ExceptionHandler* exceptionHandler)
     : inner(inner), exceptionHandler(exceptionHandler) {}
 
-EventGroup::~EventGroup() {
-  cancelAll();
+EventGroup::~EventGroup() {}
+
+void EventGroup::runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output) {
+  OwnedPtr<CallbackWrapper> wrappedCallback;
+  wrappedCallback.allocate(this, callback);
+  inner->runAsynchronously(wrappedCallback.get(), &wrappedCallback->inner);
+  output->adopt(&wrappedCallback);
 }
 
-void EventGroup::cancelAll() {
-  // Calling cancel() may delete the callback which calls cancelers.erase(), so we need to
-  // iterate over a copy of the list.
-  std::vector<CallbackContext*> activeCallbacksCopy(activeCallbacks.begin(), activeCallbacks.end());
-
-  for (unsigned int i = 0; i < activeCallbacksCopy.size(); i++) {
-    activeCallbacksCopy[i]->groupCanceled = true;
-    if (activeCallbacksCopy[i]->canceler != NULL) {
-      activeCallbacksCopy[i]->canceler->cancel();
-    }
-  }
+void EventGroup::onProcessExit(pid_t pid, ProcessExitCallback* callback,
+                               OwnedPtr<AsyncOperation>* output) {
+  OwnedPtr<ProcessExitCallbackWrapper> wrappedCallback;
+  wrappedCallback.allocate(this, callback);
+  inner->onProcessExit(pid, wrappedCallback.get(), &wrappedCallback->inner);
+  output->adopt(&wrappedCallback);
 }
 
-void EventGroup::runAsynchronously(OwnedPtr<Callback>* callbackToAdopt) {
-  OwnedPtr<Callback> wrappedCallback;
-  CallbackContext* context;
-  wrappedCallback.allocateSubclass<CallbackWrapper>(this, callbackToAdopt, &context);
-  inner->runAsynchronously(&wrappedCallback);
-  activeCallbacks.insert(context);
+void EventGroup::onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
+  OwnedPtr<IoCallbackWrapper> wrappedCallback;
+  wrappedCallback.allocate(this, callback);
+  inner->onReadable(fd, wrappedCallback.get(), &wrappedCallback->inner);
+  output->adopt(&wrappedCallback);
 }
 
-void EventGroup::onProcessExit(pid_t process, OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-                               OwnedPtr<Canceler>* output) {
-  OwnedPtr<ProcessExitCallback> wrappedCallback;
-  CallbackContext* context;
-  wrappedCallback.allocateSubclass<ProcessExitCallbackWrapper>(this, callbackToAdopt, &context);
-  inner->onProcessExit(process, &wrappedCallback, &context->canceler);
-  activeCallbacks.insert(context);
-  CancelerWrapper::wrap(context, output);
-}
-
-void EventGroup::onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                            OwnedPtr<Canceler>* output) {
-  OwnedPtr<IoCallback> wrappedCallback;
-  CallbackContext* context;
-  wrappedCallback.allocateSubclass<IoCallbackWrapper>(this, callbackToAdopt, &context);
-  inner->onReadable(fd, &wrappedCallback, &context->canceler);
-  activeCallbacks.insert(context);
-  CancelerWrapper::wrap(context, output);
-}
-
-void EventGroup::onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                            OwnedPtr<Canceler>* output) {
-  OwnedPtr<IoCallback> wrappedCallback;
-  CallbackContext* context;
-  wrappedCallback.allocateSubclass<IoCallbackWrapper>(this, callbackToAdopt, &context);
-  inner->onWritable(fd, &wrappedCallback, &context->canceler);
-  activeCallbacks.insert(context);
-  CancelerWrapper::wrap(context, output);
+void EventGroup::onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
+  OwnedPtr<IoCallbackWrapper> wrappedCallback;
+  wrappedCallback.allocate(this, callback);
+  inner->onWritable(fd, wrappedCallback.get(), &wrappedCallback->inner);
+  output->adopt(&wrappedCallback);
 }
 
 }  // namespace ekam

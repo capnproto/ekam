@@ -149,27 +149,184 @@ bool sigWait(siginfo_t* siginfo) {
 
 // =======================================================================================
 
-PollEventManager::PollEventManager()
-    : processExitHandlerRegistrar(&processExitHandlers),
-      ioHandlerRegistrar(&ioHandlers) {
+PollEventManager::PollEventManager() {
   initSignalHandling();
 }
 
 PollEventManager::~PollEventManager() {}
+
+class PollEventManager::IoHandler {
+public:
+  virtual ~IoHandler() {}
+
+  virtual void handle(short pollFlags) = 0;
+};
+
+// =======================================================================================
+
+class PollEventManager::AsyncCallbackHandler : public AsyncOperation {
+public:
+  AsyncCallbackHandler(PollEventManager* eventManager, Callback* callback)
+      : eventManager(eventManager), called(false), callback(callback) {
+    eventManager->asyncCallbacks.push_back(this);
+  }
+  ~AsyncCallbackHandler() {
+    if (!called) {
+      for (std::deque<AsyncCallbackHandler*>::iterator iter = eventManager->asyncCallbacks.begin();
+           iter != eventManager->asyncCallbacks.end(); ++iter) {
+        if (*iter == this) {
+          eventManager->asyncCallbacks.erase(iter);
+          return;
+        }
+      }
+      DEBUG_ERROR << "AsyncCallbackHandler not called but not in asyncCallbacks.";
+    }
+  }
+
+  void run() {
+    called = true;
+    callback->run();
+  }
+
+private:
+  PollEventManager* eventManager;
+  bool called;
+  Callback* callback;
+};
+
+void PollEventManager::runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output) {
+  output->allocateSubclass<AsyncCallbackHandler>(this, callback);
+}
+
+// =======================================================================================
+
+class PollEventManager::ProcessExitHandler : public AsyncOperation {
+public:
+  ProcessExitHandler(PollEventManager* eventManager, pid_t pid,
+                     ProcessExitCallback* callback)
+      : eventManager(eventManager), pid(pid), callback(callback) {
+    if (!eventManager->processExitHandlerMap.insert(std::make_pair(pid, this)).second) {
+      throw std::runtime_error("Already waiting on this process.");
+    }
+  }
+  ~ProcessExitHandler() {
+    eventManager->processExitHandlerMap.erase(pid);
+  }
+
+  void handle(int waitStatus) {
+    DEBUG_INFO << "Process " << pid << " exited with status: " << waitStatus;
+
+    if (WIFEXITED(waitStatus)) {
+      callback->exited(WEXITSTATUS(waitStatus));
+    } else if (WIFSIGNALED(waitStatus)) {
+      callback->signaled(WTERMSIG(waitStatus));
+    } else {
+      DEBUG_ERROR << "Didn't understand process exit status.";
+      callback->exited(-1);
+    }
+  }
+
+private:
+  PollEventManager* eventManager;
+  pid_t pid;
+  ProcessExitCallback* callback;
+};
+
+void PollEventManager::onProcessExit(pid_t pid,
+                                     ProcessExitCallback* callback,
+                                     OwnedPtr<AsyncOperation>* output) {
+  output->allocateSubclass<ProcessExitHandler>(this, pid, callback);
+}
+
+// =======================================================================================
+
+class PollEventManager::ReadHandler : public AsyncOperation, public IoHandler {
+public:
+  ReadHandler(PollEventManager* eventManager, int fd, IoCallback* callback)
+      : eventManager(eventManager), fd(fd), callback(callback) {
+    if (!eventManager->readHandlerMap.insert(std::make_pair(fd, this)).second) {
+      throw std::runtime_error("Already waiting for readability on this file descriptor.");
+    }
+  }
+  ~ReadHandler() {
+    eventManager->readHandlerMap.erase(fd);
+  }
+
+  void handle(short pollFlags) {
+    if (pollFlags & POLLIN) {
+      DEBUG_INFO << "FD is readable: " << fd;
+    } else if (pollFlags & POLLERR) {
+      DEBUG_INFO << "FD has error: " << fd;
+    } else if (pollFlags & POLLHUP) {
+      DEBUG_INFO << "FD hung up: " << fd;
+    } else {
+      DEBUG_ERROR << "ReadHandler should only get POLLIN, POLLERR, or POLLHUP events.";
+      return;
+    }
+
+    callback->ready();
+  }
+
+private:
+  PollEventManager* eventManager;
+  int fd;
+  IoCallback* callback;
+};
+
+void PollEventManager::onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
+  output->allocateSubclass<ReadHandler>(this, fd, callback);
+}
+
+// =======================================================================================
+
+class PollEventManager::WriteHandler : public AsyncOperation, public IoHandler {
+public:
+  WriteHandler(PollEventManager* eventManager, int fd, IoCallback* callback)
+      : eventManager(eventManager), fd(fd), callback(callback) {
+    if (!eventManager->writeHandlerMap.insert(std::make_pair(fd, this)).second) {
+      throw std::runtime_error("Already waiting for writability on this file descriptor.");
+    }
+  }
+  ~WriteHandler() {
+    eventManager->writeHandlerMap.erase(fd);
+  }
+
+  void handle(short pollFlags) {
+    if (pollFlags & POLLOUT) {
+      DEBUG_INFO << "FD is writable: " << fd;
+    } else if (pollFlags & POLLERR) {
+      DEBUG_INFO << "FD has error: " << fd;
+    } else {
+      DEBUG_ERROR << "WriteHandler should only get POLLOUT or POLLERR events.";
+      return;
+    }
+
+    callback->ready();
+  }
+
+private:
+  PollEventManager* eventManager;
+  int fd;
+  IoCallback* callback;
+};
+
+void PollEventManager::onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
+  output->allocateSubclass<WriteHandler>(this, fd, callback);
+}
+
+// =======================================================================================
 
 void PollEventManager::loop() {
   while (handleEvent()) {}
 }
 
 bool PollEventManager::handleEvent() {
-  DEBUG_INFO << "handleEvent()";
-
   // Run any async callbacks first.
   // TODO:  Avoid starvation of I/O?  Probably doesn't matter.
   if (!asyncCallbacks.empty()) {
-    OwnedPtr<Callback> callback;
-    asyncCallbacks.release(&callback);
-    callback->run();
+    AsyncCallbackHandler* handler = asyncCallbacks.front();
+    asyncCallbacks.pop_front();
+    handler->run();
     return true;
   }
 
@@ -187,12 +344,14 @@ bool PollEventManager::handleEvent() {
     }
   }
 
+  DEBUG_INFO << "Waiting for events...";
+
   std::vector<PollFd> pollFds(n);
-  std::vector<EventHandler<IoEvent>*> handlers(n);
+  std::vector<IoHandler*> handlers(n);
 
   int pos = 0;
 
-  for (std::tr1::unordered_map<int, EventHandler<IoEvent>*>::iterator iter = readHandlerMap.begin();
+  for (std::tr1::unordered_map<int, IoHandler*>::iterator iter = readHandlerMap.begin();
        iter != readHandlerMap.end(); ++iter) {
     pollFds[pos].fd = iter->first;
     pollFds[pos].events = POLLIN;
@@ -201,7 +360,7 @@ bool PollEventManager::handleEvent() {
     ++pos;
   }
 
-  for (std::tr1::unordered_map<int, EventHandler<IoEvent>*>::iterator iter = writeHandlerMap.begin();
+  for (std::tr1::unordered_map<int, IoHandler*>::iterator iter = writeHandlerMap.begin();
        iter != writeHandlerMap.end(); ++iter) {
     pollFds[pos].fd = iter->first;
     pollFds[pos].events = POLLOUT;
@@ -222,12 +381,7 @@ bool PollEventManager::handleEvent() {
   } else {
     for (int i = 0; i < n; i++) {
       if (pollFds[i].revents != 0) {
-        IoEvent event;
-        event.pollFlags = pollFds[i].revents;
-        if (handlers[i]->handle(event)) {
-          // Handler is all done; remove it.
-          ioHandlers.erase(handlers[i]);
-        }
+        handlers[i]->handle(pollFds[i].revents);
 
         // We can only handle one event at a time because handling that event may have affected
         // the others, e.g. they may have been canceled / deleted.  And anyway, handleEvent()
@@ -250,7 +404,7 @@ void PollEventManager::handleSignal(const siginfo_t& siginfo) {
       }
 
       // Get the handler associated with this PID.
-      std::tr1::unordered_map<pid_t, EventHandler<ProcessExitEvent>*>::iterator iter =
+      std::tr1::unordered_map<pid_t, ProcessExitHandler*>::iterator iter =
           processExitHandlerMap.find(siginfo.si_pid);
       if (iter == processExitHandlerMap.end()) {
         // It is actually important that every sub-process be waited on via the EventManager to
@@ -260,15 +414,8 @@ void PollEventManager::handleSignal(const siginfo_t& siginfo) {
         DEBUG_ERROR << "Got SIGCHLD for PID we weren't waiting for: " << siginfo.si_pid;
         return;
       }
-      EventHandler<ProcessExitEvent>* handler = iter->second;
 
-      // Call handler.
-      ProcessExitEvent event;
-      event.waitStatus = waitStatus;
-      if (handler->handle(event)) {
-        // Handler is all done; remove it.
-        processExitHandlers.erase(handler);
-      }
+      iter->second->handle(waitStatus);
       break;
     }
 
@@ -276,165 +423,6 @@ void PollEventManager::handleSignal(const siginfo_t& siginfo) {
       DEBUG_ERROR << "Unexpected signal number: " << siginfo.si_signo;
       break;
   }
-}
-
-// =======================================================================================
-
-void PollEventManager::runAsynchronously(OwnedPtr<Callback>* callbackToAdopt) {
-  asyncCallbacks.adopt(callbackToAdopt);
-}
-
-// =======================================================================================
-
-class PollEventManager::ProcessExitHandler : public EventHandler<ProcessExitEvent> {
-public:
-  ProcessExitHandler(PollEventManager* eventManager, pid_t pid,
-                     OwnedPtr<ProcessExitCallback>* callbackToAdopt)
-      : eventManager(eventManager), pid(pid) {
-    callback.adopt(callbackToAdopt);
-  }
-  ~ProcessExitHandler() {
-    eventManager->processExitHandlerMap.erase(pid);
-  }
-
-  // implements EventHandler -------------------------------------------------------------
-
-  bool handle(const ProcessExitEvent& event) {
-    DEBUG_INFO << "Process " << pid << " exited with status: " << event.waitStatus;
-
-    if (WIFEXITED(event.waitStatus)) {
-      callback->exited(WEXITSTATUS(event.waitStatus));
-    } else if (WIFSIGNALED(event.waitStatus)) {
-      callback->signaled(WTERMSIG(event.waitStatus));
-    } else {
-      DEBUG_ERROR << "Didn't understand process exit status.";
-      callback->exited(-1);
-    }
-
-    return true;
-  }
-
-private:
-  PollEventManager* eventManager;
-  pid_t pid;
-  OwnedPtr<ProcessExitCallback> callback;
-};
-
-void PollEventManager::onProcessExit(pid_t process,
-                                     OwnedPtr<ProcessExitCallback>* callbackToAdopt,
-                                     OwnedPtr<Canceler>* output) {
-  OwnedPtr<EventHandler<ProcessExitEvent> > handler;
-  handler.allocateSubclass<ProcessExitHandler>(this, process, callbackToAdopt);
-
-  if (output != NULL) {
-    handler.allocateSubclass<CancelableEventHandler<ProcessExitEvent> >(
-        &handler, &processExitHandlerRegistrar, output);
-  }
-
-  if (!processExitHandlerMap.insert(std::make_pair(process, handler.get())).second) {
-    throw std::runtime_error("Already waiting on this PID.");
-  }
-  processExitHandlers.adopt(handler.get(), &handler);
-}
-
-// =======================================================================================
-
-class PollEventManager::ReadHandler : public EventHandler<IoEvent> {
-public:
-  ReadHandler(PollEventManager* eventManager, int fd, OwnedPtr<IoCallback>* callbackToAdopt)
-      : eventManager(eventManager), fd(fd) {
-    callback.adopt(callbackToAdopt);
-  }
-  ~ReadHandler() {
-    eventManager->readHandlerMap.erase(fd);
-  }
-
-  // implements EventHandler -------------------------------------------------------------
-
-  bool handle(const IoEvent& event) {
-    if (event.pollFlags & POLLIN) {
-      DEBUG_INFO << "FD is readable: " << fd;
-    } else if (event.pollFlags & POLLERR) {
-      DEBUG_INFO << "FD has error: " << fd;
-    } else if (event.pollFlags & POLLHUP) {
-      DEBUG_INFO << "FD hung up: " << fd;
-    } else {
-      DEBUG_ERROR << "ReadHandler should only get POLLIN, POLLERR, or POLLHUP events.";
-      return false;
-    }
-
-    return callback->ready() == IoCallback::DONE;
-  }
-
-private:
-  PollEventManager* eventManager;
-  int fd;
-  OwnedPtr<IoCallback> callback;
-};
-
-void PollEventManager::onReadable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                                  OwnedPtr<Canceler>* output) {
-  OwnedPtr<EventHandler<IoEvent> > handler;
-  handler.allocateSubclass<ReadHandler>(this, fd, callbackToAdopt);
-
-  if (output != NULL) {
-    handler.allocateSubclass<CancelableEventHandler<IoEvent> >(
-        &handler, &ioHandlerRegistrar, output);
-  }
-
-  if (!readHandlerMap.insert(std::make_pair(fd, handler.get())).second) {
-    throw std::runtime_error("Already reading this FD.");
-  }
-  ioHandlers.adopt(handler.get(), &handler);
-}
-
-// =======================================================================================
-
-class PollEventManager::WriteHandler : public EventHandler<IoEvent> {
-public:
-  WriteHandler(PollEventManager* eventManager, int fd, OwnedPtr<IoCallback>* callbackToAdopt)
-      : eventManager(eventManager), fd(fd) {
-    callback.adopt(callbackToAdopt);
-  }
-  ~WriteHandler() {
-    eventManager->writeHandlerMap.erase(fd);
-  }
-
-  // implements EventHandler -------------------------------------------------------------
-
-  bool handle(const IoEvent& event) {
-    if (event.pollFlags & POLLOUT) {
-      DEBUG_INFO << "FD is writable: " << fd;
-    } else if (event.pollFlags & POLLERR) {
-      DEBUG_INFO << "FD has error: " << fd;
-    } else {
-      DEBUG_ERROR << "WriteHandler should only get POLLOUT or POLLERR events.";
-      return false;
-    }
-
-    return callback->ready() == IoCallback::DONE;
-  }
-
-private:
-  PollEventManager* eventManager;
-  int fd;
-  OwnedPtr<IoCallback> callback;
-};
-
-void PollEventManager::onWritable(int fd, OwnedPtr<IoCallback>* callbackToAdopt,
-                                  OwnedPtr<Canceler>* output) {
-  OwnedPtr<EventHandler<IoEvent> > handler;
-  handler.allocateSubclass<WriteHandler>(this, fd, callbackToAdopt);
-
-  if (output != NULL) {
-    handler.allocateSubclass<CancelableEventHandler<IoEvent> >(
-        &handler, &ioHandlerRegistrar, output);
-  }
-
-  if (!writeHandlerMap.insert(std::make_pair(fd, handler.get())).second) {
-    throw std::runtime_error("Already writing this FD.");
-  }
-  ioHandlers.adopt(handler.get(), &handler);
 }
 
 }  // namespace ekam
