@@ -51,8 +51,7 @@ public:
   void start();
 
   // implements BuildContext -------------------------------------------------------------
-  File* findProvider(EntityId id, const std::string& title);
-  File* findOptionalProvider(EntityId id);
+  File* findProvider(EntityId id);
 
   void provide(File* file, const std::vector<EntityId>& entities);
   void log(const std::string& text);
@@ -78,7 +77,6 @@ private:
     // implements Callback ---------------------------------------------------------------
     void run() {
       actionDriver->asyncCallbackOp.clear();
-      actionDriver->isRunning = true;
       actionDriver->action->start(&actionDriver->eventGroup, actionDriver,
                                   &actionDriver->runningAction);
     }
@@ -128,10 +126,11 @@ private:
   OwnedPtr<AsyncOperation> asyncCallbackOp;
 
   bool isRunning;
+  int startVersion;
   OwnedPtr<AsyncOperation> runningAction;
 
-  typedef std::tr1::unordered_map<EntityId, std::string, EntityId::HashFunc> MissingDependencyMap;
-  MissingDependencyMap missingDependencies;
+  typedef std::tr1::unordered_set<EntityId, EntityId::HashFunc> DependencySet;
+  DependencySet dependencies;
 
   OwnedPtrVector<File> outputs;
 
@@ -145,6 +144,7 @@ private:
   void ensureRunning();
   void queueDoneCallback();
   void returned();
+  void clearDependencies();
 
   friend class Driver;
 };
@@ -152,7 +152,7 @@ private:
 Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* tmploc,
                                    OwnedPtr<Dashboard::Task>* taskToAdopt)
     : driver(driver), state(PENDING), eventGroup(driver->eventManager, this),
-      startCallback(this), doneCallback(this), isRunning(false) {
+      startCallback(this), doneCallback(this), isRunning(false), startVersion(0) {
   action.adopt(actionToAdopt);
   tmploc->parent(&this->tmpdir);
   dashboardTask.adopt(taskToAdopt);
@@ -163,29 +163,28 @@ void Driver::ActionDriver::start() {
   if (state != PENDING) {
     DEBUG_ERROR << "State must be PENDING here.";
   }
+  assert(dependencies.empty());
+  assert(outputs.empty());
+  assert(provisions.empty());
+  assert(!isRunning);
+
   state = RUNNING;
+  isRunning = true;
+  startVersion = driver->versionCounter;
   dashboardTask->setState(Dashboard::RUNNING);
 
   OwnedPtr<EventManager::Callback> callback;
   eventGroup.runAsynchronously(&startCallback, &asyncCallbackOp);
 }
 
-File* Driver::ActionDriver::findProvider(EntityId id, const std::string& title) {
+File* Driver::ActionDriver::findProvider(EntityId id) {
   ensureRunning();
-  File* result = findOptionalProvider(id);
-  if (result == NULL) {
-    missingDependencies[id] = title;
-  }
-  return result;
-}
-
-File* Driver::ActionDriver::findOptionalProvider(EntityId id) {
-  ensureRunning();
+  dependencies.insert(id);
   EntityMap::const_iterator iter = driver->entityMap.find(id);
   if (iter == driver->entityMap.end()) {
     return NULL;
   } else {
-    return iter->second;
+    return iter->second.provider;
   }
 }
 
@@ -235,10 +234,6 @@ void Driver::ActionDriver::passed() {
   if (state == FAILED) {
     // Ignore passed() after failed().
     return;
-  }
-
-  if (!missingDependencies.empty()) {
-    throw std::runtime_error("Action reported success despite missing dependencies.");
   }
 
   state = PASSED;
@@ -305,74 +300,65 @@ void Driver::ActionDriver::returned() {
     }
   }
 
-  if (!missingDependencies.empty()) {
-    // Failed due to missing dependencies.
+  // Did the action use any entities that changed since the action started?
+  for (DependencySet::const_iterator iter = dependencies.begin();
+       iter != dependencies.end(); ++iter) {
+    EntityMap::const_iterator iter2 = driver->entityMap.find(*iter);
+    if (iter2 != driver->entityMap.end() && iter2->second.lastModified > startVersion) {
+      // Yep.  Must do over.  Clear everything and add again to the action queue.
+      state = PENDING;
+      provisions.clear();
+      outputs.clear();
+      dependencies.clear();
+      driver->pendingActions.adoptBack(&self);
+      dashboardTask->setState(Dashboard::BLOCKED);
+      return;
+    }
+  }
 
-    // Reset state to PENDING.
-    state = PENDING;
+  // Insert self into the completed actions map.
+  driver->completedActionPtrs.adopt(this, &self);
+  for (DependencySet::const_iterator iter = dependencies.begin();
+       iter != dependencies.end(); ++iter) {
+    driver->completedActions.insert(std::make_pair(*iter, this));
+  }
+
+  if (state == FAILED) {
+    // Failed, possibly due to missing dependencies.
     provisions.clear();
     outputs.clear();
     dashboardTask->setState(Dashboard::BLOCKED);
-
-    // Insert self into the blocked actions map.
-    driver->blockedActionPtrs.adopt(this, &self);
-    for (MissingDependencyMap::const_iterator iter = missingDependencies.begin();
-         iter != missingDependencies.end(); ++iter) {
-      driver->blockedActions.insert(std::make_pair(iter->first, this));
-    }
   } else {
-    if (state == DONE || state == PASSED) {
-      dashboardTask->setState(state == PASSED ? Dashboard::PASSED : Dashboard::DONE);
+    dashboardTask->setState(state == PASSED ? Dashboard::PASSED : Dashboard::DONE);
 
-      // Register providers.
-      for (int i = 0; i < provisions.size(); i++) {
-        File* file = provisions.get(i)->file.get();
-        driver->filePtrs.adopt(file, &provisions.get(i)->file);
+    ++driver->versionCounter;
 
-        for (std::vector<EntityId>::const_iterator iter = provisions.get(i)->entities.begin();
-             iter != provisions.get(i)->entities.end(); ++iter) {
-          driver->entityMap[*iter] = file;
+    // Register providers.
+    for (int i = 0; i < provisions.size(); i++) {
+      driver->registerProvider(&provisions.get(i)->file, provisions.get(i)->entities);
+    }
 
-          // Unblock blocked actions.
-          std::pair<BlockedActionMap::const_iterator, BlockedActionMap::const_iterator>
-              range = driver->blockedActions.equal_range(*iter);
-          for (BlockedActionMap::const_iterator iter2 = range.first;
-               iter2 != range.second; ++iter2) {
-            iter2->second->missingDependencies.erase(*iter);
-            if (iter2->second->missingDependencies.empty()) {
-              // No more missing deps.  Promote to runnable.
-              OwnedPtr<ActionDriver> action;
-              if (driver->blockedActionPtrs.release(iter2->second, &action)) {
-                driver->pendingActions.adoptBack(&action);
-              } else {
-                DEBUG_ERROR << "Action not in blockedActionPtrs?";
-              }
-            }
-          }
-          driver->blockedActions.erase(range.first, range.second);
-
-          // Fire triggers.
-          std::pair<TriggerMap::const_iterator, TriggerMap::const_iterator>
-              triggerRange = driver->triggers.equal_range(*iter);
-          for (TriggerMap::const_iterator iter2 = triggerRange.first;
-               iter2 != triggerRange.second; ++iter2) {
-            OwnedPtr<Action> triggeredAction;
-            if (iter2->second->tryMakeAction(*iter, file, &triggeredAction)) {
-              driver->queueNewAction(&triggeredAction, file, file);
-            }
-          }
-
-        }
-      }
-
-      // Enqueue new actions based on output files.
-      for (int i = 0; i < outputs.size(); i++) {
-        driver->scanForActions(outputs.get(i), outputs.get(i));
-      }
-    } else {
-      dashboardTask->setState(Dashboard::FAILED);
+    // Enqueue new actions based on output files.
+    for (int i = 0; i < outputs.size(); i++) {
+      driver->scanForActions(outputs.get(i), outputs.get(i));
     }
   }
+}
+
+void Driver::ActionDriver::clearDependencies() {
+  for (ActionDriver::DependencySet::const_iterator iter = dependencies.begin();
+       iter != dependencies.end(); ++iter) {
+    std::pair<CompletedActionMap::iterator, CompletedActionMap::iterator>
+        range = driver->completedActions.equal_range(*iter);
+    for (CompletedActionMap::iterator iter2 = range.first;
+         iter2 != range.second; ++iter2) {
+      if (iter2->second == this) {
+        driver->completedActions.erase(iter2);
+        break;
+      }
+    }
+  }
+  dependencies.clear();
 }
 
 // =======================================================================================
@@ -380,7 +366,7 @@ void Driver::ActionDriver::returned() {
 Driver::Driver(EventManager* eventManager, Dashboard* dashboard, File* src, File* tmp,
                int maxConcurrentActions)
     : eventManager(eventManager), dashboard(dashboard), src(src), tmp(tmp),
-      maxConcurrentActions(maxConcurrentActions) {
+      maxConcurrentActions(maxConcurrentActions), versionCounter(0) {
   if (!tmp->exists()) {
     tmp->createDirectory();
   }
@@ -388,8 +374,10 @@ Driver::Driver(EventManager* eventManager, Dashboard* dashboard, File* src, File
 
 Driver::~Driver() {
   // Error out all blocked tasks.
-  for (OwnedPtrMap<ActionDriver*, ActionDriver>::Iterator iter(blockedActionPtrs); iter.next();) {
-    iter.value()->dashboardTask->setState(Dashboard::FAILED);
+  for (OwnedPtrMap<ActionDriver*, ActionDriver>::Iterator iter(completedActionPtrs); iter.next();) {
+    if (iter.key()->state == ActionDriver::FAILED) {
+      iter.value()->dashboardTask->setState(Dashboard::FAILED);
+    }
   }
 }
 
@@ -485,6 +473,61 @@ void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file, File* t
   actionDriver.allocate(this, actionToAdopt, tmpLocation, &task);
 
   pendingActions.adoptBack(&actionDriver);
+}
+
+void Driver::registerProvider(OwnedPtr<File>* fileToAdopt, const std::vector<EntityId>& entities) {
+  File* file = fileToAdopt->get();
+  filePtrs.adopt(file, fileToAdopt);
+
+  for (std::vector<EntityId>::const_iterator iter = entities.begin();
+       iter != entities.end(); ++iter) {
+    const EntityId& entity = *iter;
+    EntityInfo info = {file, versionCounter};
+    entityMap[entity] = info;
+
+    unblockActions(entity);
+
+    fireTriggers(entity, file);
+  }
+}
+
+void Driver::unblockActions(const EntityId& entity) {
+  std::pair<CompletedActionMap::const_iterator, CompletedActionMap::const_iterator>
+      range = completedActions.equal_range(entity);
+  int pendingActionsPos = pendingActions.size();
+  for (CompletedActionMap::const_iterator iter = range.first; iter != range.second; ++iter) {
+    // Reset action to pending.
+    // TODO:  Transitively reset anything that depended on this.
+
+    OwnedPtr<ActionDriver> action;
+    if (completedActionPtrs.release(iter->second, &action)) {
+      action->state = ActionDriver::PENDING;
+      action->provisions.clear();
+      action->outputs.clear();
+      pendingActions.adoptBack(&action);
+    } else {
+      DEBUG_ERROR << "ActionDriver in completedActions but not completedActionPtrs?";
+    }
+  }
+
+  for (; pendingActionsPos < pendingActions.size(); pendingActionsPos++) {
+    pendingActions.get(pendingActionsPos)->clearDependencies();
+  }
+
+  if (completedActions.find(entity) != completedActions.end()) {
+    DEBUG_ERROR << "clearDependencies() didn't work?";
+  }
+}
+
+void Driver::fireTriggers(const EntityId& entity, File* file) {
+  std::pair<TriggerMap::const_iterator, TriggerMap::const_iterator>
+      range = triggers.equal_range(entity);
+  for (TriggerMap::const_iterator iter = range.first; iter != range.second; ++iter) {
+    OwnedPtr<Action> triggeredAction;
+    if (iter->second->tryMakeAction(entity, file, &triggeredAction)) {
+      queueNewAction(&triggeredAction, file, file);
+    }
+  }
 }
 
 }  // namespace ekam

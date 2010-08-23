@@ -56,8 +56,7 @@ class BuildContext {
 public:
   virtual ~BuildContext();
 
-  virtual File* findProvider(EntityId id, const std::string& title) = 0;
-  virtual File* findOptionalProvider(EntityId id) = 0;
+  virtual File* findProvider(EntityId id) = 0;
 
   virtual void provide(File* file, const std::vector<EntityId>& entities) = 0;
   virtual void log(const std::string& text) = 0;

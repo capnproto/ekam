@@ -70,7 +70,11 @@ private:
   typedef std::tr1::unordered_multimap<EntityId, ActionFactory*, EntityId::HashFunc> TriggerMap;
   TriggerMap triggers;
 
-  typedef std::tr1::unordered_map<EntityId, File*, EntityId::HashFunc> EntityMap;
+  struct EntityInfo {
+    File* provider;
+    int lastModified;
+  };
+  typedef std::tr1::unordered_map<EntityId, EntityInfo, EntityId::HashFunc> EntityMap;
   EntityMap entityMap;
   OwnedPtrMap<File*, File> filePtrs;
 
@@ -78,9 +82,9 @@ private:
   OwnedPtrVector<ActionDriver> pendingActions;
 
   typedef std::tr1::unordered_multimap<EntityId, ActionDriver*, EntityId::HashFunc>
-      BlockedActionMap;
-  BlockedActionMap blockedActions;
-  OwnedPtrMap<ActionDriver*, ActionDriver> blockedActionPtrs;
+      CompletedActionMap;
+  CompletedActionMap completedActions;
+  OwnedPtrMap<ActionDriver*, ActionDriver> completedActionPtrs;
 
   typedef std::tr1::unordered_map<pid_t, ActionDriver*> ProcessMap;
   ProcessMap processMap;
@@ -91,12 +95,18 @@ private:
   };
   OwnedPtrVector<SrcTmpPair> allScannedFiles;
 
+  int versionCounter;
+
   void startSomeActions();
 
   void scanForActions(File* src, File* tmp);
   void rescanForNewFactory(ActionFactory* factory);
 
   void queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file, File* tmpLocation);
+
+  void registerProvider(OwnedPtr<File>* fileToAdopt, const std::vector<EntityId>& entities);
+  void unblockActions(const EntityId& entity);
+  void fireTriggers(const EntityId& entity, File* file);
 };
 
 }  // namespace ekam

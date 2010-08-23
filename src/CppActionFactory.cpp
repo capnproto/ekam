@@ -81,14 +81,12 @@ private:
     ~DepsSet() {}
 
     void addObject(BuildContext* context, File* objectFile);
-    bool hasMissing() { return !missing.empty(); }
     void enumerate(OwnedPtrVector<File>::Appender output) {
       deps.releaseAll(output);
     }
 
   private:
     OwnedPtrMap<File*, File, FileHashFunc, FileEqualFunc> deps;
-    std::tr1::unordered_set<std::string> missing;
   };
 
   OwnedPtr<File> file;
@@ -124,20 +122,8 @@ void LinkAction::DepsSet::addObject(BuildContext* context, File* objectFile) {
     while (pos != std::string::npos) {
       std::string symbolName(data, prevPos, pos - prevPos);
 
-      // Temporary hack:  Ignore symbol names not containing "ekam" so that we don't get upset
-      //   that the libc symbols aren't found.
-      // TODO: Remove this.
-      if (symbolName.find("ekam") == std::string::npos) {
-        prevPos = pos + 1;
-        pos = data.find_first_of('\n', prevPos);
-        continue;
-      }
-
-      File* file = context->findProvider(EntityId::fromName("c++symbol:" + symbolName), symbolName);
-      if (file == NULL) {
-        missing.insert(symbolName);
-        context->log("missing symbol: " + symbolName + "\n");
-      } else {
+      File* file = context->findProvider(EntityId::fromName("c++symbol:" + symbolName));
+      if (file != NULL) {
         addObject(context, file);
       }
 
@@ -169,7 +155,7 @@ public:
       subprocess.addArgument(deps.get(i), File::READ);
     }
 
-    subprocess.captureStdout(&logStream);
+    subprocess.captureStdoutAndStderr(&logStream);
 
     subprocess.start(eventManager, this);
 
@@ -205,11 +191,6 @@ void LinkAction::start(EventManager* eventManager, BuildContext* context,
                        OwnedPtr<AsyncOperation>* output) {
   DepsSet deps;
   deps.addObject(context, file.get());
-
-  if (deps.hasMissing()) {
-    context->failed();
-    return;
-  }
 
   OwnedPtrVector<File> flatDeps;
   deps.enumerate(flatDeps.appender());
