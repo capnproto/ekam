@@ -101,6 +101,11 @@ void Subprocess::addArgument(File* file, File::Usage usage) {
   diskRefs.adoptBack(&diskRef);
 }
 
+void Subprocess::captureStdin(OwnedPtr<FileDescriptor>* output) {
+  stdinPipe.allocate();
+  stdinPipe->releaseWriteEnd(output);
+}
+
 void Subprocess::captureStdout(OwnedPtr<FileDescriptor>* output) {
   stdoutPipe.allocate();
   stdoutPipe->releaseReadEnd(output);
@@ -142,6 +147,9 @@ void Subprocess::start(EventManager* eventManager, EventManager::ProcessExitCall
 
     DEBUG_INFO << "exec: " << command;
 
+    if (stdinPipe != NULL) {
+      stdinPipe->attachReadEndForExec(STDIN_FILENO);
+    }
     if (stdoutPipe != NULL) {
       stdoutPipe->attachWriteEndForExec(STDOUT_FILENO);
     }
@@ -164,6 +172,9 @@ void Subprocess::start(EventManager* eventManager, EventManager::ProcessExitCall
   } else {
     if (stdoutPipe != NULL) {
       stdoutPipe.clear();
+    }
+    if (stdinPipe != NULL) {
+      stdinPipe.clear();
     }
     if (stderrPipe != NULL) {
       stderrPipe.clear();

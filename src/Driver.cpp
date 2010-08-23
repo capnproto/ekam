@@ -78,6 +78,7 @@ private:
     // implements Callback ---------------------------------------------------------------
     void run() {
       actionDriver->asyncCallbackOp.clear();
+      actionDriver->isRunning = true;
       actionDriver->action->start(&actionDriver->eventGroup, actionDriver,
                                   &actionDriver->runningAction);
     }
@@ -109,6 +110,9 @@ private:
   OwnedPtr<File> tmpdir;
   OwnedPtr<Dashboard::Task> dashboardTask;
 
+  // TODO:  Get rid of "state".  Maybe replace with "status" or something, but don't try to
+  //   track both whether we're running and what the status was at the same time.  (I already
+  //   had to split isRunning into a separate boolean due to issues with this.)
   enum {
     PENDING,
     RUNNING,
@@ -123,6 +127,7 @@ private:
   DoneCallback doneCallback;
   OwnedPtr<AsyncOperation> asyncCallbackOp;
 
+  bool isRunning;
   OwnedPtr<AsyncOperation> runningAction;
 
   typedef std::tr1::unordered_map<EntityId, std::string, EntityId::HashFunc> MissingDependencyMap;
@@ -147,7 +152,7 @@ private:
 Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* tmploc,
                                    OwnedPtr<Dashboard::Task>* taskToAdopt)
     : driver(driver), state(PENDING), eventGroup(driver->eventManager, this),
-      startCallback(this), doneCallback(this) {
+      startCallback(this), doneCallback(this), isRunning(false) {
   action.adopt(actionToAdopt);
   tmploc->parent(&this->tmpdir);
   dashboardTask.adopt(taskToAdopt);
@@ -209,12 +214,15 @@ void Driver::ActionDriver::newOutput(const std::string& basename, OwnedPtr<File>
 }
 
 void Driver::ActionDriver::addActionType(OwnedPtr<ActionFactory>* factoryToAdopt) {
+  ensureRunning();
   driver->addActionFactory(factoryToAdopt->get());
   driver->rescanForNewFactory(factoryToAdopt->get());
   driver->ownedFactories.adoptBack(factoryToAdopt);
 }
 
 void Driver::ActionDriver::noMoreEvents() {
+  ensureRunning();
+
   if (state == RUNNING) {
     state = DONE;
     queueDoneCallback();
@@ -222,12 +230,12 @@ void Driver::ActionDriver::noMoreEvents() {
 }
 
 void Driver::ActionDriver::passed() {
+  ensureRunning();
+
   if (state == FAILED) {
     // Ignore passed() after failed().
     return;
   }
-
-  ensureRunning();
 
   if (!missingDependencies.empty()) {
     throw std::runtime_error("Action reported success despite missing dependencies.");
@@ -238,6 +246,8 @@ void Driver::ActionDriver::passed() {
 }
 
 void Driver::ActionDriver::failed() {
+  ensureRunning();
+
   if (state == FAILED) {
     // Ignore redundant call to failed().
     return;
@@ -248,14 +258,13 @@ void Driver::ActionDriver::failed() {
     // (done callback should already be queued)
     throw std::runtime_error("Called failed() after passed().");
   } else {
-    ensureRunning();
     state = FAILED;
     queueDoneCallback();
   }
 }
 
 void Driver::ActionDriver::ensureRunning() {
-  if (state != RUNNING) {
+  if (!isRunning) {
     throw std::runtime_error("Action is not running.");
   }
 }
@@ -265,9 +274,7 @@ void Driver::ActionDriver::queueDoneCallback() {
 }
 
 void Driver::ActionDriver::threwException(const std::exception& e) {
-  if (state == PENDING) {
-    DEBUG_ERROR << "State should not be PENDING here.";
-  }
+  ensureRunning();
   dashboardTask->addOutput(std::string("uncaught exception: ") + e.what() + "\n");
   asyncCallbackOp.clear();
   state = FAILED;
@@ -275,9 +282,7 @@ void Driver::ActionDriver::threwException(const std::exception& e) {
 }
 
 void Driver::ActionDriver::threwUnknownException() {
-  if (state == PENDING) {
-    DEBUG_ERROR << "State should not be PENDING here.";
-  }
+  ensureRunning();
   dashboardTask->addOutput("uncaught exception of unknown type\n");
   asyncCallbackOp.clear();
   state = FAILED;
@@ -285,12 +290,11 @@ void Driver::ActionDriver::threwUnknownException() {
 }
 
 void Driver::ActionDriver::returned() {
-  if (state == PENDING) {
-    DEBUG_ERROR << "State should not be PENDING here.";
-  }
+  ensureRunning();
 
   // Cancel anything still running.
   runningAction.clear();
+  isRunning = false;
 
   // Pull self out of driver->activeActions.
   OwnedPtr<ActionDriver> self;

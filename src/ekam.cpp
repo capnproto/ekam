@@ -46,6 +46,7 @@
 //#include "KqueueEventManager.h"
 #include "PollEventManager.h"
 #include "CppActionFactory.h"
+#include "ExecPluginActionFactory.h"
 
 namespace ekam {
 
@@ -111,6 +112,9 @@ int main(int argc, char* argv[]) {
 
   CppActionFactory cppActionFactory;
   driver.addActionFactory(&cppActionFactory);
+
+  ExecPluginActionFactory execPluginActionFactory;
+  driver.addActionFactory(&execPluginActionFactory);
 
   driver.start();
   eventManager.loop();

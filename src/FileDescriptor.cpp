@@ -101,6 +101,16 @@ ssize_t FileDescriptor::write(const void* buffer, size_t size) {
   }
 }
 
+void FileDescriptor::writeAll(const void* buffer, size_t size) {
+  const char* cbuffer = reinterpret_cast<const char*>(buffer);
+
+  while (size > 0) {
+    ssize_t n = write(cbuffer, size);
+    cbuffer += n;
+    size -= n;
+  }
+}
+
 void FileDescriptor::stat(struct stat* stats) {
   while (true) {
     if (fstat(fd, stats) >= 0) {

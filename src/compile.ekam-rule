@@ -1,0 +1,44 @@
+#! /bin/sh
+
+set -eu
+
+if test $# = 0; then
+  # Ekam is querying the script.  Tell it that we like C++ source files.
+  echo pattern '*.cpp *.cc *.C'
+  exit 0
+fi
+
+INPUT=$1
+
+BASENAME=`basename $INPUT .cpp`
+
+# Ask Ekam where to put the output file.
+echo newOutput ${BASENAME}.o
+read OUTPUT
+
+# Compile, making sure all logs go to stderr.
+CXXFLAGS=${CXXFLAGS:-}
+c++ $CXXFLAGS -c $INPUT -o $OUTPUT >&2
+
+# Ask Ekam where to put the symbol and deps lists.
+echo newOutput ${BASENAME}.o.syms
+read SYMFILE
+echo newOutput ${BASENAME}.o.deps
+read DEPFILE
+
+# Generate the symbol list.
+# TODO:  Would be nice to use nm -C here to demangle names but it doesn't appear
+#   to be supported on OSX.
+nm $OUTPUT > $SYMFILE
+
+# Function which reads the symbol list on stdin and writes all symbols matching
+# the given type pattern to stdout, optionally with a prefix.
+readsyms() {
+  grep '[^ ]*  *['$1'] ' | sed -e 's/^[^ ]*  *. \(.*\)$/'"${2:-}"'\1/g'
+}
+
+# Construct the deps file by listing all undefined symbols.
+readsyms U < $SYMFILE > $DEPFILE
+
+# Tell Ekam about the symbols provided by this file.
+readsyms ABCDGRSTV "provide ${BASENAME}.o c++symbol:" < $SYMFILE

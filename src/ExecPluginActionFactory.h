@@ -28,54 +28,24 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_SUBPROCESS_H_
-#define EKAM_SUBPROCESS_H_
+#ifndef EKAM_EXECPLUGINACTIONFACTORY_H_
+#define EKAM_EXECPLUGINACTIONFACTORY_H_
 
-#include <string>
-#include <vector>
-
-#include "OwnedPtr.h"
-#include "EventManager.h"
-#include "FileDescriptor.h"
-#include "File.h"
+#include "Action.h"
 
 namespace ekam {
 
-class Subprocess {
+class ExecPluginActionFactory : public ActionFactory {
 public:
-  Subprocess();
-  ~Subprocess();
+  ExecPluginActionFactory();
+  ~ExecPluginActionFactory();
 
-  void addArgument(const std::string& arg);
-  void addArgument(File* file, File::Usage usage);
-
-  void captureStdin(OwnedPtr<FileDescriptor>* output);
-  void captureStdout(OwnedPtr<FileDescriptor>* output);
-  void captureStderr(OwnedPtr<FileDescriptor>* output);
-  void captureStdoutAndStderr(OwnedPtr<FileDescriptor>* output);
-
-  void start(EventManager* eventManager,
-             EventManager::ProcessExitCallback* callback);
-
-private:
-  class CallbackWrapper;
-
-  std::string executableName;
-  bool doPathLookup;
-
-  std::vector<std::string> args;
-  OwnedPtrVector<File::DiskRef> diskRefs;
-
-  OwnedPtr<Pipe> stdinPipe;
-  OwnedPtr<Pipe> stdoutPipe;
-  OwnedPtr<Pipe> stderrPipe;
-  OwnedPtr<Pipe> stdoutAndStderrPipe;
-
-  pid_t pid;
-  OwnedPtr<AsyncOperation> waitOperation;
-  OwnedPtr<CallbackWrapper> callbackWrapper;
+  // implements ActionFactory ------------------------------------------------------------
+  bool tryMakeAction(File* file, OwnedPtr<Action>* output);
+  void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter);
+  bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output);
 };
 
 }  // namespace ekam
 
-#endif  // EKAM_SUBPROCESS_H_
+#endif  // EKAM_EXECPLUGINACTIONFACTORY_H_
