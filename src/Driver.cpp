@@ -44,7 +44,7 @@ namespace ekam {
 
 class Driver::ActionDriver : public BuildContext, public EventGroup::ExceptionHandler {
 public:
-  ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* tmploc,
+  ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* srcloc, File* tmploc,
                OwnedPtr<Dashboard::Task>* taskToAdopt);
   ~ActionDriver();
 
@@ -56,6 +56,7 @@ public:
   void provide(File* file, const std::vector<EntityId>& entities);
   void log(const std::string& text);
 
+  bool findInput(const std::string& basename, OwnedPtr<File>* output);
   void newOutput(const std::string& basename, OwnedPtr<File>* output);
 
   void addActionType(OwnedPtr<ActionFactory>* factoryToAdopt);
@@ -105,6 +106,7 @@ private:
 
   Driver* driver;
   OwnedPtr<Action> action;
+  OwnedPtr<File> srcdir;
   OwnedPtr<File> tmpdir;
   OwnedPtr<Dashboard::Task> dashboardTask;
 
@@ -149,11 +151,13 @@ private:
   friend class Driver;
 };
 
-Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* tmploc,
+Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
+                                   File* srcloc, File* tmploc,
                                    OwnedPtr<Dashboard::Task>* taskToAdopt)
     : driver(driver), state(PENDING), eventGroup(driver->eventManager, this),
       startCallback(this), doneCallback(this), isRunning(false), startVersion(0) {
   action.adopt(actionToAdopt);
+  srcloc->parent(&this->srcdir);
   tmploc->parent(&this->tmpdir);
   dashboardTask.adopt(taskToAdopt);
 }
@@ -202,6 +206,25 @@ void Driver::ActionDriver::provide(File* file, const std::vector<EntityId>& enti
 void Driver::ActionDriver::log(const std::string& text) {
   ensureRunning();
   dashboardTask->addOutput(text);
+}
+
+bool Driver::ActionDriver::findInput(const std::string& basename, OwnedPtr<File>* output) {
+  ensureRunning();
+
+  OwnedPtr<File> file;
+  srcdir->relative(basename, &file);
+  if (file->exists()) {
+    output->adopt(&file);
+    return true;
+  }
+
+  tmpdir->relative(basename, &file);
+  if (file->exists()) {
+    output->adopt(&file);
+    return true;
+  }
+
+  return false;
 }
 
 void Driver::ActionDriver::newOutput(const std::string& basename, OwnedPtr<File>* output) {
@@ -470,7 +493,7 @@ void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file, File* t
   dashboard->beginTask((*actionToAdopt)->getVerb(), file->displayName(), &task);
 
   OwnedPtr<ActionDriver> actionDriver;
-  actionDriver.allocate(this, actionToAdopt, tmpLocation, &task);
+  actionDriver.allocate(this, actionToAdopt, file, tmpLocation, &task);
 
   pendingActions.adoptBack(&actionDriver);
 }

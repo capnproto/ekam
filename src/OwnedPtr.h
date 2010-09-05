@@ -81,6 +81,10 @@ public:
   void allocate(const P1& p1, const P2& p2, const P3& p3, const P4& p4) {
     reset(new T(p1, p2, p3, p4));
   }
+  template <typename P1, typename P2, typename P3, typename P4, typename P5>
+  void allocate(const P1& p1, const P2& p2, const P3& p3, const P4& p4, const P5& p5) {
+    reset(new T(p1, p2, p3, p4, p5));
+  }
 
   template <typename Sub>
   void allocateSubclass() {

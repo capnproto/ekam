@@ -98,7 +98,37 @@ public:
     std::string args = line;
     std::string command = splitToken(&args);
 
-    if (command == "newOutput") {
+    if (command == "findProvider") {
+      File* provider = context->findProvider(EntityId::fromName(args));
+      if (provider != NULL) {
+        OwnedPtr<File::DiskRef> diskRef;
+        provider->getOnDisk(File::READ, &diskRef);
+        std::string path = diskRef->path();
+        diskRefs.adoptBack(&diskRef);
+        responseStream->writeAll(path.data(), path.size());
+      }
+      responseStream->writeAll("\n", 1);
+    } else if (command == "newProvider") {
+      // TODO:  Create a new output file and register it as a provider.
+      context->log("newProvider not implemented");
+      context->failed();
+    } else if (command == "noteInput") {
+      // The action is reading some file outside the working directory.  For now we ignore this.
+      // TODO:  Pay attention?  We could trigger rebuilds when installed tools are updated, etc.
+    } else if (command == "findInput") {
+      OwnedPtr<File> file;
+      if (context->findInput(args, &file)) {
+        OwnedPtr<File::DiskRef> diskRef;
+
+        file->getOnDisk(File::READ, &diskRef);
+        std::string path = diskRef->path();
+
+        diskRefs.adoptBack(&diskRef);
+
+        responseStream->writeAll(path.data(), path.size());
+      }
+      responseStream->writeAll("\n", 1);
+    } else if (command == "newOutput") {
       OwnedPtr<File> file;
       context->newOutput(args, &file);
       OwnedPtr<File::DiskRef> diskRef;
@@ -106,7 +136,7 @@ public:
       file->getOnDisk(File::WRITE, &diskRef);
       std::string path = diskRef->path();
 
-      outputDiskRefs.adoptBack(&diskRef);
+      diskRefs.adoptBack(&diskRef);
       outputFiles.adopt(args, &file);
 
       responseStream->writeAll(path.data(), path.size());
@@ -155,7 +185,7 @@ private:
   LineReader lineReader;
 
   OwnedPtrMap<std::string, File> outputFiles;
-  OwnedPtrVector<File::DiskRef> outputDiskRefs;
+  OwnedPtrVector<File::DiskRef> diskRefs;
   typedef std::multimap<File*, EntityId> ProvisionMap;
   ProvisionMap provisions;
 };

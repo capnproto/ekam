@@ -61,6 +61,7 @@ public:
   virtual void provide(File* file, const std::vector<EntityId>& entities) = 0;
   virtual void log(const std::string& text) = 0;
 
+  virtual bool findInput(const std::string& basename, OwnedPtr<File>* output) = 0;
   virtual void newOutput(const std::string& basename, OwnedPtr<File>* output) = 0;
 
   virtual void addActionType(OwnedPtr<ActionFactory>* factoryToAdopt) = 0;
