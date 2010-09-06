@@ -98,8 +98,13 @@ public:
     std::string args = line;
     std::string command = splitToken(&args);
 
-    if (command == "findProvider") {
-      File* provider = context->findProvider(EntityId::fromName(args));
+    if (command == "findProvider" || command == "findInput") {
+      File* provider;
+      if (command == "findProvider") {
+        provider = context->findProvider(EntityId::fromName(args));
+      } else {
+        provider = context->findInput(args);
+      }
       if (provider != NULL) {
         OwnedPtr<File::DiskRef> diskRef;
         provider->getOnDisk(File::READ, &diskRef);
@@ -115,19 +120,6 @@ public:
     } else if (command == "noteInput") {
       // The action is reading some file outside the working directory.  For now we ignore this.
       // TODO:  Pay attention?  We could trigger rebuilds when installed tools are updated, etc.
-    } else if (command == "findInput") {
-      OwnedPtr<File> file;
-      if (context->findInput(args, &file)) {
-        OwnedPtr<File::DiskRef> diskRef;
-
-        file->getOnDisk(File::READ, &diskRef);
-        std::string path = diskRef->path();
-
-        diskRefs.adoptBack(&diskRef);
-
-        responseStream->writeAll(path.data(), path.size());
-      }
-      responseStream->writeAll("\n", 1);
     } else if (command == "newOutput") {
       OwnedPtr<File> file;
       context->newOutput(args, &file);

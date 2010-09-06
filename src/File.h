@@ -43,7 +43,7 @@ public:
   virtual ~File();
 
   virtual std::string basename() = 0;
-  virtual std::string displayName() = 0;
+  virtual std::string canonicalName() = 0;
   virtual void clone(OwnedPtr<File>* output) = 0;
   virtual void parent(OwnedPtr<File>* output) = 0;
 

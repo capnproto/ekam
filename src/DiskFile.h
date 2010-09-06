@@ -42,7 +42,7 @@ public:
 
   // implements File ---------------------------------------------------------------------
   std::string basename();
-  std::string displayName();
+  std::string canonicalName();
   void clone(OwnedPtr<File>* output);
   void parent(OwnedPtr<File>* output);
 

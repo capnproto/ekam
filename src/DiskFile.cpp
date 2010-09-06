@@ -123,12 +123,20 @@ std::string DiskFile::basename() {
   }
 }
 
-std::string DiskFile::displayName() {
-  if (path.empty()) {
+std::string DiskFile::canonicalName() {
+  if (parentRef == NULL) {
     return ".";
   }
 
-  return path;
+  std::string result = parentRef->canonicalName();
+  if (result == ".") {
+    result.clear();
+  } else {
+    result.push_back('/');
+  }
+  result.append(basename());
+
+  return result;
 }
 
 void DiskFile::clone(OwnedPtr<File>* output) {
@@ -137,7 +145,7 @@ void DiskFile::clone(OwnedPtr<File>* output) {
 
 void DiskFile::parent(OwnedPtr<File>* output) {
   if (parentRef == NULL) {
-    throw std::runtime_error("Tried to get parent of top-level directory: " + displayName());
+    throw std::runtime_error("Tried to get parent of top-level directory: " + canonicalName());
   }
   parentRef->clone(output);
 }
@@ -271,7 +279,7 @@ void DiskFile::relative(const std::string& path, OwnedPtr<File>* output) {
       relative(rest, output);
     } else if (first_part == "..") {
       if (parentRef == NULL) {
-        throw std::runtime_error("Tried to get parent of top-level directory: " + displayName());
+        throw std::runtime_error("Tried to get parent of top-level directory: " + canonicalName());
       }
       parentRef->relative(rest, output);
     } else {
