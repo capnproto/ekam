@@ -44,6 +44,7 @@ public:
   std::string basename();
   std::string canonicalName();
   void clone(OwnedPtr<File>* output);
+  bool hasParent();
   void parent(OwnedPtr<File>* output);
 
   bool equals(File* other);

@@ -31,8 +31,10 @@
 
 #include "Entity.h"
 
-#include "sha256.h"
 #include <stdexcept>
+
+#include "sha256.h"
+#include "File.h"
 
 namespace ekam {
 
@@ -66,6 +68,10 @@ EntityId EntityId::fromBytes(const std::string& data) {
 
   memcpy(result.hash, data.data(), sizeof(result.hash));
   return result;
+}
+
+EntityId EntityId::fromFile(File* file) {
+  return fromName("file:" + file->canonicalName());
 }
 
 std::string toString(const EntityId& id) {

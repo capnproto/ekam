@@ -45,6 +45,7 @@ public:
   virtual std::string basename() = 0;
   virtual std::string canonicalName() = 0;
   virtual void clone(OwnedPtr<File>* output) = 0;
+  virtual bool hasParent() = 0;
   virtual void parent(OwnedPtr<File>* output) = 0;
 
   virtual bool equals(File* other) = 0;

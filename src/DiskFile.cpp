@@ -143,6 +143,10 @@ void DiskFile::clone(OwnedPtr<File>* output) {
   output->allocateSubclass<DiskFile>(path, parentRef.get());
 }
 
+bool DiskFile::hasParent() {
+  return parentRef != NULL;
+}
+
 void DiskFile::parent(OwnedPtr<File>* output) {
   if (parentRef == NULL) {
     throw std::runtime_error("Tried to get parent of top-level directory: " + canonicalName());

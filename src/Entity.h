@@ -38,12 +38,15 @@
 
 namespace ekam {
 
+class File;
+
 class EntityId {
 public:
   EntityId() {}
 
   static EntityId fromName(const std::string& name);
   static EntityId fromBytes(const std::string& data);
+  static EntityId fromFile(File* file);
 
   bool operator==(const EntityId& other) const {
     return memcmp(hash, other.hash, sizeof(hash)) == 0;

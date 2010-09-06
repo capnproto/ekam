@@ -99,13 +99,17 @@ private:
 
   void startSomeActions();
 
-  void scanForActions(File* src, File* tmp);
+  enum ScanType {
+    ORIGINAL_INPUT,
+    DERIVED_INPUT
+  };
+  void scanForActions(File* src, File* tmp, ScanType type);
   void rescanForNewFactory(ActionFactory* factory);
 
   void queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file, File* tmpLocation);
 
   void registerProvider(OwnedPtr<File>* fileToAdopt, const std::vector<EntityId>& entities);
-  void unblockActions(const EntityId& entity);
+  void resetDependentActions(const EntityId& entity);
   void fireTriggers(const EntityId& entity, File* file);
 };
 
