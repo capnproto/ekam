@@ -85,9 +85,6 @@ private:
   CompletedActionMap completedActions;
   OwnedPtrMap<ActionDriver*, ActionDriver> completedActionPtrs;
 
-  typedef std::tr1::unordered_map<pid_t, ActionDriver*> ProcessMap;
-  ProcessMap processMap;
-
   struct SrcTmpPair {
     OwnedPtr<File> srcFile;
     Hash srcFileHash;
