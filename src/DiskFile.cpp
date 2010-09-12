@@ -42,6 +42,7 @@
 
 #include "Debug.h"
 #include "FileDescriptor.h"
+#include "Hash.h"
 
 namespace ekam {
 
@@ -191,6 +192,22 @@ bool DiskFile::isDirectory() {
 }
 
 // File only.
+Hash DiskFile::contentHash() {
+  Hash::Builder hasher;
+  FileDescriptor fd(path, O_RDONLY);
+
+  char buffer[8192];
+
+  while (true) {
+    size_t n = fd.read(buffer, sizeof(buffer));
+    if (n == 0) {
+      return hasher.build();
+    }
+
+    hasher.add(buffer, n);
+  }
+}
+
 std::string DiskFile::readAll() {
   FileDescriptor fd(path, O_RDONLY);
 

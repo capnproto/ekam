@@ -36,6 +36,8 @@
 #include <string>
 #include <vector>
 
+#include "Hash.h"
+
 namespace ekam {
 
 class File;
@@ -44,46 +46,36 @@ class EntityId {
 public:
   EntityId() {}
 
-  static EntityId fromName(const std::string& name);
-  static EntityId fromBytes(const std::string& data);
+  static inline EntityId fromName(const std::string& name) {
+    return EntityId(Hash::of(name));
+  }
+
   static EntityId fromFile(File* file);
 
-  bool operator==(const EntityId& other) const {
-    return memcmp(hash, other.hash, sizeof(hash)) == 0;
-  }
-  bool operator!=(const EntityId& other) const {
-    return memcmp(hash, other.hash, sizeof(hash)) != 0;
-  }
-  bool operator<(const EntityId& other) const {
-    return memcmp(hash, other.hash, sizeof(hash)) < 0;
-  }
-  bool operator>(const EntityId& other) const {
-    return memcmp(hash, other.hash, sizeof(hash)) > 0;
-  }
-  bool operator<=(const EntityId& other) const {
-    return memcmp(hash, other.hash, sizeof(hash)) <= 0;
-  }
-  bool operator>=(const EntityId& other) const {
-    return memcmp(hash, other.hash, sizeof(hash)) >= 0;
-  }
+  inline std::string toString() { return hash.toString(); }
+
+  inline bool operator==(const EntityId& other) const { return hash == other.hash; }
+  inline bool operator!=(const EntityId& other) const { return hash != other.hash; }
+  inline bool operator< (const EntityId& other) const { return hash <  other.hash; }
+  inline bool operator> (const EntityId& other) const { return hash >  other.hash; }
+  inline bool operator<=(const EntityId& other) const { return hash <= other.hash; }
+  inline bool operator>=(const EntityId& other) const { return hash >= other.hash; }
 
   class HashFunc {
   public:
-    size_t operator()(const EntityId& id) const {
-      return id.shortHash;
+    inline size_t operator()(const EntityId& id) const {
+      return inner(id.hash);
     }
+
+  private:
+    Hash::StlHashFunc inner;
   };
 
 private:
-  union {
-    unsigned char hash[32];
-    size_t shortHash;
-  };
+  Hash hash;
 
-  friend std::string toString(const EntityId& id);
+  inline explicit EntityId(Hash hash) : hash(hash) {}
 };
-
-std::string toString(const EntityId& id);
 
 }  // namespace ekam
 

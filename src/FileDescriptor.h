@@ -49,8 +49,8 @@ public:
   FileDescriptor(int fd, const std::string& name);
   ~FileDescriptor();
 
-  ssize_t read(void* buffer, size_t size);
-  ssize_t write(const void* buffer, size_t size);
+  size_t read(void* buffer, size_t size);
+  size_t write(const void* buffer, size_t size);
   void writeAll(const void* buffer, size_t size);
   void stat(struct stat* stats);
 

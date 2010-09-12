@@ -79,7 +79,7 @@ FileDescriptor::~FileDescriptor() {
   }
 }
 
-ssize_t FileDescriptor::read(void* buffer, size_t size) {
+size_t FileDescriptor::read(void* buffer, size_t size) {
   while (true) {
     ssize_t result = ::read(fd, buffer, size);
     if (result >= 0) {
@@ -90,7 +90,7 @@ ssize_t FileDescriptor::read(void* buffer, size_t size) {
   }
 }
 
-ssize_t FileDescriptor::write(const void* buffer, size_t size) {
+size_t FileDescriptor::write(const void* buffer, size_t size) {
   while (true) {
     ssize_t result = ::write(fd, buffer, size);
     if (result >= 0) {

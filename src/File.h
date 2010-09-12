@@ -38,6 +38,8 @@
 
 namespace ekam {
 
+class Hash;
+
 class File {
 public:
   virtual ~File();
@@ -70,6 +72,7 @@ public:
   virtual bool isDirectory() = 0;
 
   // File only.
+  virtual Hash contentHash() = 0;
   virtual std::string readAll() = 0;
   virtual void writeAll(const std::string& content) = 0;
   virtual void writeAll(const void* data, int size) = 0;

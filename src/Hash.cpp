@@ -28,15 +28,64 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "Hash.h"
 
-#include "Entity.h"
+#include <stdexcept>
 
+#include "sha256.h"
 #include "File.h"
 
 namespace ekam {
 
-EntityId EntityId::fromFile(File* file) {
-  return fromName("file:" + file->canonicalName());
+namespace {
+
+char HexDigit(unsigned int value) {
+  value &= 0x0F;
+  if (value < 10) {
+    return '0' + value;
+  } else {
+    return 'a' + value - 10;
+  }
+}
+
+} // anonymous namespace
+
+Hash Hash::of(const std::string& data) {
+  return Builder().add(data).build();
+}
+
+Hash Hash::of(void* data, size_t size) {
+  return Builder().add(data, size).build();
+}
+
+std::string Hash::toString() {
+  std::string result;
+  result.reserve(sizeof(hash) * 2);
+  for (unsigned int i = 0; i < sizeof(hash); i++) {
+    result.push_back(HexDigit(hash[i] >> 4));
+    result.push_back(HexDigit(hash[i]));
+  }
+  return result;
+}
+
+Hash::Builder::Builder() {
+  SHA256_Init(&context);
+}
+
+Hash::Builder& Hash::Builder::add(const std::string& data) {
+  SHA256_Update(&context, data.data(), data.size());
+  return *this;
+}
+
+Hash::Builder& Hash::Builder::add(void* data, size_t size) {
+  SHA256_Update(&context, data, size);
+  return *this;
+}
+
+Hash Hash::Builder::build() {
+  Hash result;
+  SHA256_Final(result.hash, &context);
+  return result;
 }
 
 }  // namespace ekam

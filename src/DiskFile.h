@@ -56,6 +56,7 @@ public:
   bool isDirectory();
 
   // File only.
+  Hash contentHash();
   std::string readAll();
   void writeAll(const std::string& content);
   void writeAll(const void* data, int size);

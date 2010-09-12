@@ -28,15 +28,70 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifndef EKAM_HASH_H_
+#define EKAM_HASH_H_
 
-#include "Entity.h"
+#include <inttypes.h>
+#include <string.h>
+#include <string>
 
-#include "File.h"
+#include "sha256.h"
 
 namespace ekam {
 
-EntityId EntityId::fromFile(File* file) {
-  return fromName("file:" + file->canonicalName());
-}
+class Hash {
+public:
+  inline Hash() {}
+
+  class Builder {
+  public:
+    Builder();
+    Builder& add(const std::string& data);
+    Builder& add(void* data, size_t size);
+    Hash build();
+
+  private:
+    SHA256Context context;
+  };
+
+  static Hash of(const std::string& data);
+  static Hash of(void* data, size_t size);
+
+  std::string toString();
+
+  inline bool operator==(const Hash& other) const {
+    return memcmp(hash, other.hash, sizeof(hash)) == 0;
+  }
+  inline bool operator!=(const Hash& other) const {
+    return memcmp(hash, other.hash, sizeof(hash)) != 0;
+  }
+  inline bool operator<(const Hash& other) const {
+    return memcmp(hash, other.hash, sizeof(hash)) < 0;
+  }
+  inline bool operator>(const Hash& other) const {
+    return memcmp(hash, other.hash, sizeof(hash)) > 0;
+  }
+  inline bool operator<=(const Hash& other) const {
+    return memcmp(hash, other.hash, sizeof(hash)) <= 0;
+  }
+  inline bool operator>=(const Hash& other) const {
+    return memcmp(hash, other.hash, sizeof(hash)) >= 0;
+  }
+
+  class StlHashFunc {
+  public:
+    inline size_t operator()(const Hash& h) const {
+      return h.shortHash;
+    }
+  };
+
+private:
+  union {
+    unsigned char hash[32];
+    size_t shortHash;
+  };
+};
 
 }  // namespace ekam
+
+#endif  // EKAM_HASH_H_
