@@ -33,7 +33,7 @@
 
 #include <tr1/unordered_map>
 #include <tr1/memory>
-#include <list>
+#include <set>
 
 #include "OwnedPtr.h"
 #include "File.h"
@@ -70,11 +70,18 @@ private:
   typedef std::tr1::unordered_multimap<EntityId, ActionFactory*, EntityId::HashFunc> TriggerMap;
   TriggerMap triggers;
 
-  struct EntityInfo {
-    File* provider;
-    Hash contentHash;  // = provider->contentHash(), so that we don't have to recompute it.
+  struct Provision {
+    OwnedPtr<File> file;
+    Hash contentHash;
+    std::vector<EntityId> entities;
   };
-  typedef std::tr1::unordered_multimap<EntityId, EntityInfo, EntityId::HashFunc> EntityMap;
+
+  // TODO:  Most entities only have one instance, so creating a whole ProvisionSet for them is
+  //   wasteful.  But some entities have LOTS of provisions, in which case a set (rather than, say,
+  //   having EntityMap be an unordered_map<EntityId, Provision*>) seems necessary.  This may call
+  //   for a specialized data structure.
+  typedef std::set<Provision*> ProvisionSet;
+  typedef OwnedPtrMap<EntityId, ProvisionSet, EntityId::HashFunc> EntityMap;
   EntityMap entityMap;
 
   OwnedPtrVector<ActionDriver> activeActions;
@@ -89,6 +96,7 @@ private:
     OwnedPtr<File> srcFile;
     Hash srcFileHash;
     OwnedPtr<File> tmpLocation;
+    OwnedPtr<Provision> provision;
   };
   OwnedPtrVector<SrcTmpPair> allScannedFiles;
 
@@ -104,7 +112,7 @@ private:
   void queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file,
                       const Hash& fileHash, File* tmpLocation);
 
-  void registerProvider(File* file, const std::vector<EntityId>& entities);
+  void registerProvider(Provision* provision);
   void resetDependentActions(const EntityId& entity);
   void fireTriggers(const EntityId& entity, File* file, const Hash& fileHash);
 };

@@ -161,11 +161,6 @@ private:
 
   OwnedPtrVector<File> outputs;
 
-  struct Provision {
-    OwnedPtr<File> file;
-    std::vector<EntityId> entities;
-  };
-
   OwnedPtrVector<Provision> provisions;
 
   void ensureRunning();
@@ -173,7 +168,7 @@ private:
   void returned();
   void clearDependencies();
   void reset(std::tr1::unordered_set<EntityId, EntityId::HashFunc>* entitiesToReset);
-  EntityInfo* choosePreferredProvider(const EntityId& id);
+  Provision* choosePreferredProvider(const EntityId& id);
 
   friend class Driver;
 };
@@ -211,14 +206,14 @@ void Driver::ActionDriver::start() {
 
 File* Driver::ActionDriver::findProvider(EntityId id) {
   ensureRunning();
-  EntityInfo* info = choosePreferredProvider(id);
+  Provision* provision = choosePreferredProvider(id);
 
-  if (info == NULL) {
+  if (provision == NULL) {
     dependencies.insert(std::make_pair(id, Hash::NULL_HASH));
     return NULL;
   } else {
-    dependencies.insert(std::make_pair(id, info->contentHash));
-    return info->provider;
+    dependencies.insert(std::make_pair(id, provision->contentHash));
+    return provision->file.get();
   }
 }
 
@@ -352,7 +347,7 @@ void Driver::ActionDriver::returned() {
        iter != dependencies.end(); ++iter) {
     // TODO:  Do we care if the file name changes, assuming the content hash is the same?  Here
     //   we only check for a hash change.
-    EntityInfo* preferred = choosePreferredProvider(iter->first);
+    Provision* preferred = choosePreferredProvider(iter->first);
     const Hash& currentHash = preferred == NULL ? Hash::NULL_HASH : preferred->contentHash;
     if (iter->second != currentHash) {
       // Yep.  Must do over.  Clear everything and add again to the action queue.
@@ -383,7 +378,7 @@ void Driver::ActionDriver::returned() {
 
     // Register providers.
     for (int i = 0; i < provisions.size(); i++) {
-      driver->registerProvider(provisions.get(i)->file.get(), provisions.get(i)->entities);
+      driver->registerProvider(provisions.get(i));
     }
 
     // Enqueue new actions based on output files.
@@ -424,13 +419,14 @@ void Driver::ActionDriver::reset(
     for (unsigned int j = 0; j < subEntities.size(); j++) {
       const EntityId& entity = subEntities[j];
 
-      std::pair<EntityMap::iterator, EntityMap::iterator> range =
-          driver->entityMap.equal_range(entity);
-      for (EntityMap::iterator iter = range.first; iter != range.second; ++iter) {
-        if (iter->second.provider->equals(provision->file.get())) {
-          driver->entityMap.erase(iter);
-          break;
-        }
+      ProvisionSet* provisions = driver->entityMap.get(entity);
+      if (provisions == NULL || provisions->erase(provision) == 0) {
+        DEBUG_ERROR << "Provision not in driver->entityMap?";
+        continue;
+      }
+
+      if (provisions->empty()) {
+        driver->entityMap.erase(entity);
       }
     }
   }
@@ -439,25 +435,25 @@ void Driver::ActionDriver::reset(
   outputs.clear();
 }
 
-Driver::EntityInfo* Driver::ActionDriver::choosePreferredProvider(const EntityId& id) {
-  std::pair<EntityMap::iterator, EntityMap::iterator> range = driver->entityMap.equal_range(id);
-  if (range.first == range.second) {
+Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const EntityId& id) {
+  ProvisionSet* provisions = driver->entityMap.get(id);
+  if (provisions == NULL || provisions->empty()) {
     return NULL;
   } else {
-    EntityMap::iterator iter = range.first;
+    ProvisionSet::iterator iter = provisions->begin();
     std::string srcName = srcfile->canonicalName();
-    EntityInfo* bestMatch = &iter->second;
+    Provision* bestMatch = *iter;
     ++iter;
 
-    if (iter != range.second) {
+    if (iter != provisions->end()) {
       // There are multiple entities with this ID.  We must choose which one we like best.
-      std::string bestMatchName = bestMatch->provider->canonicalName();
+      std::string bestMatchName = bestMatch->file->canonicalName();
       int bestMatchDepth = fileDepth(bestMatchName);
       int bestMatchCommonPrefix = commonPrefixLength(srcName, bestMatchName);
 
-      for (; iter != range.second; ++iter) {
-        EntityInfo* candidate = &iter->second;
-        std::string candidateName = candidate->provider->canonicalName();
+      for (; iter != provisions->end(); ++iter) {
+        Provision* candidate = *iter;
+        std::string candidateName = candidate->file->canonicalName();
         int candidateDepth = fileDepth(candidateName);
         int candidateCommonPrefix = commonPrefixLength(srcName, candidateName);
         if (candidateCommonPrefix < bestMatchCommonPrefix) {
@@ -594,9 +590,10 @@ void Driver::scanForActions(File* src, File* tmp, ScanType type) {
       // Register the file as an entity.  We only do this for original inputs because derived
       // files are registered by the creating action.
       if (type == ORIGINAL_INPUT) {
-        std::vector<EntityId> entities;
-        entities.push_back(EntityId::fromFile(current->srcFile.get()));
-        registerProvider(current->srcFile.get(), entities);
+        current->provision.allocate();
+        current->provision->entities.push_back(EntityId::fromFile(current->srcFile.get()));
+        current->srcFile->clone(&current->provision->file);
+        registerProvider(current->provision.get());
       }
 
       // Add to allScannedFiles for easy re-scanning later.
@@ -626,18 +623,24 @@ void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file,
   pendingActions.adoptBack(&actionDriver);
 }
 
-void Driver::registerProvider(File* file, const std::vector<EntityId>& entities) {
-  Hash hash = file->contentHash();
+void Driver::registerProvider(Provision* provision) {
+  provision->contentHash = provision->file->contentHash();
 
-  for (std::vector<EntityId>::const_iterator iter = entities.begin();
-       iter != entities.end(); ++iter) {
+  for (std::vector<EntityId>::const_iterator iter = provision->entities.begin();
+       iter != provision->entities.end(); ++iter) {
     const EntityId& entity = *iter;
-    EntityInfo info = {file, hash};
-    entityMap.insert(std::make_pair(entity, info));
+    ProvisionSet* provisions = entityMap.get(entity);
+    if (provisions == NULL) {
+      OwnedPtr<ProvisionSet> newProvisions;
+      newProvisions.allocate();
+      provisions = newProvisions.get();
+      entityMap.adopt(entity, &newProvisions);
+    }
+    provisions->insert(provision);
 
     resetDependentActions(entity);
 
-    fireTriggers(entity, file, info.contentHash);
+    fireTriggers(entity, provision->file.get(), provision->contentHash);
   }
 }
 
