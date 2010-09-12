@@ -42,6 +42,30 @@
 
 namespace ekam {
 
+namespace {
+
+int fileDepth(const std::string& name) {
+  int result = 0;
+  for (unsigned int i = 0; i < name.size(); i++) {
+    if (name[i] == '/') {
+      ++result;
+    }
+  }
+  return result;
+}
+
+int commonPrefixLength(const std::string& srcName, const std::string& bestMatchName) {
+  std::string::size_type n = std::min(srcName.size(), bestMatchName.size());
+  for (unsigned int i = 0; i < n; i++) {
+    if (srcName[i] != bestMatchName[i]) {
+      return i;
+    }
+  }
+  return n;
+}
+
+}  // namespace
+
 class Driver::ActionDriver : public BuildContext, public EventGroup::ExceptionHandler {
 public:
   ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
@@ -148,6 +172,8 @@ private:
   void queueDoneCallback();
   void returned();
   void clearDependencies();
+  void reset(std::tr1::unordered_set<EntityId, EntityId::HashFunc>* entitiesToReset);
+  EntityInfo* choosePreferredProvider(const EntityId& id);
 
   friend class Driver;
 };
@@ -185,13 +211,14 @@ void Driver::ActionDriver::start() {
 
 File* Driver::ActionDriver::findProvider(EntityId id) {
   ensureRunning();
-  EntityMap::const_iterator iter = driver->entityMap.find(id);
-  if (iter == driver->entityMap.end()) {
+  EntityInfo* info = choosePreferredProvider(id);
+
+  if (info == NULL) {
     dependencies.insert(std::make_pair(id, Hash::NULL_HASH));
     return NULL;
   } else {
-    dependencies.insert(std::make_pair(id, iter->second.contentHash));
-    return iter->second.provider;
+    dependencies.insert(std::make_pair(id, info->contentHash));
+    return info->provider;
   }
 }
 
@@ -323,8 +350,11 @@ void Driver::ActionDriver::returned() {
   // Did the action use any entities that changed since the action started?
   for (DependencySet::const_iterator iter = dependencies.begin();
        iter != dependencies.end(); ++iter) {
-    EntityMap::const_iterator iter2 = driver->entityMap.find(iter->first);
-    if (iter2 != driver->entityMap.end() && iter2->second.contentHash != iter->second) {
+    // TODO:  Do we care if the file name changes, assuming the content hash is the same?  Here
+    //   we only check for a hash change.
+    EntityInfo* preferred = choosePreferredProvider(iter->first);
+    const Hash& currentHash = preferred == NULL ? Hash::NULL_HASH : preferred->contentHash;
+    if (iter->second != currentHash) {
       // Yep.  Must do over.  Clear everything and add again to the action queue.
       state = PENDING;
       provisions.clear();
@@ -353,7 +383,7 @@ void Driver::ActionDriver::returned() {
 
     // Register providers.
     for (int i = 0; i < provisions.size(); i++) {
-      driver->registerProvider(&provisions.get(i)->file, provisions.get(i)->entities);
+      driver->registerProvider(provisions.get(i)->file.get(), provisions.get(i)->entities);
     }
 
     // Enqueue new actions based on output files.
@@ -377,6 +407,92 @@ void Driver::ActionDriver::clearDependencies() {
     }
   }
   dependencies.clear();
+}
+
+void Driver::ActionDriver::reset(
+    std::tr1::unordered_set<EntityId, EntityId::HashFunc>* entitiesToReset) {
+  state = ActionDriver::PENDING;
+
+  for (int i = 0; i < provisions.size(); i++) {
+    Provision* provision = provisions.get(i);
+    const std::vector<EntityId>& subEntities = provision->entities;
+
+    // All provided entities must be reset as well.
+    entitiesToReset->insert(subEntities.begin(), subEntities.end());
+
+    // Remove from entityMap.
+    for (unsigned int j = 0; j < subEntities.size(); j++) {
+      const EntityId& entity = subEntities[j];
+
+      std::pair<EntityMap::iterator, EntityMap::iterator> range =
+          driver->entityMap.equal_range(entity);
+      for (EntityMap::iterator iter = range.first; iter != range.second; ++iter) {
+        if (iter->second.provider->equals(provision->file.get())) {
+          driver->entityMap.erase(iter);
+          break;
+        }
+      }
+    }
+  }
+
+  provisions.clear();
+  outputs.clear();
+}
+
+Driver::EntityInfo* Driver::ActionDriver::choosePreferredProvider(const EntityId& id) {
+  std::pair<EntityMap::iterator, EntityMap::iterator> range = driver->entityMap.equal_range(id);
+  if (range.first == range.second) {
+    return NULL;
+  } else {
+    EntityMap::iterator iter = range.first;
+    std::string srcName = srcfile->canonicalName();
+    EntityInfo* bestMatch = &iter->second;
+    ++iter;
+
+    if (iter != range.second) {
+      // There are multiple entities with this ID.  We must choose which one we like best.
+      std::string bestMatchName = bestMatch->provider->canonicalName();
+      int bestMatchDepth = fileDepth(bestMatchName);
+      int bestMatchCommonPrefix = commonPrefixLength(srcName, bestMatchName);
+
+      for (; iter != range.second; ++iter) {
+        EntityInfo* candidate = &iter->second;
+        std::string candidateName = candidate->provider->canonicalName();
+        int candidateDepth = fileDepth(candidateName);
+        int candidateCommonPrefix = commonPrefixLength(srcName, candidateName);
+        if (candidateCommonPrefix < bestMatchCommonPrefix) {
+          // Prefer entity that is closer in the directory tree.
+          continue;
+        } else if (candidateCommonPrefix == bestMatchCommonPrefix) {
+          if (candidateDepth > bestMatchDepth) {
+            // Prefer entity that is less deeply nested.
+            continue;
+          } else if (candidateDepth == bestMatchDepth) {
+            // Arbitrarily -- but consistently -- choose one.
+            int diff = bestMatchName.compare(candidateName);
+            if (diff < 0) {
+              // Prefer file that comes first alphabetically.
+              continue;
+            } else if (diff == 0) {
+              // TODO:  Is this really an error?  I think it is for the moment, but someday it
+              //   may not be, if multiple actions are allowed to produce outputs with the same
+              //   canonical names.
+              DEBUG_ERROR << "Two providers have same file name: " << bestMatchName;
+              continue;
+            }
+          }
+        }
+
+        // If we get here, the candidate is better than the existing best match.
+        bestMatch = candidate;
+        bestMatchName.swap(candidateName);
+        bestMatchDepth = candidateDepth;
+        bestMatchCommonPrefix = candidateCommonPrefix;
+      }
+    }
+
+    return bestMatch;
+  }
 }
 
 // =======================================================================================
@@ -478,11 +594,9 @@ void Driver::scanForActions(File* src, File* tmp, ScanType type) {
       // Register the file as an entity.  We only do this for original inputs because derived
       // files are registered by the creating action.
       if (type == ORIGINAL_INPUT) {
-        OwnedPtr<File> fileClone;
-        current->srcFile->clone(&fileClone);
         std::vector<EntityId> entities;
-        entities.push_back(EntityId::fromFile(fileClone.get()));
-        registerProvider(&fileClone, entities);
+        entities.push_back(EntityId::fromFile(current->srcFile.get()));
+        registerProvider(current->srcFile.get(), entities);
       }
 
       // Add to allScannedFiles for easy re-scanning later.
@@ -512,16 +626,14 @@ void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file,
   pendingActions.adoptBack(&actionDriver);
 }
 
-void Driver::registerProvider(OwnedPtr<File>* fileToAdopt, const std::vector<EntityId>& entities) {
-  File* file = fileToAdopt->get();
+void Driver::registerProvider(File* file, const std::vector<EntityId>& entities) {
   Hash hash = file->contentHash();
-  filePtrs.adopt(file, fileToAdopt);
 
   for (std::vector<EntityId>::const_iterator iter = entities.begin();
        iter != entities.end(); ++iter) {
     const EntityId& entity = *iter;
     EntityInfo info = {file, hash};
-    entityMap[entity] = info;
+    entityMap.insert(std::make_pair(entity, info));
 
     resetDependentActions(entity);
 
@@ -545,16 +657,7 @@ void Driver::resetDependentActions(const EntityId& entity) {
 
       OwnedPtr<ActionDriver> action;
       if (completedActionPtrs.release(iter->second, &action)) {
-        action->state = ActionDriver::PENDING;
-
-        // All of this action's outputs must also be reset.
-        for (int i = 0; i < action->provisions.size(); i++) {
-          const std::vector<EntityId>& subEntities = action->provisions.get(i)->entities;
-          entitiesToReset.insert(subEntities.begin(), subEntities.end());
-        }
-
-        action->provisions.clear();
-        action->outputs.clear();
+        action->reset(&entitiesToReset);
         pendingActions.adoptBack(&action);
       } else {
         DEBUG_ERROR << "ActionDriver in completedActions but not completedActionPtrs?";
