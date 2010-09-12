@@ -72,7 +72,7 @@ private:
 
   struct EntityInfo {
     File* provider;
-    int lastModified;
+    Hash contentHash;  // = provider->contentHash(), so that we don't have to recompute it.
   };
   typedef std::tr1::unordered_map<EntityId, EntityInfo, EntityId::HashFunc> EntityMap;
   EntityMap entityMap;
@@ -91,11 +91,10 @@ private:
 
   struct SrcTmpPair {
     OwnedPtr<File> srcFile;
+    Hash srcFileHash;
     OwnedPtr<File> tmpLocation;
   };
   OwnedPtrVector<SrcTmpPair> allScannedFiles;
-
-  int versionCounter;
 
   void startSomeActions();
 
@@ -106,11 +105,12 @@ private:
   void scanForActions(File* src, File* tmp, ScanType type);
   void rescanForNewFactory(ActionFactory* factory);
 
-  void queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file, File* tmpLocation);
+  void queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file,
+                      const Hash& fileHash, File* tmpLocation);
 
   void registerProvider(OwnedPtr<File>* fileToAdopt, const std::vector<EntityId>& entities);
   void resetDependentActions(const EntityId& entity);
-  void fireTriggers(const EntityId& entity, File* file);
+  void fireTriggers(const EntityId& entity, File* file, const Hash& fileHash);
 };
 
 }  // namespace ekam

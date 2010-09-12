@@ -58,6 +58,9 @@ Hash Hash::of(void* data, size_t size) {
   return Builder().add(data, size).build();
 }
 
+// Note:  Since this is in static space it will be automatically initialized to zero.
+const Hash Hash::NULL_HASH;
+
 std::string Hash::toString() {
   std::string result;
   result.reserve(sizeof(hash) * 2);

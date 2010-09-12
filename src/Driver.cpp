@@ -44,7 +44,8 @@ namespace ekam {
 
 class Driver::ActionDriver : public BuildContext, public EventGroup::ExceptionHandler {
 public:
-  ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt, File* srcfile, File* tmploc,
+  ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
+               File* srcfile, Hash srcHash, File* tmploc,
                OwnedPtr<Dashboard::Task>* taskToAdopt);
   ~ActionDriver();
 
@@ -107,6 +108,7 @@ private:
   Driver* driver;
   OwnedPtr<Action> action;
   OwnedPtr<File> srcfile;
+  Hash srcHash;
   OwnedPtr<File> tmpdir;
   OwnedPtr<Dashboard::Task> dashboardTask;
 
@@ -128,10 +130,9 @@ private:
   OwnedPtr<AsyncOperation> asyncCallbackOp;
 
   bool isRunning;
-  int startVersion;
   OwnedPtr<AsyncOperation> runningAction;
 
-  typedef std::tr1::unordered_set<EntityId, EntityId::HashFunc> DependencySet;
+  typedef std::tr1::unordered_map<EntityId, Hash, EntityId::HashFunc> DependencySet;
   DependencySet dependencies;
 
   OwnedPtrVector<File> outputs;
@@ -152,10 +153,10 @@ private:
 };
 
 Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
-                                   File* srcfile, File* tmploc,
+                                   File* srcfile, Hash srcHash, File* tmploc,
                                    OwnedPtr<Dashboard::Task>* taskToAdopt)
-    : driver(driver), state(PENDING), eventGroup(driver->eventManager, this),
-      startCallback(this), doneCallback(this), isRunning(false), startVersion(0) {
+    : driver(driver), srcHash(srcHash), state(PENDING), eventGroup(driver->eventManager, this),
+      startCallback(this), doneCallback(this), isRunning(false) {
   action.adopt(actionToAdopt);
   srcfile->clone(&this->srcfile);
   tmploc->parent(&this->tmpdir);
@@ -172,11 +173,10 @@ void Driver::ActionDriver::start() {
   assert(provisions.empty());
   assert(!isRunning);
 
-  dependencies.insert(EntityId::fromFile(srcfile.get()));
+  dependencies.insert(std::make_pair(EntityId::fromFile(srcfile.get()), srcHash));
 
   state = RUNNING;
   isRunning = true;
-  startVersion = driver->versionCounter;
   dashboardTask->setState(Dashboard::RUNNING);
 
   OwnedPtr<EventManager::Callback> callback;
@@ -185,11 +185,12 @@ void Driver::ActionDriver::start() {
 
 File* Driver::ActionDriver::findProvider(EntityId id) {
   ensureRunning();
-  dependencies.insert(id);
   EntityMap::const_iterator iter = driver->entityMap.find(id);
   if (iter == driver->entityMap.end()) {
+    dependencies.insert(std::make_pair(id, Hash::NULL_HASH));
     return NULL;
   } else {
+    dependencies.insert(std::make_pair(id, iter->second.contentHash));
     return iter->second.provider;
   }
 }
@@ -322,8 +323,8 @@ void Driver::ActionDriver::returned() {
   // Did the action use any entities that changed since the action started?
   for (DependencySet::const_iterator iter = dependencies.begin();
        iter != dependencies.end(); ++iter) {
-    EntityMap::const_iterator iter2 = driver->entityMap.find(*iter);
-    if (iter2 != driver->entityMap.end() && iter2->second.lastModified > startVersion) {
+    EntityMap::const_iterator iter2 = driver->entityMap.find(iter->first);
+    if (iter2 != driver->entityMap.end() && iter2->second.contentHash != iter->second) {
       // Yep.  Must do over.  Clear everything and add again to the action queue.
       state = PENDING;
       provisions.clear();
@@ -339,7 +340,7 @@ void Driver::ActionDriver::returned() {
   driver->completedActionPtrs.adopt(this, &self);
   for (DependencySet::const_iterator iter = dependencies.begin();
        iter != dependencies.end(); ++iter) {
-    driver->completedActions.insert(std::make_pair(*iter, this));
+    driver->completedActions.insert(std::make_pair(iter->first, this));
   }
 
   if (state == FAILED) {
@@ -349,8 +350,6 @@ void Driver::ActionDriver::returned() {
     dashboardTask->setState(Dashboard::BLOCKED);
   } else {
     dashboardTask->setState(state == PASSED ? Dashboard::PASSED : Dashboard::DONE);
-
-    ++driver->versionCounter;
 
     // Register providers.
     for (int i = 0; i < provisions.size(); i++) {
@@ -368,7 +367,7 @@ void Driver::ActionDriver::clearDependencies() {
   for (ActionDriver::DependencySet::const_iterator iter = dependencies.begin();
        iter != dependencies.end(); ++iter) {
     std::pair<CompletedActionMap::iterator, CompletedActionMap::iterator>
-        range = driver->completedActions.equal_range(*iter);
+        range = driver->completedActions.equal_range(iter->first);
     for (CompletedActionMap::iterator iter2 = range.first;
          iter2 != range.second; ++iter2) {
       if (iter2->second == this) {
@@ -385,7 +384,7 @@ void Driver::ActionDriver::clearDependencies() {
 Driver::Driver(EventManager* eventManager, Dashboard* dashboard, File* src, File* tmp,
                int maxConcurrentActions)
     : eventManager(eventManager), dashboard(dashboard), src(src), tmp(tmp),
-      maxConcurrentActions(maxConcurrentActions), versionCounter(0) {
+      maxConcurrentActions(maxConcurrentActions) {
   if (!tmp->exists()) {
     tmp->createDirectory();
   }
@@ -438,6 +437,7 @@ void Driver::scanForActions(File* src, File* tmp, ScanType type) {
     OwnedPtr<SrcTmpPair> root;
     root.allocate();
     src->clone(&root->srcFile);
+    root->srcFileHash = root->srcFile->contentHash();
     tmp->clone(&root->tmpLocation);
     fileQueue.adoptBack(&root);
   }
@@ -457,6 +457,7 @@ void Driver::scanForActions(File* src, File* tmp, ScanType type) {
         OwnedPtr<SrcTmpPair> newPair;
         newPair.allocate();
         list.release(i, &newPair->srcFile);
+        newPair->srcFileHash = newPair->srcFile->contentHash();
         current->tmpLocation->relative(newPair->srcFile->basename(), &newPair->tmpLocation);
         fileQueue.adoptBack(&newPair);
       }
@@ -469,7 +470,8 @@ void Driver::scanForActions(File* src, File* tmp, ScanType type) {
         ActionFactory* factory = actionFactories[i];
         OwnedPtr<Action> action;
         if (factory->tryMakeAction(current->srcFile.get(), &action)) {
-          queueNewAction(&action, current->srcFile.get(), current->tmpLocation.get());
+          queueNewAction(&action, current->srcFile.get(), current->srcFileHash,
+                         current->tmpLocation.get());
         }
       }
 
@@ -493,35 +495,37 @@ void Driver::rescanForNewFactory(ActionFactory* factory) {
   for (int i = 0; i < allScannedFiles.size(); i++) {
     OwnedPtr<Action> action;
     if (factory->tryMakeAction(allScannedFiles.get(i)->srcFile.get(), &action)) {
-      queueNewAction(&action, allScannedFiles.get(i)->srcFile.get(),
-                              allScannedFiles.get(i)->tmpLocation.get());
+      const SrcTmpPair& srctmp = *allScannedFiles.get(i);
+      queueNewAction(&action, srctmp.srcFile.get(), srctmp.srcFileHash, srctmp.tmpLocation.get());
     }
   }
 }
 
-void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file, File* tmpLocation) {
+void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file,
+                            const Hash& fileHash, File* tmpLocation) {
   OwnedPtr<Dashboard::Task> task;
   dashboard->beginTask((*actionToAdopt)->getVerb(), file->canonicalName(), &task);
 
   OwnedPtr<ActionDriver> actionDriver;
-  actionDriver.allocate(this, actionToAdopt, file, tmpLocation, &task);
+  actionDriver.allocate(this, actionToAdopt, file, fileHash, tmpLocation, &task);
 
   pendingActions.adoptBack(&actionDriver);
 }
 
 void Driver::registerProvider(OwnedPtr<File>* fileToAdopt, const std::vector<EntityId>& entities) {
   File* file = fileToAdopt->get();
+  Hash hash = file->contentHash();
   filePtrs.adopt(file, fileToAdopt);
 
   for (std::vector<EntityId>::const_iterator iter = entities.begin();
        iter != entities.end(); ++iter) {
     const EntityId& entity = *iter;
-    EntityInfo info = {file, versionCounter};
+    EntityInfo info = {file, hash};
     entityMap[entity] = info;
 
     resetDependentActions(entity);
 
-    fireTriggers(entity, file);
+    fireTriggers(entity, file, info.contentHash);
   }
 }
 
@@ -567,13 +571,13 @@ void Driver::resetDependentActions(const EntityId& entity) {
   }
 }
 
-void Driver::fireTriggers(const EntityId& entity, File* file) {
+void Driver::fireTriggers(const EntityId& entity, File* file, const Hash& fileHash) {
   std::pair<TriggerMap::const_iterator, TriggerMap::const_iterator>
       range = triggers.equal_range(entity);
   for (TriggerMap::const_iterator iter = range.first; iter != range.second; ++iter) {
     OwnedPtr<Action> triggeredAction;
     if (iter->second->tryMakeAction(entity, file, &triggeredAction)) {
-      queueNewAction(&triggeredAction, file, file);
+      queueNewAction(&triggeredAction, file, fileHash, file);
     }
   }
 }

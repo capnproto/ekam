@@ -56,6 +56,7 @@ public:
 
   static Hash of(const std::string& data);
   static Hash of(void* data, size_t size);
+  static const Hash NULL_HASH;
 
   std::string toString();
 
