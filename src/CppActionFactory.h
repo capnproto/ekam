@@ -43,11 +43,11 @@ public:
   ~CppActionFactory();
 
   // implements ActionFactory ------------------------------------------------------------
-  void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter);
-  bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output);
+  void enumerateTriggerTags(std::back_insert_iterator<std::vector<Tag> > iter);
+  bool tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output);
 
 private:
-  static const EntityId MAIN_SYMBOLS[];
+  static const Tag MAIN_SYMBOLS[];
 };
 
 }  // namespace ekam

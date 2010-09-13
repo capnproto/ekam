@@ -100,7 +100,7 @@ public:
     if (command == "findProvider" || command == "findInput") {
       File* provider;
       if (command == "findProvider") {
-        provider = context->findProvider(EntityId::fromName(args));
+        provider = context->findProvider(Tag::fromName(args));
       } else {
         provider = context->findInput(args);
       }
@@ -139,7 +139,7 @@ public:
         context->log("File passed to \"provide\" not created with \"newOutput\": " + filename);
         context->failed();
       } else {
-        provisions.insert(std::make_pair(file, EntityId::fromName(args)));
+        provisions.insert(std::make_pair(file, Tag::fromName(args)));
       }
     } else {
       context->log("invalid command: " + command);
@@ -149,19 +149,19 @@ public:
 
   void eof() {
     // Gather provisions and pass to context.
-    std::vector<EntityId> entities;
+    std::vector<Tag> tags;
     File* currentFile = NULL;
 
     for (ProvisionMap::iterator iter = provisions.begin(); iter != provisions.end(); ++iter) {
-      if (iter->first != currentFile && !entities.empty()) {
-        context->provide(currentFile, entities);
-        entities.clear();
+      if (iter->first != currentFile && !tags.empty()) {
+        context->provide(currentFile, tags);
+        tags.clear();
       }
       currentFile = iter->first;
-      entities.push_back(iter->second);
+      tags.push_back(iter->second);
     }
-    if (!entities.empty()) {
-      context->provide(currentFile, entities);
+    if (!tags.empty()) {
+      context->provide(currentFile, tags);
     }
   }
 
@@ -177,7 +177,7 @@ private:
 
   OwnedPtrMap<std::string, File> outputFiles;
   OwnedPtrVector<File::DiskRef> diskRefs;
-  typedef std::multimap<File*, EntityId> ProvisionMap;
+  typedef std::multimap<File*, Tag> ProvisionMap;
   ProvisionMap provisions;
 };
 
@@ -235,7 +235,7 @@ class PluginDerivedActionFactory : public ActionFactory {
 public:
   PluginDerivedActionFactory(OwnedPtr<File>* executableToAdopt,
                              std::string* verbToAdopt,
-                             std::vector<EntityId>* triggersToAdopt) {
+                             std::vector<Tag>* triggersToAdopt) {
     executable.adopt(executableToAdopt);
     verb.swap(*verbToAdopt);
     triggers.swap(*triggersToAdopt);
@@ -243,12 +243,12 @@ public:
   ~PluginDerivedActionFactory() {}
 
   // implements ActionFactory -----------------------------------------------------------
-  void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter) {
+  void enumerateTriggerTags(std::back_insert_iterator<std::vector<Tag> > iter) {
     for (unsigned int i = 0; i < triggers.size(); i++) {
       *iter++ = triggers[i];
     }
   }
-  bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output) {
+  bool tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output) {
     output->allocateSubclass<PluginDerivedAction>(executable.get(), verb, file);
     return true;
   }
@@ -256,7 +256,7 @@ public:
 private:
   OwnedPtr<File> executable;
   std::string verb;
-  std::vector<EntityId> triggers;
+  std::vector<Tag> triggers;
 };
 
 // =======================================================================================
@@ -302,7 +302,7 @@ public:
     if (command == "verb") {
       verb = args;
     } else if (command == "trigger") {
-      triggers.push_back(EntityId::fromName(args));
+      triggers.push_back(Tag::fromName(args));
     } else {
       context->log("invalid command: " + command);
       context->failed();
@@ -325,7 +325,7 @@ private:
   OwnedPtr<File> executable;
   LineReader lineReader;
   std::string verb;
-  std::vector<EntityId> triggers;
+  std::vector<Tag> triggers;
 };
 
 class QueryRuleAction::Process : public AsyncOperation, public EventManager::ProcessExitCallback {
@@ -381,13 +381,13 @@ ExecPluginActionFactory::~ExecPluginActionFactory() {}
 
 // implements ActionFactory --------------------------------------------------------------
 
-void ExecPluginActionFactory::enumerateTriggerEntities(
-    std::back_insert_iterator<std::vector<EntityId> > iter) {
-  *iter++ = EntityId::fromName("filetype:.ekam-rule");
+void ExecPluginActionFactory::enumerateTriggerTags(
+    std::back_insert_iterator<std::vector<Tag> > iter) {
+  *iter++ = Tag::fromName("filetype:.ekam-rule");
 }
 
 bool ExecPluginActionFactory::tryMakeAction(
-    const EntityId& id, File* file, OwnedPtr<Action>* output) {
+    const Tag& id, File* file, OwnedPtr<Action>* output) {
   output->allocateSubclass<QueryRuleAction>(file);
   return true;
 }

@@ -38,7 +38,7 @@
 #include "OwnedPtr.h"
 #include "File.h"
 #include "Action.h"
-#include "Entity.h"
+#include "Tag.h"
 #include "Dashboard.h"
 
 namespace ekam {
@@ -67,27 +67,27 @@ private:
   std::vector<ActionFactory*> actionFactories;
   OwnedPtrVector<ActionFactory> ownedFactories;
 
-  typedef std::tr1::unordered_multimap<EntityId, ActionFactory*, EntityId::HashFunc> TriggerMap;
+  typedef std::tr1::unordered_multimap<Tag, ActionFactory*, Tag::HashFunc> TriggerMap;
   TriggerMap triggers;
 
   struct Provision {
     OwnedPtr<File> file;
     Hash contentHash;
-    std::vector<EntityId> entities;
+    std::vector<Tag> tags;
   };
 
-  // TODO:  Most entities only have one instance, so creating a whole ProvisionSet for them is
-  //   wasteful.  But some entities have LOTS of provisions, in which case a set (rather than, say,
-  //   having EntityMap be an unordered_map<EntityId, Provision*>) seems necessary.  This may call
+  // TODO:  Most tags only have one instance, so creating a whole ProvisionSet for them is
+  //   wasteful.  But some tags have LOTS of provisions, in which case a set (rather than, say,
+  //   having TagMap be an unordered_map<Tag, Provision*>) seems necessary.  This may call
   //   for a specialized data structure.
   typedef std::set<Provision*> ProvisionSet;
-  typedef OwnedPtrMap<EntityId, ProvisionSet, EntityId::HashFunc> EntityMap;
-  EntityMap entityMap;
+  typedef OwnedPtrMap<Tag, ProvisionSet, Tag::HashFunc> TagMap;
+  TagMap tagMap;
 
   OwnedPtrVector<ActionDriver> activeActions;
   OwnedPtrVector<ActionDriver> pendingActions;
 
-  typedef std::tr1::unordered_multimap<EntityId, ActionDriver*, EntityId::HashFunc>
+  typedef std::tr1::unordered_multimap<Tag, ActionDriver*, Tag::HashFunc>
       CompletedActionMap;
   CompletedActionMap completedActions;
   OwnedPtrMap<ActionDriver*, ActionDriver> completedActionPtrs;
@@ -99,12 +99,12 @@ private:
   void scanSourceTree();
   void rescanForNewFactory(ActionFactory* factory);
 
-  void queueNewAction(OwnedPtr<Action>* actionToAdopt, const EntityId& triggerEntity, File* file,
+  void queueNewAction(OwnedPtr<Action>* actionToAdopt, const Tag& triggerTag, File* file,
                       const Hash& fileHash);
 
   void registerProvider(Provision* provision);
-  void resetDependentActions(const EntityId& entity);
-  void fireTriggers(const EntityId& entity, File* file, const Hash& fileHash);
+  void resetDependentActions(const Tag& tag);
+  void fireTriggers(const Tag& tag, File* file, const Hash& fileHash);
 };
 
 }  // namespace ekam

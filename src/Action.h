@@ -37,7 +37,7 @@
 
 #include "OwnedPtr.h"
 #include "File.h"
-#include "Entity.h"
+#include "Tag.h"
 #include "EventManager.h"
 
 namespace ekam {
@@ -56,10 +56,10 @@ class BuildContext {
 public:
   virtual ~BuildContext();
 
-  virtual File* findProvider(EntityId id) = 0;
+  virtual File* findProvider(Tag id) = 0;
   virtual File* findInput(const std::string& basename) = 0;
 
-  virtual void provide(File* file, const std::vector<EntityId>& entities) = 0;
+  virtual void provide(File* file, const std::vector<Tag>& tags) = 0;
   virtual void log(const std::string& text) = 0;
 
   virtual void newOutput(const std::string& basename, OwnedPtr<File>* output) = 0;
@@ -84,8 +84,8 @@ class ActionFactory {
 public:
   virtual ~ActionFactory();
 
-  virtual void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter) = 0;
-  virtual bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output) = 0;
+  virtual void enumerateTriggerTags(std::back_insert_iterator<std::vector<Tag> > iter) = 0;
+  virtual bool tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output) = 0;
 };
 
 }  // namespace ekam

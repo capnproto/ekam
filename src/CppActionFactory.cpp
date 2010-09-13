@@ -39,8 +39,9 @@
 
 namespace ekam {
 
-// compile action:  produces object file, entities for all symbols declared therein.
-// link action:  triggers on "main" entity.
+// compile action:  produces object file, tags for all symbols declared therein.
+//   (Compile action is now implemented in compile.ekam-rule.)
+// link action:  triggers on "main" tag.
 
 namespace {
 
@@ -122,7 +123,7 @@ void LinkAction::DepsSet::addObject(BuildContext* context, File* objectFile) {
     while (pos != std::string::npos) {
       std::string symbolName(data, prevPos, pos - prevPos);
 
-      File* file = context->findProvider(EntityId::fromName("c++symbol:" + symbolName));
+      File* file = context->findProvider(Tag::fromName("c++symbol:" + symbolName));
       if (file != NULL) {
         addObject(context, file);
       }
@@ -200,22 +201,22 @@ void LinkAction::start(EventManager* eventManager, BuildContext* context,
 
 // =======================================================================================
 
-const EntityId CppActionFactory::MAIN_SYMBOLS[] = {
-  EntityId::fromName("c++symbol:main"),
-  EntityId::fromName("c++symbol:_main")
+const Tag CppActionFactory::MAIN_SYMBOLS[] = {
+  Tag::fromName("c++symbol:main"),
+  Tag::fromName("c++symbol:_main")
 };
 
 CppActionFactory::CppActionFactory() {}
 CppActionFactory::~CppActionFactory() {}
 
-void CppActionFactory::enumerateTriggerEntities(
-    std::back_insert_iterator<std::vector<EntityId> > iter) {
+void CppActionFactory::enumerateTriggerTags(
+    std::back_insert_iterator<std::vector<Tag> > iter) {
   for (unsigned int i = 0; i < (sizeof(MAIN_SYMBOLS) / sizeof(MAIN_SYMBOLS[0])); i++) {
     *iter++ = MAIN_SYMBOLS[i];
   }
 }
 
-bool CppActionFactory::tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output) {
+bool CppActionFactory::tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output) {
   for (unsigned int i = 0; i < (sizeof(MAIN_SYMBOLS) / sizeof(MAIN_SYMBOLS[0])); i++) {
     if (id == MAIN_SYMBOLS[i]) {
       output->allocateSubclass<LinkAction>(file);

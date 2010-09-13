@@ -41,8 +41,8 @@ public:
   ~ExecPluginActionFactory();
 
   // implements ActionFactory ------------------------------------------------------------
-  void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter);
-  bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output);
+  void enumerateTriggerTags(std::back_insert_iterator<std::vector<Tag> > iter);
+  bool tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output);
 };
 
 }  // namespace ekam

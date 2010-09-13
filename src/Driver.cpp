@@ -69,17 +69,17 @@ int commonPrefixLength(const std::string& srcName, const std::string& bestMatchN
 class Driver::ActionDriver : public BuildContext, public EventGroup::ExceptionHandler {
 public:
   ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
-               const EntityId& triggerEntity, File* srcfile, Hash srcHash,
+               const Tag& triggerTag, File* srcfile, Hash srcHash,
                OwnedPtr<Dashboard::Task>* taskToAdopt);
   ~ActionDriver();
 
   void start();
 
   // implements BuildContext -------------------------------------------------------------
-  File* findProvider(EntityId id);
+  File* findProvider(Tag id);
   File* findInput(const std::string& basename);
 
-  void provide(File* file, const std::vector<EntityId>& entities);
+  void provide(File* file, const std::vector<Tag>& tags);
   void log(const std::string& text);
 
   void newOutput(const std::string& basename, OwnedPtr<File>* output);
@@ -131,7 +131,7 @@ private:
 
   Driver* driver;
   OwnedPtr<Action> action;
-  EntityId triggerEntity;
+  Tag triggerTag;
   OwnedPtr<File> srcfile;
   Hash srcHash;
   OwnedPtr<File> tmpdir;
@@ -157,7 +157,7 @@ private:
   bool isRunning;
   OwnedPtr<AsyncOperation> runningAction;
 
-  typedef std::tr1::unordered_map<EntityId, Hash, EntityId::HashFunc> DependencySet;
+  typedef std::tr1::unordered_map<Tag, Hash, Tag::HashFunc> DependencySet;
   DependencySet dependencies;
 
   OwnedPtrVector<File> outputs;
@@ -168,17 +168,17 @@ private:
   void queueDoneCallback();
   void returned();
   void clearDependencies();
-  void reset(std::tr1::unordered_set<EntityId, EntityId::HashFunc>* entitiesToReset);
-  Provision* choosePreferredProvider(const EntityId& id);
-  bool hasPreferredDependencyChanged(const EntityId& id);
+  void reset(std::tr1::unordered_set<Tag, Tag::HashFunc>* tagsToReset);
+  Provision* choosePreferredProvider(const Tag& id);
+  bool hasPreferredDependencyChanged(const Tag& id);
 
   friend class Driver;
 };
 
 Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
-                                   const EntityId& triggerEntity, File* srcfile, Hash srcHash,
+                                   const Tag& triggerTag, File* srcfile, Hash srcHash,
                                    OwnedPtr<Dashboard::Task>* taskToAdopt)
-    : driver(driver), triggerEntity(triggerEntity), srcHash(srcHash), state(PENDING),
+    : driver(driver), triggerTag(triggerTag), srcHash(srcHash), state(PENDING),
       eventGroup(driver->eventManager, this), startCallback(this), doneCallback(this),
       isRunning(false) {
   action.adopt(actionToAdopt);
@@ -202,7 +202,7 @@ void Driver::ActionDriver::start() {
   assert(provisions.empty());
   assert(!isRunning);
 
-  dependencies.insert(std::make_pair(triggerEntity, srcHash));
+  dependencies.insert(std::make_pair(triggerTag, srcHash));
 
   state = RUNNING;
   isRunning = true;
@@ -212,10 +212,10 @@ void Driver::ActionDriver::start() {
   eventGroup.runAsynchronously(&startCallback, &asyncCallbackOp);
 }
 
-File* Driver::ActionDriver::findProvider(EntityId id) {
+File* Driver::ActionDriver::findProvider(Tag id) {
   ensureRunning();
 
-  if (id == triggerEntity) {
+  if (id == triggerTag) {
     return srcfile.get();
   }
 
@@ -235,10 +235,10 @@ File* Driver::ActionDriver::findInput(const std::string& basename) {
 
   OwnedPtr<File> reference;
   tmpdir->relative(basename, &reference);
-  return findProvider(EntityId::fromFile(reference.get()));
+  return findProvider(Tag::fromFile(reference.get()));
 }
 
-void Driver::ActionDriver::provide(File* file, const std::vector<EntityId>& entities) {
+void Driver::ActionDriver::provide(File* file, const std::vector<Tag>& tags) {
   ensureRunning();
 
   // Find existing provision for this file, if any.
@@ -259,7 +259,7 @@ void Driver::ActionDriver::provide(File* file, const std::vector<EntityId>& enti
   }
 
   file->clone(&provision->file);
-  provision->entities.insert(provision->entities.end(), entities.begin(), entities.end());
+  provision->tags.insert(provision->tags.end(), tags.begin(), tags.end());
 }
 
 void Driver::ActionDriver::log(const std::string& text) {
@@ -273,9 +273,9 @@ void Driver::ActionDriver::newOutput(const std::string& basename, OwnedPtr<File>
   tmpdir->relative(basename, &file);
   file->clone(output);
 
-  std::vector<EntityId> entities;
-  entities.push_back(EntityId::DEFAULT_ENTITY);
-  provide(file.get(), entities);
+  std::vector<Tag> tags;
+  tags.push_back(Tag::DEFAULT_TAG);
+  provide(file.get(), tags);
 
   outputs.adoptBack(&file);
 }
@@ -368,7 +368,7 @@ void Driver::ActionDriver::returned() {
     }
   }
 
-  // Did the action use any entities that changed since the action started?
+  // Did the action use any tags that changed since the action started?
   for (DependencySet::const_iterator iter = dependencies.begin();
        iter != dependencies.end(); ++iter) {
     if (hasPreferredDependencyChanged(iter->first)) {
@@ -422,28 +422,28 @@ void Driver::ActionDriver::clearDependencies() {
 }
 
 void Driver::ActionDriver::reset(
-    std::tr1::unordered_set<EntityId, EntityId::HashFunc>* entitiesToReset) {
+    std::tr1::unordered_set<Tag, Tag::HashFunc>* tagsToReset) {
   state = ActionDriver::PENDING;
 
   for (int i = 0; i < provisions.size(); i++) {
     Provision* provision = provisions.get(i);
-    const std::vector<EntityId>& subEntities = provision->entities;
+    const std::vector<Tag>& subTags = provision->tags;
 
-    // All provided entities must be reset as well.
-    entitiesToReset->insert(subEntities.begin(), subEntities.end());
+    // All provided tags must be reset as well.
+    tagsToReset->insert(subTags.begin(), subTags.end());
 
-    // Remove from entityMap.
-    for (unsigned int j = 0; j < subEntities.size(); j++) {
-      const EntityId& entity = subEntities[j];
+    // Remove from tagMap.
+    for (unsigned int j = 0; j < subTags.size(); j++) {
+      const Tag& tag = subTags[j];
 
-      ProvisionSet* provisions = driver->entityMap.get(entity);
+      ProvisionSet* provisions = driver->tagMap.get(tag);
       if (provisions == NULL || provisions->erase(provision) == 0) {
-        DEBUG_ERROR << "Provision not in driver->entityMap?";
+        DEBUG_ERROR << "Provision not in driver->tagMap?";
         continue;
       }
 
       if (provisions->empty()) {
-        driver->entityMap.erase(entity);
+        driver->tagMap.erase(tag);
       }
     }
   }
@@ -452,8 +452,8 @@ void Driver::ActionDriver::reset(
   outputs.clear();
 }
 
-Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const EntityId& id) {
-  ProvisionSet* provisions = driver->entityMap.get(id);
+Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const Tag& id) {
+  ProvisionSet* provisions = driver->tagMap.get(id);
   if (provisions == NULL || provisions->empty()) {
     return NULL;
   } else {
@@ -463,7 +463,7 @@ Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const EntityId&
     ++iter;
 
     if (iter != provisions->end()) {
-      // There are multiple entities with this ID.  We must choose which one we like best.
+      // There are multiple files with this tag.  We must choose which one we like best.
       std::string bestMatchName = bestMatch->file->canonicalName();
       int bestMatchDepth = fileDepth(bestMatchName);
       int bestMatchCommonPrefix = commonPrefixLength(srcName, bestMatchName);
@@ -474,11 +474,11 @@ Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const EntityId&
         int candidateDepth = fileDepth(candidateName);
         int candidateCommonPrefix = commonPrefixLength(srcName, candidateName);
         if (candidateCommonPrefix < bestMatchCommonPrefix) {
-          // Prefer entity that is closer in the directory tree.
+          // Prefer provider that is closer in the directory tree.
           continue;
         } else if (candidateCommonPrefix == bestMatchCommonPrefix) {
           if (candidateDepth > bestMatchDepth) {
-            // Prefer entity that is less deeply nested.
+            // Prefer provider that is less deeply nested.
             continue;
           } else if (candidateDepth == bestMatchDepth) {
             // Arbitrarily -- but consistently -- choose one.
@@ -508,14 +508,14 @@ Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const EntityId&
   }
 }
 
-bool Driver::ActionDriver::hasPreferredDependencyChanged(const EntityId& entity) {
+bool Driver::ActionDriver::hasPreferredDependencyChanged(const Tag& tag) {
   // TODO:  Do we care if the file name changes, assuming the content hash is the same?  Here
   //   we only check for a hash change.
-  Provision* preferred = choosePreferredProvider(entity);
+  Provision* preferred = choosePreferredProvider(tag);
   const Hash& currentHash = preferred == NULL ? Hash::NULL_HASH : preferred->contentHash;
-  DependencySet::const_iterator actual = dependencies.find(entity);
+  DependencySet::const_iterator actual = dependencies.find(tag);
   if (actual == dependencies.end()) {
-    DEBUG_ERROR << "hasPreferredDependencyChanged() called on entity which we don't depend on.";
+    DEBUG_ERROR << "hasPreferredDependencyChanged() called on tag which we don't depend on.";
     return false;
   } else {
     return currentHash != actual->second;
@@ -545,10 +545,10 @@ Driver::~Driver() {
 void Driver::addActionFactory(ActionFactory* factory) {
   actionFactories.push_back(factory);
 
-  std::vector<EntityId> triggerEntities;
-  factory->enumerateTriggerEntities(std::back_inserter(triggerEntities));
-  for (unsigned int i = 0; i < triggerEntities.size(); i++) {
-    triggers.insert(std::make_pair(triggerEntities[i], factory));
+  std::vector<Tag> triggerTags;
+  factory->enumerateTriggerTags(std::back_inserter(triggerTags));
+  for (unsigned int i = 0; i < triggerTags.size(); i++) {
+    triggers.insert(std::make_pair(triggerTags[i], factory));
   }
 }
 
@@ -601,7 +601,7 @@ void Driver::scanSourceTree() {
       // Apply default tag.
       OwnedPtr<Provision> provision;
       provision.allocate();
-      provision->entities.push_back(EntityId::DEFAULT_ENTITY);
+      provision->tags.push_back(Tag::DEFAULT_TAG);
       current->clone(&provision->file);
       registerProvider(provision.get());
       rootProvisions.adoptBack(&provision);
@@ -611,16 +611,16 @@ void Driver::scanSourceTree() {
 
 void Driver::rescanForNewFactory(ActionFactory* factory) {
   // Apply triggers.
-  std::vector<EntityId> triggerEntities;
-  factory->enumerateTriggerEntities(std::back_inserter(triggerEntities));
-  for (unsigned int i = 0; i < triggerEntities.size(); i++) {
-    ProvisionSet* provisions = entityMap.get(triggerEntities[i]);
+  std::vector<Tag> triggerTags;
+  factory->enumerateTriggerTags(std::back_inserter(triggerTags));
+  for (unsigned int i = 0; i < triggerTags.size(); i++) {
+    ProvisionSet* provisions = tagMap.get(triggerTags[i]);
     if (provisions != NULL) {
       for (ProvisionSet::iterator iter = provisions->begin(); iter != provisions->end(); ++iter) {
         Provision* provision = *iter;
         OwnedPtr<Action> action;
-        if (factory->tryMakeAction(triggerEntities[i], provision->file.get(), &action)) {
-          queueNewAction(&action, triggerEntities[i],
+        if (factory->tryMakeAction(triggerTags[i], provision->file.get(), &action)) {
+          queueNewAction(&action, triggerTags[i],
                          provision->file.get(), provision->contentHash);
         }
       }
@@ -628,7 +628,7 @@ void Driver::rescanForNewFactory(ActionFactory* factory) {
   }
 }
 
-void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, const EntityId& triggerEntity,
+void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, const Tag& triggerTag,
                             File* file, const Hash& fileHash) {
   OwnedPtr<Dashboard::Task> task;
   dashboard->beginTask((*actionToAdopt)->getVerb(), file->canonicalName(),
@@ -636,7 +636,7 @@ void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, const EntityId& tri
                        &task);
 
   OwnedPtr<ActionDriver> actionDriver;
-  actionDriver.allocate(this, actionToAdopt, triggerEntity, file, fileHash, &task);
+  actionDriver.allocate(this, actionToAdopt, triggerTag, file, fileHash, &task);
 
   pendingActions.adoptBack(&actionDriver);
 }
@@ -644,41 +644,41 @@ void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, const EntityId& tri
 void Driver::registerProvider(Provision* provision) {
   provision->contentHash = provision->file->contentHash();
 
-  for (std::vector<EntityId>::const_iterator iter = provision->entities.begin();
-       iter != provision->entities.end(); ++iter) {
-    const EntityId& entity = *iter;
-    ProvisionSet* provisions = entityMap.get(entity);
+  for (std::vector<Tag>::const_iterator iter = provision->tags.begin();
+       iter != provision->tags.end(); ++iter) {
+    const Tag& tag = *iter;
+    ProvisionSet* provisions = tagMap.get(tag);
     if (provisions == NULL) {
       OwnedPtr<ProvisionSet> newProvisions;
       newProvisions.allocate();
       provisions = newProvisions.get();
-      entityMap.adopt(entity, &newProvisions);
+      tagMap.adopt(tag, &newProvisions);
     }
     provisions->insert(provision);
 
-    resetDependentActions(entity);
+    resetDependentActions(tag);
 
-    fireTriggers(entity, provision->file.get(), provision->contentHash);
+    fireTriggers(tag, provision->file.get(), provision->contentHash);
   }
 }
 
-void Driver::resetDependentActions(const EntityId& entity) {
-  std::tr1::unordered_set<EntityId, EntityId::HashFunc> entitiesToReset;
-  entitiesToReset.insert(entity);
+void Driver::resetDependentActions(const Tag& tag) {
+  std::tr1::unordered_set<Tag, Tag::HashFunc> tagsToReset;
+  tagsToReset.insert(tag);
 
-  while (!entitiesToReset.empty()) {
-    EntityId currentEntity = *entitiesToReset.begin();
-    entitiesToReset.erase(entitiesToReset.begin());
+  while (!tagsToReset.empty()) {
+    Tag currentTag = *tagsToReset.begin();
+    tagsToReset.erase(tagsToReset.begin());
 
     std::pair<CompletedActionMap::const_iterator, CompletedActionMap::const_iterator>
-        range = completedActions.equal_range(currentEntity);
+        range = completedActions.equal_range(currentTag);
     int pendingActionsPos = pendingActions.size();
     for (CompletedActionMap::const_iterator iter = range.first; iter != range.second; ++iter) {
-      if (iter->second->hasPreferredDependencyChanged(currentEntity)) {
+      if (iter->second->hasPreferredDependencyChanged(currentTag)) {
         // Reset action to pending.
         OwnedPtr<ActionDriver> action;
         if (completedActionPtrs.release(iter->second, &action)) {
-          action->reset(&entitiesToReset);
+          action->reset(&tagsToReset);
           pendingActions.adoptBack(&action);
         } else {
           DEBUG_ERROR << "ActionDriver in completedActions but not completedActionPtrs?";
@@ -692,13 +692,13 @@ void Driver::resetDependentActions(const EntityId& entity) {
   }
 }
 
-void Driver::fireTriggers(const EntityId& entity, File* file, const Hash& fileHash) {
+void Driver::fireTriggers(const Tag& tag, File* file, const Hash& fileHash) {
   std::pair<TriggerMap::const_iterator, TriggerMap::const_iterator>
-      range = triggers.equal_range(entity);
+      range = triggers.equal_range(tag);
   for (TriggerMap::const_iterator iter = range.first; iter != range.second; ++iter) {
     OwnedPtr<Action> triggeredAction;
-    if (iter->second->tryMakeAction(entity, file, &triggeredAction)) {
-      queueNewAction(&triggeredAction, entity, file, fileHash);
+    if (iter->second->tryMakeAction(tag, file, &triggeredAction)) {
+      queueNewAction(&triggeredAction, tag, file, fileHash);
     }
   }
 }

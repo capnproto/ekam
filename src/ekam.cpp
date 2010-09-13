@@ -63,17 +63,17 @@ public:
 
   void start(EventManager* eventManager, BuildContext* context,
              OwnedPtr<AsyncOperation>* output) {
-    std::vector<EntityId> entities;
-    entities.push_back(EntityId::fromFile(file.get()));
+    std::vector<Tag> tags;
+    tags.push_back(Tag::fromFile(file.get()));
 
     std::string basename = file->basename();
-    entities.push_back(EntityId::fromName("basename:" + basename));
+    tags.push_back(Tag::fromName("basename:" + basename));
 
     std::string base, ext;
     splitExtension(basename, &base, &ext);
-    if (!ext.empty()) entities.push_back(EntityId::fromName("filetype:" + ext));
+    if (!ext.empty()) tags.push_back(Tag::fromName("filetype:" + ext));
 
-    context->provide(file.get(), entities);
+    context->provide(file.get(), tags);
   }
 
 private:
@@ -86,10 +86,10 @@ public:
   ~ExtractTypeActionFactory() {}
 
   // implements ActionFactory ------------------------------------------------------------
-  void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter) {
-    *iter++ = EntityId::DEFAULT_ENTITY;
+  void enumerateTriggerTags(std::back_insert_iterator<std::vector<Tag> > iter) {
+    *iter++ = Tag::DEFAULT_TAG;
   }
-  bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output) {
+  bool tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output) {
     output->allocateSubclass<ExtractTypeAction>(file);
     return true;
   }
