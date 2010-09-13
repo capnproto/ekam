@@ -336,4 +336,10 @@ void KqueueEventManager::onWritable(int fd, IoCallback* callback,
   output->allocateSubclass<WriteHandler>(this, fd, callback);
 }
 
+// =======================================================================================
+
+void newPreferredEventManager(OwnedPtr<RunnableEventManager>* output) {
+  output->allocateSubclass<KqueueEventManager>();
+}
+
 }  // namespace ekam

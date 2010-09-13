@@ -44,11 +44,12 @@ typedef struct pollfd PollFd;
 
 namespace ekam {
 
-class PollEventManager: public EventManager {
+class PollEventManager: public RunnableEventManager {
 public:
   PollEventManager();
   ~PollEventManager();
 
+  // implements RunnableEventManager -----------------------------------------------------
   void loop();
 
   // implements EventManager -------------------------------------------------------------

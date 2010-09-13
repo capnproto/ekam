@@ -88,6 +88,15 @@ public:
   virtual void onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) = 0;
 };
 
+class RunnableEventManager : public EventManager {
+public:
+  virtual ~RunnableEventManager();
+
+  virtual void loop() = 0;
+};
+
+void newPreferredEventManager(OwnedPtr<RunnableEventManager>* output);
+
 }  // namespace ekam
 
 #endif  // EKAM_EVENTMANAGER_H_

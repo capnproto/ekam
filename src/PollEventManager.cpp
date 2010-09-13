@@ -425,4 +425,10 @@ void PollEventManager::handleSignal(const siginfo_t& siginfo) {
   }
 }
 
+// =======================================================================================
+
+void newPreferredEventManager(OwnedPtr<RunnableEventManager>* output) {
+  output->allocateSubclass<PollEventManager>();
+}
+
 }  // namespace ekam

@@ -42,11 +42,12 @@ typedef struct kevent KEvent;
 
 namespace ekam {
 
-class KqueueEventManager: public EventManager {
+class KqueueEventManager: public RunnableEventManager {
 public:
   KqueueEventManager();
   ~KqueueEventManager();
 
+  // implements RunnableEventManager -----------------------------------------------------
   void loop();
 
   // implements EventManager -------------------------------------------------------------

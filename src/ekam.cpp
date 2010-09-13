@@ -43,8 +43,6 @@
 #include "Action.h"
 #include "SimpleDashboard.h"
 #include "ConsoleDashboard.h"
-//#include "KqueueEventManager.h"
-#include "PollEventManager.h"
 #include "CppActionFactory.h"
 #include "ExecPluginActionFactory.h"
 
@@ -149,11 +147,10 @@ int main(int argc, char* argv[]) {
     dashboard.allocateSubclass<SimpleDashboard>(stdout);
   }
 
-  // TODO:  Select KqueueEventManager when available.
-//  KqueueEventManager eventManager;
-  PollEventManager eventManager;
+  OwnedPtr<RunnableEventManager> eventManager;
+  newPreferredEventManager(&eventManager);
 
-  Driver driver(&eventManager, dashboard.get(), &src, &tmp, maxConcurrentActions);
+  Driver driver(eventManager.get(), dashboard.get(), &src, &tmp, maxConcurrentActions);
 
   ExtractTypeActionFactory extractTypeActionFactcory;
   driver.addActionFactory(&extractTypeActionFactcory);
@@ -165,7 +162,7 @@ int main(int argc, char* argv[]) {
   driver.addActionFactory(&execPluginActionFactory);
 
   driver.start();
-  eventManager.loop();
+  eventManager->loop();
 
   // For debugging purposes, check for zombie processes.
   int zombieCount = 0;
