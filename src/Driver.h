@@ -85,7 +85,7 @@ private:
   TagMap tagMap;
 
   OwnedPtrVector<ActionDriver> activeActions;
-  OwnedPtrVector<ActionDriver> pendingActions;
+  OwnedPtrDeque<ActionDriver> pendingActions;
 
   typedef std::tr1::unordered_multimap<Tag, ActionDriver*, Tag::HashFunc>
       CompletedActionMap;

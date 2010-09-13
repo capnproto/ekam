@@ -34,6 +34,7 @@
 #include <stddef.h>
 #include <tr1/type_traits>
 #include <vector>
+#include <deque>
 #include <queue>
 #include <tr1/unordered_map>
 #include <assert.h>
@@ -142,6 +143,8 @@ private:
   friend class SmartPtr;
   template <typename U>
   friend class OwnedPtrVector;
+  template <typename U>
+  friend class OwnedPtrDeque;
   template <typename U>
   friend class OwnedPtrQueue;
   template <typename Key, typename U, typename HashFunc, typename EqualsFunc>
@@ -335,6 +338,53 @@ public:
 
 private:
   std::vector<T*> vec;
+};
+
+template <typename T>
+class OwnedPtrDeque {
+public:
+  OwnedPtrDeque() {}
+  ~OwnedPtrDeque() {
+    for (typename std::deque<T*>::const_iterator iter = q.begin(); iter != q.end(); ++iter) {
+      delete *iter;
+    }
+  }
+
+  int size() const { return q.size(); }
+  T* get(int index) const { return q[index]; }
+  bool empty() const { return q.empty(); }
+
+  void adoptFront(OwnedPtr<T>* ptr) {
+    q.push_front(ptr->release());
+  }
+
+  void releaseFront(OwnedPtr<T>* output) {
+    output->reset(q.front());
+    q.pop_front();
+  }
+
+  void adoptBack(OwnedPtr<T>* ptr) {
+    q.push_back(ptr->release());
+  }
+
+  void releaseBack(OwnedPtr<T>* output) {
+    output->reset(q.back());
+    q.pop_back();
+  }
+
+  void clear() {
+    for (typename std::deque<T*>::const_iterator iter = q.begin(); iter != q.end(); ++iter) {
+      delete *iter;
+    }
+    q.clear();
+  }
+
+  void swap(OwnedPtrDeque* other) {
+    q.swap(other->q);
+  }
+
+private:
+  std::deque<T*> q;
 };
 
 template <typename T>

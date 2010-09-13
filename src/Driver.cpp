@@ -377,6 +377,8 @@ void Driver::ActionDriver::returned() {
       provisions.clear();
       outputs.clear();
       dependencies.clear();
+      // Put on back of queue to avoid repeatedly retrying an action that has lots of
+      // interference.
       driver->pendingActions.adoptBack(&self);
       dashboardTask->setState(Dashboard::BLOCKED);
       return;
@@ -560,7 +562,7 @@ void Driver::start() {
 void Driver::startSomeActions() {
   while (activeActions.size() < maxConcurrentActions && !pendingActions.empty()) {
     OwnedPtr<ActionDriver> actionDriver;
-    pendingActions.releaseBack(&actionDriver);
+    pendingActions.releaseFront(&actionDriver);
     ActionDriver* ptr = actionDriver.get();
     activeActions.adoptBack(&actionDriver);
     try {
@@ -638,7 +640,9 @@ void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, const Tag& triggerT
   OwnedPtr<ActionDriver> actionDriver;
   actionDriver.allocate(this, actionToAdopt, triggerTag, file, fileHash, &task);
 
-  pendingActions.adoptBack(&actionDriver);
+  // Put new action on front of queue because it was probably triggered by another action that
+  // just completed, and it's good to run related actions together to improve cache locality.
+  pendingActions.adoptFront(&actionDriver);
 }
 
 void Driver::registerProvider(Provision* provision) {
@@ -679,6 +683,8 @@ void Driver::resetDependentActions(const Tag& tag) {
         OwnedPtr<ActionDriver> action;
         if (completedActionPtrs.release(iter->second, &action)) {
           action->reset(&tagsToReset);
+          // Put on back of queue so that actions which are frequently reset don't get redundantly
+          // rebuilt too much.
           pendingActions.adoptBack(&action);
         } else {
           DEBUG_ERROR << "ActionDriver in completedActions but not completedActionPtrs?";
