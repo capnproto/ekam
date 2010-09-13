@@ -74,6 +74,7 @@ class Action {
 public:
   virtual ~Action();
 
+  virtual bool isSilent() { return false; }
   virtual std::string getVerb() = 0;
   virtual void start(EventManager* eventManager, BuildContext* context,
                      OwnedPtr<AsyncOperation>* output) = 0;
@@ -83,7 +84,6 @@ class ActionFactory {
 public:
   virtual ~ActionFactory();
 
-  virtual bool tryMakeAction(File* file, OwnedPtr<Action>* output) = 0;
   virtual void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter) = 0;
   virtual bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output) = 0;
 };

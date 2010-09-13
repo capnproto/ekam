@@ -34,7 +34,7 @@ namespace ekam {
 
 class SimpleDashboard::TaskImpl : public Dashboard::Task {
 public:
-  TaskImpl(const std::string& verb, const std::string& noun, FILE* outputStream);
+  TaskImpl(const std::string& verb, const std::string& noun, Silence silence, FILE* outputStream);
   ~TaskImpl();
 
   // implements Task ---------------------------------------------------------------------
@@ -43,6 +43,7 @@ public:
 
 private:
   TaskState state;
+  Silence silence;
   std::string verb;
   std::string noun;
   std::string outputText;
@@ -61,8 +62,8 @@ const char* const SimpleDashboard::TaskImpl::STATE_NAMES[] = {
 };
 
 SimpleDashboard::TaskImpl::TaskImpl(const std::string& verb, const std::string& noun,
-                                    FILE* outputStream)
-    : state(PENDING), verb(verb), noun(noun), outputStream(outputStream) {}
+                                    Silence silence, FILE* outputStream)
+    : state(PENDING), silence(silence), verb(verb), noun(noun), outputStream(outputStream) {}
 SimpleDashboard::TaskImpl::~TaskImpl() {}
 
 void SimpleDashboard::TaskImpl::setState(TaskState state) {
@@ -73,17 +74,21 @@ void SimpleDashboard::TaskImpl::setState(TaskState state) {
   }
   this->state = state;
 
-  // Write status update.
-  fprintf(outputStream, "[%s] %s: %s\n", STATE_NAMES[state], verb.c_str(), noun.c_str());
+  bool writeOutput = !outputText.empty() && state != BLOCKED;
 
-  // Write any output we have buffered, unless new state is BLOCKED in which case we save the
-  // output for later.
-  if (!outputText.empty() && state != BLOCKED) {
-    fwrite(outputText.c_str(), sizeof(char), outputText.size(), outputStream);
-    if (outputText[outputText.size() - 1] != '\n') {
-      fputc('\n', outputStream);
+  if (silence != SILENT || writeOutput) {
+    // Write status update.
+    fprintf(outputStream, "[%s] %s: %s\n", STATE_NAMES[state], verb.c_str(), noun.c_str());
+
+    // Write any output we have buffered, unless new state is BLOCKED in which case we save the
+    // output for later.
+    if (writeOutput) {
+      fwrite(outputText.c_str(), sizeof(char), outputText.size(), outputStream);
+      if (outputText[outputText.size() - 1] != '\n') {
+        fputc('\n', outputStream);
+      }
+      outputText.clear();
     }
-    outputText.clear();
   }
 }
 
@@ -97,8 +102,8 @@ SimpleDashboard::SimpleDashboard(FILE* outputStream) : outputStream(outputStream
 SimpleDashboard::~SimpleDashboard() {}
 
 void SimpleDashboard::beginTask(const std::string& verb, const std::string& noun,
-                                OwnedPtr<Task>* output) {
-  output->allocateSubclass<TaskImpl>(verb, noun, outputStream);
+                                Silence silence, OwnedPtr<Task>* output) {
+  output->allocateSubclass<TaskImpl>(verb, noun, silence, outputStream);
 }
 
 }  // namespace ekam

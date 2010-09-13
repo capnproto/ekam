@@ -39,7 +39,8 @@ namespace ekam {
 
 class ConsoleDashboard::TaskImpl : public Dashboard::Task {
 public:
-  TaskImpl(ConsoleDashboard* dashboard, const std::string& verb, const std::string& noun);
+  TaskImpl(ConsoleDashboard* dashboard, const std::string& verb,
+           const std::string& noun, Silence silence);
   ~TaskImpl();
 
   // implements Task ---------------------------------------------------------------------
@@ -49,6 +50,7 @@ public:
 private:
   ConsoleDashboard* dashboard;
   TaskState state;
+  Silence silence;
   std::string verb;
   std::string noun;
   std::string outputText;
@@ -60,8 +62,9 @@ private:
 };
 
 ConsoleDashboard::TaskImpl::TaskImpl(ConsoleDashboard* dashboard,
-                                     const std::string& verb, const std::string& noun)
-    : dashboard(dashboard), state(PENDING), verb(verb), noun(noun) {}
+                                     const std::string& verb, const std::string& noun,
+                                     Silence silence)
+    : dashboard(dashboard), state(PENDING), silence(silence), verb(verb), noun(noun) {}
 ConsoleDashboard::TaskImpl::~TaskImpl() {
   if (state == RUNNING) {
     dashboard->clearRunning();
@@ -78,7 +81,7 @@ void ConsoleDashboard::TaskImpl::setState(TaskState state) {
   }
 
   if (this->state == RUNNING) {
-    removeFromRunning();
+    if (silence != SILENT) removeFromRunning();
   }
 
   this->state = state;
@@ -90,7 +93,7 @@ void ConsoleDashboard::TaskImpl::setState(TaskState state) {
       // Don't display.
       break;
     case RUNNING:
-      dashboard->runningTasks.push_back(this);
+      if (silence != SILENT) dashboard->runningTasks.push_back(this);
       break;
     case DONE:
       writeFinalLog(DONE_COLOR);
@@ -124,18 +127,20 @@ void ConsoleDashboard::TaskImpl::removeFromRunning() {
 }
 
 void ConsoleDashboard::TaskImpl::writeFinalLog(Color verbColor) {
-  fprintf(dashboard->out, "%s%s:%s %s\n",
-          ANSI_COLOR_CODES[verbColor], verb.c_str(), ANSI_CLEAR_COLOR, noun.c_str());
+  // Silent tasks should not be written to the log, unless they had error messages.
+  if (silence != SILENT || !outputText.empty()) {
+    fprintf(dashboard->out, "%s%s:%s %s\n",
+            ANSI_COLOR_CODES[verbColor], verb.c_str(), ANSI_CLEAR_COLOR, noun.c_str());
 
-  // Write any output we have buffered, unless new state is BLOCKED in which case we save the
-  // output for later.
-  // TODO:  Indent the text we write, and wrap it nicely.
-  if (!outputText.empty() && state != BLOCKED) {
-    fwrite(outputText.c_str(), sizeof(char), outputText.size(), dashboard->out);
-    if (outputText[outputText.size() - 1] != '\n') {
-      fputc('\n', dashboard->out);
+    // Write any output we have buffered.
+    // TODO:  Indent the text we write, and wrap it nicely.
+    if (!outputText.empty()) {
+      fwrite(outputText.c_str(), sizeof(char), outputText.size(), dashboard->out);
+      if (outputText[outputText.size() - 1] != '\n') {
+        fputc('\n', dashboard->out);
+      }
+      outputText.clear();
     }
-    outputText.clear();
   }
 }
 
@@ -179,8 +184,8 @@ ConsoleDashboard::ConsoleDashboard(FILE* output)
 ConsoleDashboard::~ConsoleDashboard() {}
 
 void ConsoleDashboard::beginTask(const std::string& verb, const std::string& noun,
-                                 OwnedPtr<Task>* output) {
-  output->allocateSubclass<TaskImpl>(this, verb, noun);
+                                 Silence silence, OwnedPtr<Task>* output) {
+  output->allocateSubclass<TaskImpl>(this, verb, noun, silence);
 }
 
 void ConsoleDashboard::clearRunning() {

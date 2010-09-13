@@ -69,7 +69,7 @@ int commonPrefixLength(const std::string& srcName, const std::string& bestMatchN
 class Driver::ActionDriver : public BuildContext, public EventGroup::ExceptionHandler {
 public:
   ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
-               File* srcfile, Hash srcHash, File* tmploc,
+               const EntityId& triggerEntity, File* srcfile, Hash srcHash,
                OwnedPtr<Dashboard::Task>* taskToAdopt);
   ~ActionDriver();
 
@@ -131,6 +131,7 @@ private:
 
   Driver* driver;
   OwnedPtr<Action> action;
+  EntityId triggerEntity;
   OwnedPtr<File> srcfile;
   Hash srcHash;
   OwnedPtr<File> tmpdir;
@@ -169,18 +170,25 @@ private:
   void clearDependencies();
   void reset(std::tr1::unordered_set<EntityId, EntityId::HashFunc>* entitiesToReset);
   Provision* choosePreferredProvider(const EntityId& id);
+  bool hasPreferredDependencyChanged(const EntityId& id);
 
   friend class Driver;
 };
 
 Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
-                                   File* srcfile, Hash srcHash, File* tmploc,
+                                   const EntityId& triggerEntity, File* srcfile, Hash srcHash,
                                    OwnedPtr<Dashboard::Task>* taskToAdopt)
-    : driver(driver), srcHash(srcHash), state(PENDING), eventGroup(driver->eventManager, this),
-      startCallback(this), doneCallback(this), isRunning(false) {
+    : driver(driver), triggerEntity(triggerEntity), srcHash(srcHash), state(PENDING),
+      eventGroup(driver->eventManager, this), startCallback(this), doneCallback(this),
+      isRunning(false) {
   action.adopt(actionToAdopt);
   srcfile->clone(&this->srcfile);
-  tmploc->parent(&this->tmpdir);
+
+  OwnedPtr<File> tmpLocation;
+  driver->tmp->relative(srcfile->canonicalName(), &tmpLocation);
+  tmpLocation->parent(&this->tmpdir);
+  recursivelyCreateDirectory(tmpdir.get());
+
   dashboardTask.adopt(taskToAdopt);
 }
 Driver::ActionDriver::~ActionDriver() {}
@@ -194,7 +202,7 @@ void Driver::ActionDriver::start() {
   assert(provisions.empty());
   assert(!isRunning);
 
-  dependencies.insert(std::make_pair(EntityId::fromFile(srcfile.get()), srcHash));
+  dependencies.insert(std::make_pair(triggerEntity, srcHash));
 
   state = RUNNING;
   isRunning = true;
@@ -206,6 +214,11 @@ void Driver::ActionDriver::start() {
 
 File* Driver::ActionDriver::findProvider(EntityId id) {
   ensureRunning();
+
+  if (id == triggerEntity) {
+    return srcfile.get();
+  }
+
   Provision* provision = choosePreferredProvider(id);
 
   if (provision == NULL) {
@@ -228,12 +241,25 @@ File* Driver::ActionDriver::findInput(const std::string& basename) {
 void Driver::ActionDriver::provide(File* file, const std::vector<EntityId>& entities) {
   ensureRunning();
 
-  OwnedPtr<Provision> provision;
-  provision.allocate();
-  file->clone(&provision->file);
-  provision->entities = entities;
+  // Find existing provision for this file, if any.
+  // TODO:  Convert provisions into a map?
+  Provision* provision = NULL;
+  for (int i = 0; i < provisions.size(); i++) {
+    if (provisions.get(i)->file->equals(file)) {
+      provision = provisions.get(i);
+      break;
+    }
+  }
 
-  provisions.adoptBack(&provision);
+  if (provision == NULL) {
+    OwnedPtr<Provision> ownedProvision;
+    ownedProvision.allocate();
+    provision = ownedProvision.get();
+    provisions.adoptBack(&ownedProvision);
+  }
+
+  file->clone(&provision->file);
+  provision->entities.insert(provision->entities.end(), entities.begin(), entities.end());
 }
 
 void Driver::ActionDriver::log(const std::string& text) {
@@ -248,7 +274,7 @@ void Driver::ActionDriver::newOutput(const std::string& basename, OwnedPtr<File>
   file->clone(output);
 
   std::vector<EntityId> entities;
-  entities.push_back(EntityId::fromFile(file.get()));
+  entities.push_back(EntityId::DEFAULT_ENTITY);
   provide(file.get(), entities);
 
   outputs.adoptBack(&file);
@@ -345,11 +371,7 @@ void Driver::ActionDriver::returned() {
   // Did the action use any entities that changed since the action started?
   for (DependencySet::const_iterator iter = dependencies.begin();
        iter != dependencies.end(); ++iter) {
-    // TODO:  Do we care if the file name changes, assuming the content hash is the same?  Here
-    //   we only check for a hash change.
-    Provision* preferred = choosePreferredProvider(iter->first);
-    const Hash& currentHash = preferred == NULL ? Hash::NULL_HASH : preferred->contentHash;
-    if (iter->second != currentHash) {
+    if (hasPreferredDependencyChanged(iter->first)) {
       // Yep.  Must do over.  Clear everything and add again to the action queue.
       state = PENDING;
       provisions.clear();
@@ -379,11 +401,6 @@ void Driver::ActionDriver::returned() {
     // Register providers.
     for (int i = 0; i < provisions.size(); i++) {
       driver->registerProvider(provisions.get(i));
-    }
-
-    // Enqueue new actions based on output files.
-    for (int i = 0; i < outputs.size(); i++) {
-      driver->scanForActions(outputs.get(i), outputs.get(i), DERIVED_INPUT);
     }
   }
 }
@@ -491,6 +508,20 @@ Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const EntityId&
   }
 }
 
+bool Driver::ActionDriver::hasPreferredDependencyChanged(const EntityId& entity) {
+  // TODO:  Do we care if the file name changes, assuming the content hash is the same?  Here
+  //   we only check for a hash change.
+  Provision* preferred = choosePreferredProvider(entity);
+  const Hash& currentHash = preferred == NULL ? Hash::NULL_HASH : preferred->contentHash;
+  DependencySet::const_iterator actual = dependencies.find(entity);
+  if (actual == dependencies.end()) {
+    DEBUG_ERROR << "hasPreferredDependencyChanged() called on entity which we don't depend on.";
+    return false;
+  } else {
+    return currentHash != actual->second;
+  }
+}
+
 // =======================================================================================
 
 Driver::Driver(EventManager* eventManager, Dashboard* dashboard, File* src, File* tmp,
@@ -522,7 +553,7 @@ void Driver::addActionFactory(ActionFactory* factory) {
 }
 
 void Driver::start() {
-  scanForActions(src, tmp, ORIGINAL_INPUT);
+  scanSourceTree();
   startSomeActions();
 }
 
@@ -542,83 +573,70 @@ void Driver::startSomeActions() {
   }
 }
 
-void Driver::scanForActions(File* src, File* tmp, ScanType type) {
-  OwnedPtrVector<SrcTmpPair> fileQueue;
+void Driver::scanSourceTree() {
+  OwnedPtrVector<File> fileQueue;
 
   {
-    OwnedPtr<SrcTmpPair> root;
-    root.allocate();
-    src->clone(&root->srcFile);
-    root->srcFileHash = root->srcFile->contentHash();
-    tmp->clone(&root->tmpLocation);
+    OwnedPtr<File> root;
+    src->clone(&root);
     fileQueue.adoptBack(&root);
   }
 
   while (!fileQueue.empty()) {
-    OwnedPtr<SrcTmpPair> current;
+    OwnedPtr<File> current;
     fileQueue.releaseBack(&current);
 
-    if (current->srcFile->isDirectory()) {
-      if (!current->tmpLocation->isDirectory()) {
-        current->tmpLocation->createDirectory();
-      }
-
+    if (current->isDirectory()) {
       OwnedPtrVector<File> list;
-      current->srcFile->list(list.appender());
+      current->list(list.appender());
       for (int i = 0; i < list.size(); i++) {
-        OwnedPtr<SrcTmpPair> newPair;
-        newPair.allocate();
-        list.release(i, &newPair->srcFile);
-        newPair->srcFileHash = newPair->srcFile->contentHash();
-        current->tmpLocation->relative(newPair->srcFile->basename(), &newPair->tmpLocation);
-        fileQueue.adoptBack(&newPair);
+        OwnedPtr<File> child;
+        list.release(i, &child);
+        fileQueue.adoptBack(&child);
       }
     }
 
     // Don't allow actions to trigger on the root directory.
-    if (current->srcFile->hasParent()) {
-      // Poll all ActionFactories to see if they like this file.
-      for (unsigned int i = 0; i < actionFactories.size(); i++) {
-        ActionFactory* factory = actionFactories[i];
-        OwnedPtr<Action> action;
-        if (factory->tryMakeAction(current->srcFile.get(), &action)) {
-          queueNewAction(&action, current->srcFile.get(), current->srcFileHash,
-                         current->tmpLocation.get());
-        }
-      }
-
-      // Register the file as an entity.  We only do this for original inputs because derived
-      // files are registered by the creating action.
-      if (type == ORIGINAL_INPUT) {
-        current->provision.allocate();
-        current->provision->entities.push_back(EntityId::fromFile(current->srcFile.get()));
-        current->srcFile->clone(&current->provision->file);
-        registerProvider(current->provision.get());
-      }
-
-      // Add to allScannedFiles for easy re-scanning later.
-      allScannedFiles.adoptBack(&current);
+    if (current->hasParent()) {
+      // Apply default tag.
+      OwnedPtr<Provision> provision;
+      provision.allocate();
+      provision->entities.push_back(EntityId::DEFAULT_ENTITY);
+      current->clone(&provision->file);
+      registerProvider(provision.get());
+      rootProvisions.adoptBack(&provision);
     }
   }
 }
 
 void Driver::rescanForNewFactory(ActionFactory* factory) {
-  for (int i = 0; i < allScannedFiles.size(); i++) {
-    OwnedPtr<Action> action;
-    if (factory->tryMakeAction(allScannedFiles.get(i)->srcFile.get(), &action)) {
-      const SrcTmpPair& srctmp = *allScannedFiles.get(i);
-      queueNewAction(&action, srctmp.srcFile.get(), srctmp.srcFileHash, srctmp.tmpLocation.get());
+  // Apply triggers.
+  std::vector<EntityId> triggerEntities;
+  factory->enumerateTriggerEntities(std::back_inserter(triggerEntities));
+  for (unsigned int i = 0; i < triggerEntities.size(); i++) {
+    ProvisionSet* provisions = entityMap.get(triggerEntities[i]);
+    if (provisions != NULL) {
+      for (ProvisionSet::iterator iter = provisions->begin(); iter != provisions->end(); ++iter) {
+        Provision* provision = *iter;
+        OwnedPtr<Action> action;
+        if (factory->tryMakeAction(triggerEntities[i], provision->file.get(), &action)) {
+          queueNewAction(&action, triggerEntities[i],
+                         provision->file.get(), provision->contentHash);
+        }
+      }
     }
   }
 }
 
-void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file,
-                            const Hash& fileHash, File* tmpLocation) {
+void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, const EntityId& triggerEntity,
+                            File* file, const Hash& fileHash) {
   OwnedPtr<Dashboard::Task> task;
-  dashboard->beginTask((*actionToAdopt)->getVerb(), file->canonicalName(), &task);
+  dashboard->beginTask((*actionToAdopt)->getVerb(), file->canonicalName(),
+                       (*actionToAdopt)->isSilent() ? Dashboard::SILENT : Dashboard::NORMAL,
+                       &task);
 
   OwnedPtr<ActionDriver> actionDriver;
-  actionDriver.allocate(this, actionToAdopt, file, fileHash, tmpLocation, &task);
+  actionDriver.allocate(this, actionToAdopt, triggerEntity, file, fileHash, &task);
 
   pendingActions.adoptBack(&actionDriver);
 }
@@ -656,23 +674,20 @@ void Driver::resetDependentActions(const EntityId& entity) {
         range = completedActions.equal_range(currentEntity);
     int pendingActionsPos = pendingActions.size();
     for (CompletedActionMap::const_iterator iter = range.first; iter != range.second; ++iter) {
-      // Reset action to pending.
-
-      OwnedPtr<ActionDriver> action;
-      if (completedActionPtrs.release(iter->second, &action)) {
-        action->reset(&entitiesToReset);
-        pendingActions.adoptBack(&action);
-      } else {
-        DEBUG_ERROR << "ActionDriver in completedActions but not completedActionPtrs?";
+      if (iter->second->hasPreferredDependencyChanged(currentEntity)) {
+        // Reset action to pending.
+        OwnedPtr<ActionDriver> action;
+        if (completedActionPtrs.release(iter->second, &action)) {
+          action->reset(&entitiesToReset);
+          pendingActions.adoptBack(&action);
+        } else {
+          DEBUG_ERROR << "ActionDriver in completedActions but not completedActionPtrs?";
+        }
       }
     }
 
     for (; pendingActionsPos < pendingActions.size(); pendingActionsPos++) {
       pendingActions.get(pendingActionsPos)->clearDependencies();
-    }
-
-    if (completedActions.find(currentEntity) != completedActions.end()) {
-      DEBUG_ERROR << "clearDependencies() didn't work?";
     }
   }
 }
@@ -683,7 +698,7 @@ void Driver::fireTriggers(const EntityId& entity, File* file, const Hash& fileHa
   for (TriggerMap::const_iterator iter = range.first; iter != range.second; ++iter) {
     OwnedPtr<Action> triggeredAction;
     if (iter->second->tryMakeAction(entity, file, &triggeredAction)) {
-      queueNewAction(&triggeredAction, file, fileHash, file);
+      queueNewAction(&triggeredAction, entity, file, fileHash);
     }
   }
 }

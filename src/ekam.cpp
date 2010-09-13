@@ -50,6 +50,51 @@
 
 namespace ekam {
 
+class ExtractTypeAction : public Action {
+public:
+  ExtractTypeAction(File* file) {
+    file->clone(&this->file);
+  }
+  ~ExtractTypeAction() {}
+
+  // implements Action -------------------------------------------------------------------
+  bool isSilent() { return true; }
+  std::string getVerb() { return "scan"; }
+
+  void start(EventManager* eventManager, BuildContext* context,
+             OwnedPtr<AsyncOperation>* output) {
+    std::vector<EntityId> entities;
+    entities.push_back(EntityId::fromFile(file.get()));
+
+    std::string basename = file->basename();
+    entities.push_back(EntityId::fromName("basename:" + basename));
+
+    std::string base, ext;
+    splitExtension(basename, &base, &ext);
+    if (!ext.empty()) entities.push_back(EntityId::fromName("filetype:" + ext));
+
+    context->provide(file.get(), entities);
+  }
+
+private:
+  OwnedPtr<File> file;
+};
+
+class ExtractTypeActionFactory : public ActionFactory {
+public:
+  ExtractTypeActionFactory() {}
+  ~ExtractTypeActionFactory() {}
+
+  // implements ActionFactory ------------------------------------------------------------
+  void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter) {
+    *iter++ = EntityId::DEFAULT_ENTITY;
+  }
+  bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output) {
+    output->allocateSubclass<ExtractTypeAction>(file);
+    return true;
+  }
+};
+
 void usage(const char* command, FILE* out) {
   fprintf(out,
     "usage: %s [-hv] [-j jobcount]\n", command);
@@ -109,6 +154,9 @@ int main(int argc, char* argv[]) {
   PollEventManager eventManager;
 
   Driver driver(&eventManager, dashboard.get(), &src, &tmp, maxConcurrentActions);
+
+  ExtractTypeActionFactory extractTypeActionFactcory;
+  driver.addActionFactory(&extractTypeActionFactcory);
 
   CppActionFactory cppActionFactory;
   driver.addActionFactory(&cppActionFactory);

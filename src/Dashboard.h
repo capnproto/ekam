@@ -57,8 +57,13 @@ public:
     virtual void addOutput(const std::string& text) = 0;
   };
 
+  enum Silence {
+    SILENT,
+    NORMAL
+  };
+
   virtual void beginTask(const std::string& verb, const std::string& noun,
-                         OwnedPtr<Task>* output) = 0;
+                         Silence silence, OwnedPtr<Task>* output) = 0;
 };
 
 }  // namespace ekam

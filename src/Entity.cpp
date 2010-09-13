@@ -35,6 +35,8 @@
 
 namespace ekam {
 
+const EntityId EntityId::DEFAULT_ENTITY = EntityId::fromName("file:*");
+
 EntityId EntityId::fromFile(File* file) {
   return fromName("file:" + file->canonicalName());
 }

@@ -4,7 +4,9 @@ set -eu
 
 if test $# = 0; then
   # Ekam is querying the script.  Tell it that we like C++ source files.
-  echo pattern '*.cpp *.cc *.C'
+  echo trigger filetype:.cpp
+  echo trigger filetype:.cc
+  echo trigger filetype:.C
   exit 0
 fi
 

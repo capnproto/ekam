@@ -84,6 +84,7 @@ public:
 };
 
 void splitExtension(const std::string& name, std::string* base, std::string* ext);
+void recursivelyCreateDirectory(File* location);
 
 }  // namespace ekam
 

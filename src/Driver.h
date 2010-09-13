@@ -92,25 +92,15 @@ private:
   CompletedActionMap completedActions;
   OwnedPtrMap<ActionDriver*, ActionDriver> completedActionPtrs;
 
-  struct SrcTmpPair {
-    OwnedPtr<File> srcFile;
-    Hash srcFileHash;
-    OwnedPtr<File> tmpLocation;
-    OwnedPtr<Provision> provision;
-  };
-  OwnedPtrVector<SrcTmpPair> allScannedFiles;
+  OwnedPtrVector<Provision> rootProvisions;
 
   void startSomeActions();
 
-  enum ScanType {
-    ORIGINAL_INPUT,
-    DERIVED_INPUT
-  };
-  void scanForActions(File* src, File* tmp, ScanType type);
+  void scanSourceTree();
   void rescanForNewFactory(ActionFactory* factory);
 
-  void queueNewAction(OwnedPtr<Action>* actionToAdopt, File* file,
-                      const Hash& fileHash, File* tmpLocation);
+  void queueNewAction(OwnedPtr<Action>* actionToAdopt, const EntityId& triggerEntity, File* file,
+                      const Hash& fileHash);
 
   void registerProvider(Provision* provision);
   void resetDependentActions(const EntityId& entity);

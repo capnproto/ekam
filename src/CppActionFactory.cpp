@@ -208,10 +208,6 @@ const EntityId CppActionFactory::MAIN_SYMBOLS[] = {
 CppActionFactory::CppActionFactory() {}
 CppActionFactory::~CppActionFactory() {}
 
-bool CppActionFactory::tryMakeAction(File* file, OwnedPtr<Action>* output) {
-  return false;
-}
-
 void CppActionFactory::enumerateTriggerEntities(
     std::back_insert_iterator<std::vector<EntityId> > iter) {
   for (unsigned int i = 0; i < (sizeof(MAIN_SYMBOLS) / sizeof(MAIN_SYMBOLS[0])); i++) {

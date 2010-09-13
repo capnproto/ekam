@@ -32,7 +32,6 @@
 
 #include <string.h>
 #include <errno.h>
-#include <fnmatch.h>
 #include <map>
 
 #include "Subprocess.h"
@@ -236,38 +235,28 @@ class PluginDerivedActionFactory : public ActionFactory {
 public:
   PluginDerivedActionFactory(OwnedPtr<File>* executableToAdopt,
                              std::string* verbToAdopt,
-                             std::vector<std::string>* patternsToAdopt) {
+                             std::vector<EntityId>* triggersToAdopt) {
     executable.adopt(executableToAdopt);
     verb.swap(*verbToAdopt);
-    patterns.swap(*patternsToAdopt);
+    triggers.swap(*triggersToAdopt);
   }
   ~PluginDerivedActionFactory() {}
 
   // implements ActionFactory -----------------------------------------------------------
-  bool tryMakeAction(File* file, OwnedPtr<Action>* output) {
-    std::string name = file->basename();
-
-    for (unsigned int i = 0; i < patterns.size(); i++) {
-      if (fnmatch(patterns[i].c_str(), name.c_str(), FNM_PATHNAME | FNM_PERIOD) == 0) {
-        // Matched!
-        output->allocateSubclass<PluginDerivedAction>(executable.get(), verb, file);
-        return true;
-      }
-    }
-    return false;
-  }
   void enumerateTriggerEntities(std::back_insert_iterator<std::vector<EntityId> > iter) {
-    // None.
+    for (unsigned int i = 0; i < triggers.size(); i++) {
+      *iter++ = triggers[i];
+    }
   }
   bool tryMakeAction(const EntityId& id, File* file, OwnedPtr<Action>* output) {
-    // Never called (since there are no trigger entities).
-    return false;
+    output->allocateSubclass<PluginDerivedAction>(executable.get(), verb, file);
+    return true;
   }
 
 private:
   OwnedPtr<File> executable;
   std::string verb;
-  std::vector<std::string> patterns;
+  std::vector<EntityId> triggers;
 };
 
 // =======================================================================================
@@ -312,10 +301,8 @@ public:
 
     if (command == "verb") {
       verb = args;
-    } else if (command == "pattern") {
-      while (!args.empty()) {
-        triggerPatterns.push_back(splitToken(&args));
-      }
+    } else if (command == "trigger") {
+      triggers.push_back(EntityId::fromName(args));
     } else {
       context->log("invalid command: " + command);
       context->failed();
@@ -324,7 +311,7 @@ public:
 
   void eof() {
     OwnedPtr<ActionFactory> newFactory;
-    newFactory.allocateSubclass<PluginDerivedActionFactory>(&executable, &verb, &triggerPatterns);
+    newFactory.allocateSubclass<PluginDerivedActionFactory>(&executable, &verb, &triggers);
     context->addActionType(&newFactory);
   }
 
@@ -338,7 +325,7 @@ private:
   OwnedPtr<File> executable;
   LineReader lineReader;
   std::string verb;
-  std::vector<std::string> triggerPatterns;
+  std::vector<EntityId> triggers;
 };
 
 class QueryRuleAction::Process : public AsyncOperation, public EventManager::ProcessExitCallback {
@@ -394,27 +381,15 @@ ExecPluginActionFactory::~ExecPluginActionFactory() {}
 
 // implements ActionFactory --------------------------------------------------------------
 
-bool ExecPluginActionFactory::tryMakeAction(File* file, OwnedPtr<Action>* output) {
-  std::string base, ext;
-  splitExtension(file->basename(), &base, &ext);
-
-  if (ext == ".ekam-rule") {
-    output->allocateSubclass<QueryRuleAction>(file);
-    return true;
-  } else {
-    return false;
-  }
-}
-
 void ExecPluginActionFactory::enumerateTriggerEntities(
     std::back_insert_iterator<std::vector<EntityId> > iter) {
-  // None.
+  *iter++ = EntityId::fromName("filetype:.ekam-rule");
 }
 
 bool ExecPluginActionFactory::tryMakeAction(
     const EntityId& id, File* file, OwnedPtr<Action>* output) {
-  // Never called (since there are no trigger entities).
-  return false;
+  output->allocateSubclass<QueryRuleAction>(file);
+  return true;
 }
 
 }  // namespace ekam

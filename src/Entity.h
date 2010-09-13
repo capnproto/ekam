@@ -46,6 +46,9 @@ class EntityId {
 public:
   EntityId() {}
 
+  // Every file provides this entity.
+  static const EntityId DEFAULT_ENTITY;
+
   static inline EntityId fromName(const std::string& name) {
     return EntityId(Hash::of(name));
   }
