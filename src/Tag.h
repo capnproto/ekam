@@ -28,17 +28,58 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifndef EKAM_TAG_H_
+#define EKAM_TAG_H_
 
-#include "Entity.h"
+#include <inttypes.h>
+#include <string.h>
+#include <string>
+#include <vector>
 
-#include "File.h"
+#include "Hash.h"
 
 namespace ekam {
 
-const EntityId EntityId::DEFAULT_ENTITY = EntityId::fromName("file:*");
+class File;
 
-EntityId EntityId::fromFile(File* file) {
-  return fromName("file:" + file->canonicalName());
-}
+class Tag {
+public:
+  Tag() {}
+
+  // Every file has this tag.
+  static const Tag DEFAULT_TAG;
+
+  static inline Tag fromName(const std::string& name) {
+    return Tag(Hash::of(name));
+  }
+
+  static Tag fromFile(File* file);
+
+  inline std::string toString() { return hash.toString(); }
+
+  inline bool operator==(const Tag& other) const { return hash == other.hash; }
+  inline bool operator!=(const Tag& other) const { return hash != other.hash; }
+  inline bool operator< (const Tag& other) const { return hash <  other.hash; }
+  inline bool operator> (const Tag& other) const { return hash >  other.hash; }
+  inline bool operator<=(const Tag& other) const { return hash <= other.hash; }
+  inline bool operator>=(const Tag& other) const { return hash >= other.hash; }
+
+  class HashFunc {
+  public:
+    inline size_t operator()(const Tag& id) const {
+      return inner(id.hash);
+    }
+
+  private:
+    Hash::StlHashFunc inner;
+  };
+
+private:
+  Hash hash;
+
+  inline explicit Tag(Hash hash) : hash(hash) {}
+};
 
 }  // namespace ekam
+
+#endif  // EKAM_TAG_H_

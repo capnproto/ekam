@@ -28,58 +28,17 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_ENTITY_H_
-#define EKAM_ENTITY_H_
 
-#include <inttypes.h>
-#include <string.h>
-#include <string>
-#include <vector>
+#include "Tag.h"
 
-#include "Hash.h"
+#include "File.h"
 
 namespace ekam {
 
-class File;
+const Tag Tag::DEFAULT_TAG = Tag::fromName("file:*");
 
-class EntityId {
-public:
-  EntityId() {}
-
-  // Every file provides this entity.
-  static const EntityId DEFAULT_ENTITY;
-
-  static inline EntityId fromName(const std::string& name) {
-    return EntityId(Hash::of(name));
-  }
-
-  static EntityId fromFile(File* file);
-
-  inline std::string toString() { return hash.toString(); }
-
-  inline bool operator==(const EntityId& other) const { return hash == other.hash; }
-  inline bool operator!=(const EntityId& other) const { return hash != other.hash; }
-  inline bool operator< (const EntityId& other) const { return hash <  other.hash; }
-  inline bool operator> (const EntityId& other) const { return hash >  other.hash; }
-  inline bool operator<=(const EntityId& other) const { return hash <= other.hash; }
-  inline bool operator>=(const EntityId& other) const { return hash >= other.hash; }
-
-  class HashFunc {
-  public:
-    inline size_t operator()(const EntityId& id) const {
-      return inner(id.hash);
-    }
-
-  private:
-    Hash::StlHashFunc inner;
-  };
-
-private:
-  Hash hash;
-
-  inline explicit EntityId(Hash hash) : hash(hash) {}
-};
+Tag Tag::fromFile(File* file) {
+  return fromName("file:" + file->canonicalName());
+}
 
 }  // namespace ekam
-
-#endif  // EKAM_ENTITY_H_
