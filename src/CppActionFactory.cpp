@@ -159,6 +159,15 @@ public:
       subprocess.addArgument(deps.get(i), File::READ);
     }
 
+    const char* libs = getenv("LIBS");
+    if (libs != NULL) {
+      while (const char* spacepos = strchr(libs, ' ')) {
+        subprocess.addArgument(std::string(libs, spacepos));
+        libs = spacepos + 1;
+      }
+      subprocess.addArgument(libs);
+    }
+
     subprocess.captureStdoutAndStderr(&logStream);
 
     subprocess.start(eventManager, this);
