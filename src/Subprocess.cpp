@@ -88,7 +88,7 @@ void Subprocess::addArgument(const std::string& arg) {
   args.push_back(arg);
 }
 
-void Subprocess::addArgument(File* file, File::Usage usage) {
+File::DiskRef* Subprocess::addArgument(File* file, File::Usage usage) {
   OwnedPtr<File::DiskRef> diskRef;
   file->getOnDisk(usage, &diskRef);
 
@@ -98,7 +98,9 @@ void Subprocess::addArgument(File* file, File::Usage usage) {
   }
   args.push_back(diskRef->path());
 
+  File::DiskRef* result = diskRef.get();
   diskRefs.adoptBack(&diskRef);
+  return result;
 }
 
 void Subprocess::captureStdin(OwnedPtr<FileDescriptor>* output) {

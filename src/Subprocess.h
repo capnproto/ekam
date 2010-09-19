@@ -47,7 +47,7 @@ public:
   ~Subprocess();
 
   void addArgument(const std::string& arg);
-  void addArgument(File* file, File::Usage usage);
+  File::DiskRef* addArgument(File* file, File::Usage usage);
 
   void captureStdin(OwnedPtr<FileDescriptor>* output);
   void captureStdout(OwnedPtr<FileDescriptor>* output);

@@ -1,0 +1,15 @@
+#! /bin/sh
+
+set -eu
+
+if test $# = 0; then
+  # Ekam is querying the script.  Tell it that we like directories called "src" or "include".
+  echo trigger basename:include
+  echo trigger basename:src
+  exit 0
+fi
+
+INPUT=$1
+
+# For each header in the directory, tag the directory with "include:$HEADER".
+find $INPUT -name '*.h' | sed -e "s,$INPUT/,provide $INPUT include:,g"

@@ -82,9 +82,13 @@ private:
 
 class PluginDerivedAction::CommandReader : public LineReader::Callback {
 public:
-  CommandReader(BuildContext* context, OwnedPtr<FileDescriptor>* responseStreamToAdopt)
+  CommandReader(BuildContext* context, OwnedPtr<FileDescriptor>* responseStreamToAdopt,
+                File* input, File::DiskRef* inputDiskRef)
       : context(context), lineReader(this) {
     responseStream.adopt(responseStreamToAdopt);
+    OwnedPtr<File> inputClone;
+    input->clone(&inputClone);
+    knownFiles.adopt(inputDiskRef->path(), &inputClone);
   }
   ~CommandReader() {}
 
@@ -110,6 +114,10 @@ public:
         std::string path = diskRef->path();
         diskRefs.adoptBack(&diskRef);
         responseStream->writeAll(path.data(), path.size());
+
+        OwnedPtr<File> fileClone;
+        provider->clone(&fileClone);
+        knownFiles.adopt(diskRef->path(), &fileClone);
       }
       responseStream->writeAll("\n", 1);
     } else if (command == "newProvider") {
@@ -128,15 +136,16 @@ public:
       std::string path = diskRef->path();
 
       diskRefs.adoptBack(&diskRef);
-      outputFiles.adopt(args, &file);
+      knownFiles.adopt(args, &file);
 
       responseStream->writeAll(path.data(), path.size());
       responseStream->writeAll("\n", 1);
     } else if (command == "provide") {
       std::string filename = splitToken(&args);
-      File* file = outputFiles.get(filename);
+      File* file = knownFiles.get(filename);
       if (file == NULL) {
-        context->log("File passed to \"provide\" not created with \"newOutput\": " + filename);
+        context->log("File passed to \"provide\" not created with \"newOutput\" nor noted as an "
+                     "input: " + filename + "\n");
         context->failed();
       } else {
         provisions.insert(std::make_pair(file, Tag::fromName(args)));
@@ -175,7 +184,7 @@ private:
   OwnedPtr<FileDescriptor> responseStream;
   LineReader lineReader;
 
-  OwnedPtrMap<std::string, File> outputFiles;
+  OwnedPtrMap<std::string, File> knownFiles;
   OwnedPtrVector<File::DiskRef> diskRefs;
   typedef std::multimap<File*, Tag> ProvisionMap;
   ProvisionMap provisions;
@@ -187,7 +196,7 @@ public:
   Process(EventManager* eventManager, BuildContext* context, File* executable, File* input)
       : context(context) {
     subprocess.addArgument(executable, File::READ);
-    subprocess.addArgument(input, File::READ);
+    File::DiskRef* inputDiskRef = subprocess.addArgument(input, File::READ);
 
     OwnedPtr<FileDescriptor> responseStream;
     subprocess.captureStdin(&responseStream);
@@ -195,7 +204,7 @@ public:
     subprocess.captureStderr(&logStream);
     subprocess.start(eventManager, this);
 
-    commandReader.allocate(context, &responseStream);
+    commandReader.allocate(context, &responseStream, input, inputDiskRef);
     commandStream->readAll(eventManager, commandReader->asReadAllCallback(), &commandOp);
 
     logger.allocate(context);
