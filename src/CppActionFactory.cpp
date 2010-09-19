@@ -31,6 +31,7 @@
 #include "CppActionFactory.h"
 
 #include <tr1/unordered_set>
+#include <stdlib.h>
 
 #include "Debug.h"
 #include "FileDescriptor.h"
@@ -146,7 +147,9 @@ public:
     std::string base, ext;
     splitExtension(action->file->basename(), &base, &ext);
 
-    subprocess.addArgument("c++");
+    const char* cxx = getenv("CXX");
+
+    subprocess.addArgument(cxx == NULL ? "c++" : cxx);
     subprocess.addArgument("-o");
 
     context->newOutput(base, &executableFile);

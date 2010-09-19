@@ -39,6 +39,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <assert.h>
+#include <string.h>
 
 #include "Debug.h"
 
@@ -216,7 +217,7 @@ public:
 
   // implements KEventHandler ------------------------------------------------------------
   void handle(const KEvent& event) {
-    if (event.fflags & NOTE_EXIT == 0) {
+    if ((event.fflags & NOTE_EXIT) == 0) {
       DEBUG_ERROR << "EVFILT_PROC kevent had unexpected fflags: " << event.fflags;
       return;
     }

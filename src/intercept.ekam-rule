@@ -1,0 +1,24 @@
+#! /bin/sh
+
+# This is a one-off rule that builds intercept.so from intercept.c.
+# TODO:  Improve Ekam's support for one-off rules.  As this stands now, if any other file in
+#   the source tree is named intercept.c, this rule will attempt to compile it.
+
+set -eu
+
+if test $# = 0; then
+  # Ekam is querying the script.
+  echo verb compile-special
+  echo trigger basename:intercept.c
+  exit 0
+fi
+
+INPUT=$1
+BASENAME=`basename $INPUT .c`
+
+echo newOutput ${BASENAME}.so
+read OUTPUT
+
+gcc -g -shared -Wall -fPIC -o $OUTPUT $INPUT
+
+echo provide $OUTPUT special:ekam-interceptor

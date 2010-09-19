@@ -400,6 +400,18 @@ void Driver::ActionDriver::returned() {
   } else {
     dashboardTask->setState(state == PASSED ? Dashboard::PASSED : Dashboard::DONE);
 
+    // Remove outputs which were deleted before the action completed.  Some actions create
+    // files and then delete them immediately.
+    OwnedPtrVector<Provision> provisionsToFilter;
+    provisions.swap(&provisionsToFilter);
+    for (int i = 0; i < provisionsToFilter.size(); i++) {
+      if (provisionsToFilter.get(i)->file->exists()) {
+        OwnedPtr<Provision> temp;
+        provisionsToFilter.release(i, &temp);
+        provisions.adoptBack(&temp);
+      }
+    }
+
     // Register providers.
     for (int i = 0; i < provisions.size(); i++) {
       driver->registerProvider(provisions.get(i));

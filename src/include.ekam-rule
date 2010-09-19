@@ -11,5 +11,5 @@ fi
 
 INPUT=$1
 
-# For each header in the directory, tag the directory with "include:$HEADER".
-find $INPUT -name '*.h' | sed -e "s,$INPUT/,provide $INPUT include:,g"
+# For each header in the directory, tag the directory with "c++header:$HEADER".
+find $INPUT -name '*.h' | sed -e "s,$INPUT/,provide $INPUT c++header:,g"

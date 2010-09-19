@@ -36,6 +36,7 @@
 
 #include "Subprocess.h"
 #include "ActionUtil.h"
+#include "Debug.h"
 
 namespace ekam {
 
@@ -89,6 +90,8 @@ public:
     OwnedPtr<File> inputClone;
     input->clone(&inputClone);
     knownFiles.adopt(inputDiskRef->path(), &inputClone);
+
+    cache.insert(std::make_pair("findInput " + input->basename(), inputDiskRef));
   }
   ~CommandReader() {}
 
@@ -98,6 +101,8 @@ public:
 
   // implements LineReader::Callback -----------------------------------------------------
   void consume(const std::string& line) {
+    if (findInCache(line)) return;
+
     std::string args = line;
     std::string command = splitToken(&args);
 
@@ -106,18 +111,22 @@ public:
       if (command == "findProvider") {
         provider = context->findProvider(Tag::fromName(args));
       } else {
+        // Was this previously an output?
+        if (findInCache("newOutput " + args)) return;
+
         provider = context->findInput(args);
       }
       if (provider != NULL) {
         OwnedPtr<File::DiskRef> diskRef;
         provider->getOnDisk(File::READ, &diskRef);
         std::string path = diskRef->path();
+        cache.insert(std::make_pair(line, diskRef.get()));
         diskRefs.adoptBack(&diskRef);
         responseStream->writeAll(path.data(), path.size());
 
         OwnedPtr<File> fileClone;
         provider->clone(&fileClone);
-        knownFiles.adopt(diskRef->path(), &fileClone);
+        knownFiles.adopt(path, &fileClone);
       }
       responseStream->writeAll("\n", 1);
     } else if (command == "newProvider") {
@@ -135,8 +144,9 @@ public:
       file->getOnDisk(File::WRITE, &diskRef);
       std::string path = diskRef->path();
 
+      cache.insert(std::make_pair(line, diskRef.get()));
       diskRefs.adoptBack(&diskRef);
-      knownFiles.adopt(args, &file);
+      knownFiles.adopt(path, &file);
 
       responseStream->writeAll(path.data(), path.size());
       responseStream->writeAll("\n", 1);
@@ -185,9 +195,23 @@ private:
   LineReader lineReader;
 
   OwnedPtrMap<std::string, File> knownFiles;
+  typedef std::tr1::unordered_map<std::string, File::DiskRef*> CacheMap;
+  CacheMap cache;
   OwnedPtrVector<File::DiskRef> diskRefs;
   typedef std::multimap<File*, Tag> ProvisionMap;
   ProvisionMap provisions;
+
+  bool findInCache(const std::string& line) {
+    CacheMap::const_iterator iter = cache.find(line);
+    if (iter == cache.end()) {
+      return false;
+    } else {
+      std::string path = iter->second->path();
+      responseStream->writeAll(path.data(), path.size());
+      responseStream->writeAll("\n", 1);
+      return true;
+    }
+  }
 };
 
 class PluginDerivedAction::Process : public AsyncOperation,
