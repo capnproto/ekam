@@ -265,7 +265,9 @@ void DiskFile::list(OwnedPtrVector<File>::Appender output) {
   DirectoryReader reader(path);
   std::string filename;
   while (reader.next(&filename)) {
-    if (filename != "." && filename != "..") {
+    if (filename.empty()) {
+      DEBUG_ERROR << "DirectoryReader returned empty file name.";
+    } else if (filename[0] != '.') {  // skip hidden files
       OwnedPtr<File> file;
       file.allocateSubclass<DiskFile>(prefix + filename, this);
       output.adopt(&file);
@@ -306,9 +308,9 @@ void DiskFile::relative(const std::string& path, OwnedPtr<File>* output) {
     } else {
       OwnedPtr<File> temp;
       if (this->path.empty()) {
-        temp.allocateSubclass<DiskFile>(path, this);
+        temp.allocateSubclass<DiskFile>(first_part, this);
       } else {
-        temp.allocateSubclass<DiskFile>(this->path + "/" + path, this);
+        temp.allocateSubclass<DiskFile>(this->path + "/" + first_part, this);
       }
       temp->relative(rest, output);
     }
