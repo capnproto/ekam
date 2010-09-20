@@ -51,6 +51,14 @@ public:
   virtual void parent(OwnedPtr<File>* output) = 0;
 
   virtual bool equals(File* other) = 0;
+  virtual size_t identityHash() = 0;
+
+  class HashFunc {
+  public:
+    inline size_t operator()(File* file) const {
+      return file->identityHash();
+    }
+  };
 
   class DiskRef {
   public:

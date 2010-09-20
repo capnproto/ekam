@@ -69,8 +69,7 @@ int commonPrefixLength(const std::string& srcName, const std::string& bestMatchN
 class Driver::ActionDriver : public BuildContext, public EventGroup::ExceptionHandler {
 public:
   ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
-               const Tag& triggerTag, File* srcfile, Hash srcHash,
-               OwnedPtr<Dashboard::Task>* taskToAdopt);
+               File* srcfile, Hash srcHash, OwnedPtr<Dashboard::Task>* taskToAdopt);
   ~ActionDriver();
 
   void start();
@@ -131,7 +130,6 @@ private:
 
   Driver* driver;
   OwnedPtr<Action> action;
-  Tag triggerTag;
   OwnedPtr<File> srcfile;
   Hash srcHash;
   OwnedPtr<File> tmpdir;
@@ -168,17 +166,18 @@ private:
   void queueDoneCallback();
   void returned();
   void clearDependencies();
-  void reset(std::tr1::unordered_set<Tag, Tag::HashFunc>* tagsToReset);
-  Provision* choosePreferredProvider(const Tag& id);
-  bool hasPreferredDependencyChanged(const Tag& id);
+  void reset(std::tr1::unordered_set<Tag, Tag::HashFunc>* tagsToReset,
+             std::vector<ActionDriver*>* actionsToDelete);
+  Provision* choosePreferredProvider(const Tag& tag);
+  bool hasPreferredDependencyChanged(const Tag& tag);
 
   friend class Driver;
 };
 
 Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
-                                   const Tag& triggerTag, File* srcfile, Hash srcHash,
+                                   File* srcfile, Hash srcHash,
                                    OwnedPtr<Dashboard::Task>* taskToAdopt)
-    : driver(driver), triggerTag(triggerTag), srcHash(srcHash), state(PENDING),
+    : driver(driver), srcHash(srcHash), state(PENDING),
       eventGroup(driver->eventManager, this), startCallback(this), doneCallback(this),
       isRunning(false) {
   action.adopt(actionToAdopt);
@@ -202,8 +201,6 @@ void Driver::ActionDriver::start() {
   assert(provisions.empty());
   assert(!isRunning);
 
-  dependencies.insert(std::make_pair(triggerTag, srcHash));
-
   state = RUNNING;
   isRunning = true;
   dashboardTask->setState(Dashboard::RUNNING);
@@ -214,10 +211,6 @@ void Driver::ActionDriver::start() {
 
 File* Driver::ActionDriver::findProvider(Tag id) {
   ensureRunning();
-
-  if (id == triggerTag) {
-    return srcfile.get();
-  }
 
   Provision* provision = choosePreferredProvider(id);
 
@@ -436,7 +429,8 @@ void Driver::ActionDriver::clearDependencies() {
 }
 
 void Driver::ActionDriver::reset(
-    std::tr1::unordered_set<Tag, Tag::HashFunc>* tagsToReset) {
+    std::tr1::unordered_set<Tag, Tag::HashFunc>* tagsToReset,
+    std::vector<ActionDriver*>* actionsToDelete) {
   state = ActionDriver::PENDING;
 
   for (int i = 0; i < provisions.size(); i++) {
@@ -460,14 +454,22 @@ void Driver::ActionDriver::reset(
         driver->tagMap.erase(tag);
       }
     }
+
+    // Everything triggered by this provision must be deleted.
+    std::pair<ActionsByTriggerMap::iterator, ActionsByTriggerMap::iterator> range =
+        driver->actionsByTrigger.equal_range(provision);
+    for (ActionsByTriggerMap::iterator iter = range.first; iter != range.second; ++iter) {
+      actionsToDelete->push_back(iter->second);
+    }
+    driver->actionsByTrigger.erase(range.first, range.second);
   }
 
   provisions.clear();
   outputs.clear();
 }
 
-Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const Tag& id) {
-  ProvisionSet* provisions = driver->tagMap.get(id);
+Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const Tag& tag) {
+  ProvisionSet* provisions = driver->tagMap.get(tag);
   if (provisions == NULL || provisions->empty()) {
     return NULL;
   } else {
@@ -634,23 +636,22 @@ void Driver::rescanForNewFactory(ActionFactory* factory) {
         Provision* provision = *iter;
         OwnedPtr<Action> action;
         if (factory->tryMakeAction(triggerTags[i], provision->file.get(), &action)) {
-          queueNewAction(&action, triggerTags[i],
-                         provision->file.get(), provision->contentHash);
+          queueNewAction(&action, provision);
         }
       }
     }
   }
 }
 
-void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, const Tag& triggerTag,
-                            File* file, const Hash& fileHash) {
+void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, Provision* provision) {
   OwnedPtr<Dashboard::Task> task;
-  dashboard->beginTask((*actionToAdopt)->getVerb(), file->canonicalName(),
+  dashboard->beginTask((*actionToAdopt)->getVerb(), provision->file->canonicalName(),
                        (*actionToAdopt)->isSilent() ? Dashboard::SILENT : Dashboard::NORMAL,
                        &task);
 
   OwnedPtr<ActionDriver> actionDriver;
-  actionDriver.allocate(this, actionToAdopt, triggerTag, file, fileHash, &task);
+  actionDriver.allocate(this, actionToAdopt, provision->file.get(), provision->contentHash, &task);
+  actionsByTrigger.insert(std::make_pair(provision, actionDriver.get()));
 
   // Put new action on front of queue because it was probably triggered by another action that
   // just completed, and it's good to run related actions together to improve cache locality.
@@ -674,7 +675,7 @@ void Driver::registerProvider(Provision* provision) {
 
     resetDependentActions(tag);
 
-    fireTriggers(tag, provision->file.get(), provision->contentHash);
+    fireTriggers(tag, provision);
   }
 }
 
@@ -683,6 +684,8 @@ void Driver::resetDependentActions(const Tag& tag) {
   tagsToReset.insert(tag);
 
   while (!tagsToReset.empty()) {
+    std::vector<ActionDriver*> actionsToDelete;
+
     Tag currentTag = *tagsToReset.begin();
     tagsToReset.erase(tagsToReset.begin());
 
@@ -694,7 +697,7 @@ void Driver::resetDependentActions(const Tag& tag) {
         // Reset action to pending.
         OwnedPtr<ActionDriver> action;
         if (completedActionPtrs.release(iter->second, &action)) {
-          action->reset(&tagsToReset);
+          action->reset(&tagsToReset, &actionsToDelete);
           // Put on back of queue so that actions which are frequently reset don't get redundantly
           // rebuilt too much.
           pendingActions.adoptBack(&action);
@@ -707,16 +710,43 @@ void Driver::resetDependentActions(const Tag& tag) {
     for (; pendingActionsPos < pendingActions.size(); pendingActionsPos++) {
       pendingActions.get(pendingActionsPos)->clearDependencies();
     }
+
+    for (unsigned int i = 0; i < actionsToDelete.size(); i++) {
+      OwnedPtr<ActionDriver> ownedAction;
+
+      if (actionsToDelete[i]->isRunning) {
+        for (int j = 0; j < activeActions.size(); j++) {
+          if (activeActions.get(j) == actionsToDelete[i]) {
+            activeActions.releaseAndShift(j, &ownedAction);
+            break;
+          }
+        }
+        // Note that deleting the action will cancel whatever it's doing.
+      } else if (actionsToDelete[i]->state == ActionDriver::PENDING) {
+        // TODO:  Use better data structure for pendingActions.
+        for (int j = 0; j < pendingActions.size(); j++) {
+          if (pendingActions.get(j) == actionsToDelete[i]) {
+            pendingActions.releaseAndShift(j, &ownedAction);
+            break;
+          }
+        }
+      } else {
+        completedActionPtrs.release(actionsToDelete[i], &ownedAction);
+        ownedAction->reset(&tagsToReset, &actionsToDelete);
+      }
+
+      // Let the action leave scope and be deleted.
+    }
   }
 }
 
-void Driver::fireTriggers(const Tag& tag, File* file, const Hash& fileHash) {
+void Driver::fireTriggers(const Tag& tag, Provision* provision) {
   std::pair<TriggerMap::const_iterator, TriggerMap::const_iterator>
       range = triggers.equal_range(tag);
   for (TriggerMap::const_iterator iter = range.first; iter != range.second; ++iter) {
     OwnedPtr<Action> triggeredAction;
-    if (iter->second->tryMakeAction(tag, file, &triggeredAction)) {
-      queueNewAction(&triggeredAction, tag, file, fileHash);
+    if (iter->second->tryMakeAction(tag, provision->file.get(), &triggeredAction)) {
+      queueNewAction(&triggeredAction, provision);
     }
   }
 }

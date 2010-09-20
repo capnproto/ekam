@@ -92,6 +92,9 @@ private:
   CompletedActionMap completedActions;
   OwnedPtrMap<ActionDriver*, ActionDriver> completedActionPtrs;
 
+  typedef std::tr1::unordered_multimap<Provision*, ActionDriver*> ActionsByTriggerMap;
+  ActionsByTriggerMap actionsByTrigger;
+
   OwnedPtrVector<Provision> rootProvisions;
 
   void startSomeActions();
@@ -99,12 +102,11 @@ private:
   void scanSourceTree();
   void rescanForNewFactory(ActionFactory* factory);
 
-  void queueNewAction(OwnedPtr<Action>* actionToAdopt, const Tag& triggerTag, File* file,
-                      const Hash& fileHash);
+  void queueNewAction(OwnedPtr<Action>* actionToAdopt, Provision* provision);
 
   void registerProvider(Provision* provision);
   void resetDependentActions(const Tag& tag);
-  void fireTriggers(const Tag& tag, File* file, const Hash& fileHash);
+  void fireTriggers(const Tag& tag, Provision* provision);
 };
 
 }  // namespace ekam

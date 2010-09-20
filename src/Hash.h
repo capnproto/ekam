@@ -58,7 +58,7 @@ public:
   static Hash of(void* data, size_t size);
   static const Hash NULL_HASH;
 
-  std::string toString();
+  std::string toString() const;
 
   inline bool operator==(const Hash& other) const {
     return memcmp(hash, other.hash, sizeof(hash)) == 0;

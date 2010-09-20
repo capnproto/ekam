@@ -35,7 +35,7 @@ read OUTPUT
 # it shouldn't), that does not get misinterpreted as an Ekam request.
 CXX=${CXX:-c++}
 CXXFLAGS=${CXXFLAGS:-}
-LD_PRELOAD=$INTERCEPTOR $CXX $CXXFLAGS -I/ekam-provider \
+LD_PRELOAD=$INTERCEPTOR $CXX $CXXFLAGS -I/ekam-provider/c++header \
     -c $BASENAME_EXT -o ${BASENAME}.o 3>&1 4<&0 >&2
 
 # Ask Ekam where to put the symbol and deps lists.

@@ -39,6 +39,7 @@
 #include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <tr1/unordered_map>
 
 #include "Debug.h"
 #include "FileDescriptor.h"
@@ -158,6 +159,10 @@ void DiskFile::parent(OwnedPtr<File>* output) {
 bool DiskFile::equals(File* other) {
   DiskFile* otherDiskFile = dynamic_cast<DiskFile*>(other);
   return otherDiskFile != NULL && otherDiskFile->path == path;
+}
+
+size_t DiskFile::identityHash() {
+  return std::tr1::hash<std::string>()(path);
 }
 
 class DiskFile::DiskRefImpl : public File::DiskRef {

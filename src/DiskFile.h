@@ -48,6 +48,7 @@ public:
   void parent(OwnedPtr<File>* output);
 
   bool equals(File* other);
+  size_t identityHash();
 
   void getOnDisk(Usage usage, OwnedPtr<DiskRef>* output);
 

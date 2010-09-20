@@ -3,13 +3,19 @@
 set -eu
 
 if test $# = 0; then
-  # Ekam is querying the script.  Tell it that we like directories called "src" or "include".
-  echo trigger basename:include
-  echo trigger basename:src
+  # Ekam is querying the script.  Tell it that we care about headers.
+  echo trigger filetype:.h
   exit 0
 fi
 
 INPUT=$1
 
-# For each header in the directory, tag the directory with "c++header:$HEADER".
-find $INPUT -name '*.h' | sed -e "s,$INPUT/,provide $INPUT c++header:,g"
+TAG=$(echo "$INPUT" | sed -e 's,^.*/src/,c++header:,g')
+if test "$INPUT" != "$TAG"; then
+  echo provide "$INPUT" "$TAG"
+fi
+
+TAG=$(echo "$INPUT" | sed -e 's,^.*/include/,c++header:,g')
+if test "$INPUT" != "$TAG"; then
+  echo provide "$INPUT" "$TAG"
+fi

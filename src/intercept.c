@@ -318,6 +318,7 @@ static int intercepted_open(const char * pathname, int flags, va_list args) {
   }
 
   remapped = remap_file(pathname, buffer, (flags & O_ACCMODE) == O_RDONLY ? READ : WRITE);
+  if (remapped == NULL) return -1;
 
   if(flags & O_CREAT) {
     mode_t mode = va_arg(args, int);
@@ -350,6 +351,7 @@ static int intercepted_open64(const char * pathname, int flags, va_list args) {
   }
 
   remapped = remap_file(pathname, buffer, (flags & O_ACCMODE) == O_RDONLY ? READ : WRITE);
+  if (remapped == NULL) return -1;
 
   if(flags & O_CREAT) {
     mode_t mode = va_arg(args, int);

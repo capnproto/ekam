@@ -61,7 +61,7 @@ Hash Hash::of(void* data, size_t size) {
 // Note:  Since this is in static space it will be automatically initialized to zero.
 const Hash Hash::NULL_HASH;
 
-std::string Hash::toString() {
+std::string Hash::toString() const {
   std::string result;
   result.reserve(sizeof(hash) * 2);
   for (unsigned int i = 0; i < sizeof(hash); i++) {

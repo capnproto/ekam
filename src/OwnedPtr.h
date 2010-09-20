@@ -372,6 +372,11 @@ public:
     q.pop_back();
   }
 
+  void releaseAndShift(int index, OwnedPtr<T>* output) {
+    output->reset(q[index]);
+    q.erase(q.begin() + index);
+  }
+
   void clear() {
     for (typename std::deque<T*>::const_iterator iter = q.begin(); iter != q.end(); ++iter) {
       delete *iter;
