@@ -165,7 +165,6 @@ private:
   void ensureRunning();
   void queueDoneCallback();
   void returned();
-  void clearDependencies();
   void reset(std::tr1::unordered_set<Tag, Tag::HashFunc>* tagsToReset,
              std::vector<ActionDriver*>* actionsToDelete);
   Provision* choosePreferredProvider(const Tag& tag);
@@ -412,22 +411,6 @@ void Driver::ActionDriver::returned() {
   }
 }
 
-void Driver::ActionDriver::clearDependencies() {
-  for (ActionDriver::DependencySet::const_iterator iter = dependencies.begin();
-       iter != dependencies.end(); ++iter) {
-    std::pair<CompletedActionMap::iterator, CompletedActionMap::iterator>
-        range = driver->completedActions.equal_range(iter->first);
-    for (CompletedActionMap::iterator iter2 = range.first;
-         iter2 != range.second; ++iter2) {
-      if (iter2->second == this) {
-        driver->completedActions.erase(iter2);
-        break;
-      }
-    }
-  }
-  dependencies.clear();
-}
-
 void Driver::ActionDriver::reset(
     std::tr1::unordered_set<Tag, Tag::HashFunc>* tagsToReset,
     std::vector<ActionDriver*>* actionsToDelete) {
@@ -464,6 +447,21 @@ void Driver::ActionDriver::reset(
     driver->actionsByTrigger.erase(range.first, range.second);
   }
 
+  // Remove all entries in CompletedActionMap pointing at this action.
+  for (ActionDriver::DependencySet::const_iterator iter = dependencies.begin();
+       iter != dependencies.end(); ++iter) {
+    std::pair<CompletedActionMap::iterator, CompletedActionMap::iterator>
+        range = driver->completedActions.equal_range(iter->first);
+    for (CompletedActionMap::iterator iter2 = range.first;
+         iter2 != range.second; ++iter2) {
+      if (iter2->second == this) {
+        driver->completedActions.erase(iter2);
+        break;
+      }
+    }
+  }
+
+  dependencies.clear();
   provisions.clear();
   outputs.clear();
 }
@@ -697,9 +695,8 @@ void Driver::resetDependentActions(const Tag& tag) {
         // Reset action to pending.
         OwnedPtr<ActionDriver> action;
         if (completedActionPtrs.release(iter->second, &action)) {
-          action->reset(&tagsToReset, &actionsToDelete);
-          // Put on back of queue so that actions which are frequently reset don't get redundantly
-          // rebuilt too much.
+          // Put on back of queue (as opposed to front) so that actions which are frequently reset
+          // don't get redundantly rebuilt too much.  Note that we actually reset the action below.
           pendingActions.adoptBack(&action);
         } else {
           DEBUG_ERROR << "ActionDriver in completedActions but not completedActionPtrs?";
@@ -707,8 +704,11 @@ void Driver::resetDependentActions(const Tag& tag) {
       }
     }
 
+    // Reset all the actions that we added to pendingActions.  We couldn't do this before because
+    // it involves updating the CompletedActionMap.
     for (; pendingActionsPos < pendingActions.size(); pendingActionsPos++) {
-      pendingActions.get(pendingActionsPos)->clearDependencies();
+      ActionDriver* action = pendingActions.get(pendingActionsPos);
+      action->reset(&tagsToReset, &actionsToDelete);
     }
 
     for (unsigned int i = 0; i < actionsToDelete.size(); i++) {
