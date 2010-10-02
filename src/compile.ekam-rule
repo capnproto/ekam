@@ -7,13 +7,31 @@ if test $# = 0; then
   echo trigger filetype:.cpp
   echo trigger filetype:.cc
   echo trigger filetype:.C
+  echo trigger filetype:.cxx
   exit 0
 fi
 
 INPUT=$1
 
 BASENAME_EXT=`basename $INPUT`
-BASENAME=`basename $INPUT .cpp`
+case "$BASENAME_EXT" in
+  *.cpp )
+    BASENAME=${BASENAME_EXT%.cpp}
+    ;;
+  *.cc )
+    BASENAME=${BASENAME_EXT%.cc}
+    ;;
+  *.C )
+    BASENAME=${BASENAME_EXT%.C}
+    ;;
+  *.cxx )
+    BASENAME=${BASENAME_EXT%.cxx}
+    ;;
+  * )
+    echo "Wrong file type: $INPUT" >&2
+    exit 1
+    ;;
+esac
 
 echo findProvider special:ekam-interceptor
 read INTERCEPTOR
