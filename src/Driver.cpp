@@ -605,10 +605,7 @@ void Driver::scanSourceTree() {
         list.release(i, &child);
         fileQueue.adoptBack(&child);
       }
-    }
-
-    // Don't allow actions to trigger on the root directory.
-    if (current->hasParent()) {
+    } else {
       // Apply default tag.
       OwnedPtr<Provision> provision;
       provision.allocate();
