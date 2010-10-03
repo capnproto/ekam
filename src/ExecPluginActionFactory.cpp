@@ -87,6 +87,10 @@ public:
       : context(context), lineReader(this) {
     responseStream.adopt(responseStreamToAdopt);
     input->clone(&this->input);
+
+    OwnedPtr<File> inputClone;
+    input->clone(&inputClone);
+    knownFiles.adopt(input->canonicalName(), &inputClone);
   }
   ~CommandReader() {}
 
@@ -113,6 +117,12 @@ public:
         return;
       } else {
         provider = context->findInput(args);
+
+        if (provider != NULL) {
+          OwnedPtr<File> fileClone;
+          provider->clone(&fileClone);
+          knownFiles.adopt(provider->canonicalName(), &fileClone);
+        }
       }
       if (provider != NULL) {
         OwnedPtr<File::DiskRef> diskRef;
@@ -121,10 +131,6 @@ public:
         cache.insert(std::make_pair(line, diskRef.get()));
         diskRefs.adoptBack(&diskRef);
         responseStream->writeAll(path.data(), path.size());
-
-        OwnedPtr<File> fileClone;
-        provider->clone(&fileClone);
-        diskPathToFile.adopt(path, &fileClone);
       }
       responseStream->writeAll("\n", 1);
     } else if (command == "newProvider") {
@@ -137,20 +143,20 @@ public:
     } else if (command == "newOutput") {
       OwnedPtr<File> file;
       context->newOutput(args, &file);
-      OwnedPtr<File::DiskRef> diskRef;
 
+      OwnedPtr<File::DiskRef> diskRef;
       file->getOnDisk(File::WRITE, &diskRef);
       std::string path = diskRef->path();
 
       cache.insert(std::make_pair(line, diskRef.get()));
       diskRefs.adoptBack(&diskRef);
-      diskPathToFile.adopt(path, &file);
+      knownFiles.adopt(args, &file);
 
       responseStream->writeAll(path.data(), path.size());
       responseStream->writeAll("\n", 1);
     } else if (command == "provide") {
       std::string filename = splitToken(&args);
-      File* file = diskPathToFile.get(filename);
+      File* file = knownFiles.get(filename);
       if (file == NULL) {
         context->log("File passed to \"provide\" not created with \"newOutput\" nor noted as an "
                      "input: " + filename + "\n");
@@ -193,7 +199,7 @@ private:
   OwnedPtr<FileDescriptor> responseStream;
   LineReader lineReader;
 
-  OwnedPtrMap<std::string, File> diskPathToFile;
+  OwnedPtrMap<std::string, File> knownFiles;
 
   typedef std::tr1::unordered_map<std::string, File::DiskRef*> CacheMap;
   CacheMap cache;

@@ -13,13 +13,14 @@ if test $# = 0; then
   exit 0
 fi
 
-CANONICAL_INPUT=$1
-echo findInput $CANONICAL_INPUT
-read INPUT
+INPUT=$1
+echo findInput $INPUT
+read INPUT_DISK_PATH
 
-echo newOutput ${CANONICAL_INPUT%.c}.so
-read OUTPUT
+OUTPUT="${INPUT%.c}.so"
+echo newOutput "$OUTPUT"
+read OUTPUT_DISK_PATH
 
-gcc -g -shared -Wall -fPIC -o $OUTPUT $INPUT
+gcc -g -shared -Wall -fPIC -o "$OUTPUT_DISK_PATH" "$INPUT_DISK_PATH"
 
 echo provide $OUTPUT special:ekam-interceptor

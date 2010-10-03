@@ -42,8 +42,9 @@ fi
 
 # Ask Ekam where to put the output file.  Actually, the compiler will make the same request again
 # when it runs, but we need to know the location too.
-echo newOutput ${MODULE_NAME}.o
-read OUTPUT
+OUTPUT=${MODULE_NAME}.o
+echo newOutput "$OUTPUT"
+read OUTPUT_DISK_PATH
 
 # Compile!  We LD_PRELOAD intercept.so to intercept open() and other filesystem calls and convert
 # them into Ekam requests.  intercept.so expects file descriptors 3 and 4 to be the Ekam request
@@ -53,18 +54,18 @@ read OUTPUT
 CXX=${CXX:-c++}
 CXXFLAGS=${CXXFLAGS:-}
 LD_PRELOAD=$INTERCEPTOR $CXX $CXXFLAGS -I/ekam-provider/c++header \
-    -c $INPUT -o ${MODULE_NAME}.o 3>&1 4<&0 >&2
+    -c "$INPUT" -o "${MODULE_NAME}.o" 3>&1 4<&0 >&2
 
 # Ask Ekam where to put the symbol and deps lists.
-echo newOutput ${MODULE_NAME}.o.syms
+echo newOutput "${MODULE_NAME}.o.syms"
 read SYMFILE
-echo newOutput ${MODULE_NAME}.o.deps
+echo newOutput "${MODULE_NAME}.o.deps"
 read DEPFILE
 
 # Generate the symbol list.
 # TODO:  Would be nice to use nm -C here to demangle names but it doesn't appear
 #   to be supported on OSX.
-nm $OUTPUT > $SYMFILE
+nm "$OUTPUT_DISK_PATH" > $SYMFILE
 
 # Function which reads the symbol list on stdin and writes all symbols matching
 # the given type pattern to stdout, optionally with a prefix.

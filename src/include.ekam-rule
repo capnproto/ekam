@@ -8,15 +8,12 @@ if test $# = 0; then
   exit 0
 fi
 
-echo findInput $1
-read INPUT
+INPUT=$1
 
-TAG=$(echo "$INPUT" | sed -e 's,^.*/src/,c++header:,g')
-if test "$INPUT" != "$TAG"; then
-  echo provide "$INPUT" "$TAG"
-fi
+INCLUDE_NAME=INPUT
+INCLUDE_NAME=${INCLUDE_NAME##*/src/}
+INCLUDE_NAME=${INCLUDE_NAME#src/}
+INCLUDE_NAME=${INCLUDE_NAME##*/include/}
+INCLUDE_NAME=${INCLUDE_NAME#include/}
 
-TAG=$(echo "$INPUT" | sed -e 's,^.*/include/,c++header:,g')
-if test "$INPUT" != "$TAG"; then
-  echo provide "$INPUT" "$TAG"
-fi
+echo provide "$INPUT" "c++header:$INCLUDE_NAME"
