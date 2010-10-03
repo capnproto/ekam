@@ -10,16 +10,24 @@ fi
 echo findInput "$1"
 read TEST_PROG
 
+echo findProvider special:ekam-interceptor
+read INTERCEPTOR
+
+if test "$INTERCEPTOR" = ""; then
+  echo "error:  couldn't find intercept.so." >&2
+  exit 1
+fi
+
 # TODO:  Run in sandbox.
 
 echo newOutput "${1}.log"
 read TEST_LOG
 
-if $TEST_PROG >"$TEST_LOG" 2>&1; then
+if LD_PRELOAD=$INTERCEPTOR $TEST_PROG 3>&1 4<&0 2>"$TEST_LOG" >&2; then
 	echo passed
 	exit 0
 else
   echo "full log: $TEST_LOG" >&2
-  grep FAIL "$TEST_LOG" >&2
+  egrep 'FAIL|ERROR|FATAL' "$TEST_LOG" >&2
   exit 1
 fi

@@ -53,7 +53,7 @@ public:
     return Tag(Hash::of(name));
   }
 
-  static Tag fromFile(File* file);
+  static Tag fromFile(const std::string& path);
 
   inline std::string toString() { return hash.toString(); }
 

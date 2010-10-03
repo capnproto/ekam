@@ -129,6 +129,7 @@ typedef enum usage {
 
 static const char TAG_PROVIDER_PREFIX[] = "/ekam-provider/";
 static const char TMP_PREFIX[] = "/tmp/";
+static const char VAR_TMP_PREFIX[] = "/var/tmp/";
 
 static usage_t last_usage = READ;
 static char last_path[PATH_MAX] = "";
@@ -199,7 +200,8 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
     fputs(usage == READ ? "findProvider " : "newProvider ", ekam_call_stream);
     fputs(buffer, ekam_call_stream);
     fputs("\n", ekam_call_stream);
-  } else if (strncmp(pathname, TMP_PREFIX, strlen(TMP_PREFIX)) == 0) {
+  } else if (strncmp(pathname, TMP_PREFIX, strlen(TMP_PREFIX)) == 0 ||
+             strncmp(pathname, VAR_TMP_PREFIX, strlen(VAR_TMP_PREFIX)) == 0) {
     /* Temp file.  Ignore. */
     funlockfile(ekam_call_stream);
     return pathname;
@@ -307,6 +309,8 @@ WRAP(int, lchmod, (const char* path, mode_t mode), (path, mode), WRITE)
 WRAP(int, unlink, (const char* path), (path), WRITE)
 WRAP(int, link, (const char* target, const char* path), (target, path), WRITE)
 WRAP(int, symlink, (const char* target, const char* path), (target, path), WRITE)
+WRAP(int, execve, (const char* path, char* const argv[], char* const envp[]),
+                  (path, argv, envp), READ);
 
 static int intercepted_open(const char * pathname, int flags, va_list args) {
   static OpenFunc* real_open;
@@ -401,20 +405,42 @@ int _rename(const char* from, const char* to) {
 typedef int mkdir_t(const char* path, mode_t mode);
 int mkdir(const char* path, mode_t mode) {
   static mkdir_t* real_mkdir = NULL;
-  char buffer[PATH_MAX] = "tmp/";
+  char buffer[PATH_MAX];
+  char* slash_pos;
 
   if (real_mkdir == NULL) {
     real_mkdir = (mkdir_t*) dlsym(RTLD_NEXT, "mkdir");
     assert(real_mkdir != NULL);
   }
 
-  if (strlen(path) + strlen(buffer) + 1 > PATH_MAX) {
-    errno = ENAMETOOLONG;
-    return -1;
-  }
+  if (*path == '/') {
+    // Absolute path.  Use the regular remap logic (which as of this writing will only allow
+    // writes to /tmp).
+    path = remap_file("mkdir", path, buffer, WRITE);
+    if (path == NULL) return -1;
+    return real_mkdir(path, mode);
+  } else {
+    strcpy(buffer, "tmp/");
+    if (strlen(path) + strlen(buffer) + 1 > PATH_MAX) {
+      errno = ENAMETOOLONG;
+      return -1;
+    }
 
-  strcat(buffer, path);
-  return real_mkdir(buffer, mode);
+    strcat(buffer, path);
+
+    // Attempt to create parent directories.
+    slash_pos = buffer;
+    while ((slash_pos = strchr(slash_pos, '/')) != NULL) {
+      *slash_pos = '\0';
+      // We don't care if this fails -- we'll find out when we make the final mkdir call below.
+      real_mkdir(buffer, mode);
+      *slash_pos = '/';
+      ++slash_pos;
+    }
+
+    // Finally create the requested directory.
+    return real_mkdir(buffer, mode);
+  }
 }
 int _mkdir(const char* path, mode_t mode) {
   return mkdir(path, mode);
@@ -457,35 +483,19 @@ int access(const char* path, int mode) {
       /* Directory exists in tmp. */
       return 0;
     }
-  }
 
-  path = remap_file("access", path, buffer, READ);
-  if (path == NULL) return -1;
-  if (mode & W_OK) {
-    /* Cannot write to files which already exist. */
-    errno = EACCES;
-    return -1;
+    path = remap_file("access", path, buffer, READ);
+    if (path == NULL) return -1;
+    if (mode & W_OK) {
+      /* Cannot write to files which already exist. */
+      errno = EACCES;
+      return -1;
+    }
+    return real_access(path, mode);
+  } else {
+    // Absolute path.  Don't do anything fancy.
+    path = remap_file("access", path, buffer, (mode & W_OK) ? WRITE : READ);
+    if (path == NULL) return -1;
+    return real_access(path, mode);
   }
-  return real_access(path, mode);
 }
-
-/*
-int execve(const char* path, char* const* argv, char* const* envp) {
-  fprintf(stderr, "exec(%s", path);
-  while (*argv != NULL) {
-    fprintf(stderr, ", %s", *argv);
-    ++argv;
-  }
-  fprintf(stderr, ")\n");
-  exit(1);
-}
-int _execve(const char* path, char* const* argv, char* const* envp) {
-  fprintf(stderr, "exec(%s", path);
-  while (*argv != NULL) {
-    fprintf(stderr, ", %s", *argv);
-    ++argv;
-  }
-  fprintf(stderr, ")\n");
-  exit(1);
-}
-*/

@@ -62,13 +62,23 @@ public:
   void start(EventManager* eventManager, BuildContext* context,
              OwnedPtr<AsyncOperation>* output) {
     std::vector<Tag> tags;
-    tags.push_back(Tag::fromFile(file.get()));
 
-    std::string basename = file->basename();
-    tags.push_back(Tag::fromName("basename:" + basename));
+    std::string name = file->canonicalName();
+
+    while (true) {
+      tags.push_back(Tag::fromFile(name));
+
+      std::string::size_type slashPos = name.find_first_of('/');
+      if (slashPos == std::string::npos) {
+        break;
+      }
+
+      name.erase(0, slashPos + 1);
+    }
+
 
     std::string base, ext;
-    splitExtension(basename, &base, &ext);
+    splitExtension(name, &base, &ext);
     if (!ext.empty()) tags.push_back(Tag::fromName("filetype:" + ext));
 
     context->provide(file.get(), tags);

@@ -219,9 +219,7 @@ File* Driver::ActionDriver::findProvider(Tag id) {
 File* Driver::ActionDriver::findInput(const std::string& path) {
   ensureRunning();
 
-  OwnedPtr<File> reference;
-  driver->src->relative(path, &reference);
-  return findProvider(Tag::fromFile(reference.get()));
+  return findProvider(Tag::fromFile(path));
 }
 
 void Driver::ActionDriver::provide(File* file, const std::vector<Tag>& tags) {

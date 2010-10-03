@@ -75,7 +75,8 @@ public:
           bool isColored = false;
           if (strncasecmp(text, "error", length) == 0 ||
               strncasecmp(text, "fail", length) == 0 ||
-              strncasecmp(text, "failed", length) == 0) {
+              strncasecmp(text, "failed", length) == 0 ||
+              strncasecmp(text, "fatal", length) == 0) {
             result.append(ANSI_COLOR_CODES[RED]);
             isColored = true;
           } else if (strncasecmp(text, "warning", length) == 0) {
