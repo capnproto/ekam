@@ -40,13 +40,13 @@ EventGroup::ExceptionHandler::~ExceptionHandler() {}
   EventGroup* group = this->group;                               \
   try {                                                          \
     STATEMENT;                                                   \
+    if (group->eventCount == 0) {                                \
+      group->exceptionHandler->noMoreEvents();                   \
+    }                                                            \
   } catch (const std::exception& exception) {                    \
     group->exceptionHandler->threwException(exception);          \
   } catch (...) {                                                \
     group->exceptionHandler->threwUnknownException();            \
-  }                                                              \
-  if (group->eventCount == 0) {                                  \
-    group->exceptionHandler->noMoreEvents();                     \
   }
 
 class EventGroup::CallbackWrapper : public Callback, public AsyncOperation {

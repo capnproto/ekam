@@ -48,8 +48,13 @@ public:
   public:
     virtual ~ExceptionHandler();
 
+    // An event callback threw an exception.  The ExceptionHandler is expected to immediately
+    // cancel the event group such that no further events are received by it.
     virtual void threwException(const std::exception& e) = 0;
     virtual void threwUnknownException() = 0;
+
+    // Indicates that this group completed successfully -- it is no longer waiting for anything
+    // and no exception was thrown.
     virtual void noMoreEvents() = 0;
   };
 
