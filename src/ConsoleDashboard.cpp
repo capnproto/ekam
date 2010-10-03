@@ -32,10 +32,157 @@
 
 #include <sys/ioctl.h>
 #include <termios.h>
+#include <string.h>
+#include <ctype.h>
 
 #include "Debug.h"
 
 namespace ekam {
+
+class ConsoleDashboard::LogFormatter {
+public:
+  LogFormatter(const std::string& text)
+      : text(text.data()), end(text.data() + text.size()), wrapped(false) {
+    eatWhitespace();
+  }
+
+  inline bool atEnd() {
+    return text == end;
+  }
+
+  std::string getLine(int startColumn, int windowWidth) {
+    std::string result;
+    int column = startColumn;
+    result.reserve((windowWidth - column) * 2);
+
+    if (wrapped) {
+      result.append("  ");
+      column += 2;
+      wrapped = false;
+    }
+
+    while (text < end && *text != '\n' && column < windowWidth) {
+      if (isalnum(*text)) {
+        const char* wordEnd = text;
+        do {
+          ++wordEnd;
+        } while (wordEnd < end && isalnum(*wordEnd));
+
+        int length = wordEnd - text;
+
+        if (column + length <= windowWidth) {
+          // Word fits on this line.
+          bool isColored = false;
+          if (strncasecmp(text, "error", length) == 0) {
+            result.append(ANSI_COLOR_CODES[RED]);
+            isColored = true;
+          } else if (strncasecmp(text, "warning", length) == 0) {
+            result.append(ANSI_COLOR_CODES[YELLOW]);
+            isColored = true;
+          }
+
+          result.append(text, wordEnd);
+          text = wordEnd;
+          column += length;
+
+          if (isColored) {
+            result.append(ANSI_CLEAR_COLOR);
+          }
+        } else if (length >= 20 || column == startColumn) {
+          // Really long word.  Break it.
+          int spaceAvailable = windowWidth - column;
+          result.append(text, spaceAvailable);
+          text += spaceAvailable;
+          column = windowWidth;
+        } else {
+          // Word doesn't fit in remaining space.  End the line.
+          break;
+        }
+      } else {
+        switch (*text) {
+          case '\t':
+            column = (column & ~0x7) + 8;
+            result.push_back(*text);
+            break;
+          case '\033':  // escape
+            // ignore -- could be harmful
+            // TODO:  Parse and remove the subsequent terminal instruction to make the output not
+            //   suck.  Or better yet, parse the sequence and interpret it.  If it is an SGR code
+            //   (e.g. color), pass it through, and just make sure to reset later.
+            break;
+          default:
+            if (*text >= '\0' && *text < ' ') {
+              // Ignore control character or weird whitespace.
+            } else {
+              result.push_back(*text);
+              ++column;
+            }
+            break;
+        }
+        ++text;
+      }
+    }
+
+    wrapped = !eatWhitespace();
+
+    return result;
+  }
+
+private:
+  const char* text;
+  const char* end;
+  bool wrapped;
+
+  // Eat whitespace up to and including a newline.  Returns true if a newline was eaten.
+  bool eatWhitespace() {
+    while (text < end && isspace(*text) && *text != '\n') {
+      ++text;
+    }
+    if (text < end && *text == '\n') {
+      ++text;
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  bool tryHighlight(const char* word, Color color, int windowWidth,
+                    int* column, std::string* output) {
+    int length = strlen(word);
+
+    if (windowWidth - *column < length) {
+      // Don't highlight words broken at line wrapping.
+      return false;
+    }
+
+    if (end - text < length) {
+      // Not enough characters left to match word.
+      return false;
+    }
+
+    if (strncasecmp(text, word, length) != 0) {
+      // Does not match.
+      return false;
+    }
+
+    if (end - text > length && isalpha(text[length])) {
+      // Character after word is a letter.  Don't highlight.
+      return false;
+    }
+
+    if (!output->empty() && isalpha((*output)[output->size() - 1])) {
+      // Character before word was a letter.  Don't highlight.
+      return false;
+    }
+
+    output->append(ANSI_COLOR_CODES[color]);
+    output->append(text, text + length);
+    output->append(ANSI_CLEAR_COLOR);
+    text += length;
+    *column += length;
+    return true;
+  }
+};
 
 class ConsoleDashboard::TaskImpl : public Dashboard::Task {
 public:
@@ -135,10 +282,19 @@ void ConsoleDashboard::TaskImpl::writeFinalLog(Color verbColor) {
     // Write any output we have buffered.
     // TODO:  Indent the text we write, and wrap it nicely.
     if (!outputText.empty()) {
-      fwrite(outputText.c_str(), sizeof(char), outputText.size(), dashboard->out);
-      if (outputText[outputText.size() - 1] != '\n') {
-        fputc('\n', dashboard->out);
+      LogFormatter formatter(outputText);
+      struct winsize windowSize;
+      ioctl(dashboard->fd, TIOCGWINSZ, &windowSize);
+
+      for (int i = 0; i < 10 && !formatter.atEnd(); i++) {
+        std::string line = formatter.getLine(2, windowSize.ws_col);
+        fprintf(dashboard->out, "  %s\n", line.c_str());
       }
+
+      if (!formatter.atEnd()) {
+        fprintf(dashboard->out, "  ...(log truncated)...\n");
+      }
+
       outputText.clear();
     }
   }

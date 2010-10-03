@@ -283,6 +283,8 @@ void DiskFile::list(OwnedPtrVector<File>::Appender output) {
 void DiskFile::relative(const std::string& path, OwnedPtr<File>* output) {
   if (path.empty()) {
     throw std::invalid_argument("File::relative(): path cannot be empty.");
+  } else if (path[0] == '/') {
+    throw std::invalid_argument("File::relative(): path cannot start with a slash.");
   }
 
   std::string::size_type slash_pos = path.find_first_of('/');
@@ -301,23 +303,32 @@ void DiskFile::relative(const std::string& path, OwnedPtr<File>* output) {
 
   } else {
     first_part.assign(path, 0, slash_pos);
-    rest.assign(path, slash_pos + 1, std::string::npos);
 
-    if (first_part == ".") {
-      relative(rest, output);
-    } else if (first_part == "..") {
-      if (parentRef == NULL) {
-        throw std::runtime_error("Tried to get parent of top-level directory: " + canonicalName());
-      }
-      parentRef->relative(rest, output);
+    std::string::size_type after_slash_pos = path.find_first_not_of('/', slash_pos);
+
+    if (after_slash_pos == std::string::npos) {
+      // Trailing slash.  Bah.
+      relative(first_part, output);
     } else {
-      OwnedPtr<File> temp;
-      if (this->path.empty()) {
-        temp.allocateSubclass<DiskFile>(first_part, this);
+      rest.assign(path, after_slash_pos, std::string::npos);
+
+      if (first_part == ".") {
+        relative(rest, output);
+      } else if (first_part == "..") {
+        if (parentRef == NULL) {
+          throw std::runtime_error(
+              "Tried to get parent of top-level directory: " + canonicalName());
+        }
+        parentRef->relative(rest, output);
       } else {
-        temp.allocateSubclass<DiskFile>(this->path + "/" + first_part, this);
+        OwnedPtr<File> temp;
+        if (this->path.empty()) {
+          temp.allocateSubclass<DiskFile>(first_part, this);
+        } else {
+          temp.allocateSubclass<DiskFile>(this->path + "/" + first_part, this);
+        }
+        temp->relative(rest, output);
       }
-      temp->relative(rest, output);
     }
   }
 }

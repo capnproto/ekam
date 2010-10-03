@@ -48,6 +48,7 @@ public:
 
 private:
   class TaskImpl;
+  class LogFormatter;
 
   int fd;
   FILE* out;

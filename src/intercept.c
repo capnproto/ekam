@@ -154,11 +154,13 @@ static int get_cached_result(const char* pathname, char* buffer, usage_t usage) 
   return result;
 }
 
-static const char* remap_file(const char* pathname, char* buffer, usage_t usage) {
+static const char* remap_file(const char* syscall_name, const char* pathname,
+                              char* buffer, usage_t usage) {
   char* pos;
 
   if (0) {
-    fprintf(stderr, "remap for %s: %s\n", (usage == READ ? "read" : "write"), pathname);
+    fprintf(stderr, "remap for %s (%s): %s\n",
+            syscall_name, (usage == READ ? "read" : "write"), pathname);
   }
 
   init_streams();
@@ -289,7 +291,7 @@ typedef int OpenFunc(const char * pathname, int flags, ...);
       assert(real_##NAME != NULL);                                          \
     }                                                                       \
                                                                             \
-    path = remap_file(path, buffer, USAGE);                                 \
+    path = remap_file(#NAME, path, buffer, USAGE);                          \
     if (path == NULL) return -1;                                            \
     return real_##NAME PARAMS;                                              \
   }                                                                         \
@@ -297,7 +299,6 @@ typedef int OpenFunc(const char * pathname, int flags, ...);
     return NAME PARAMS;                                                     \
   }
 
-WRAP(int, access, (const char* path, int mode), (path, mode), (mode & W_OK) ? WRITE : READ)
 WRAP(int, stat, (const char* path, struct stat* sb), (path, sb), READ)
 WRAP(int, lstat, (const char* path, struct stat* sb), (path, sb), READ)
 WRAP(int, chdir, (const char* path), (path), READ)
@@ -317,7 +318,7 @@ static int intercepted_open(const char * pathname, int flags, va_list args) {
     assert(real_open != NULL);
   }
 
-  remapped = remap_file(pathname, buffer, (flags & O_ACCMODE) == O_RDONLY ? READ : WRITE);
+  remapped = remap_file("open", pathname, buffer, (flags & O_ACCMODE) == O_RDONLY ? READ : WRITE);
   if (remapped == NULL) return -1;
 
   if(flags & O_CREAT) {
@@ -350,7 +351,7 @@ static int intercepted_open64(const char * pathname, int flags, va_list args) {
     assert(real_open64 != NULL);
   }
 
-  remapped = remap_file(pathname, buffer, (flags & O_ACCMODE) == O_RDONLY ? READ : WRITE);
+  remapped = remap_file("open64", pathname, buffer, (flags & O_ACCMODE) == O_RDONLY ? READ : WRITE);
   if (remapped == NULL) return -1;
 
   if(flags & O_CREAT) {
@@ -377,22 +378,95 @@ int _open64(const char * pathname, int flags, ...) {
 typedef int rename_t(const char* from, const char* to);
 int rename(const char* from, const char* to) {
   static rename_t* real_rename = NULL;
-  char buffer[1024];
-  char buffer2[1024];
+  char buffer[PATH_MAX];
+  char buffer2[PATH_MAX];
 
   if (real_rename == NULL) {
     real_rename = (rename_t*) dlsym(RTLD_NEXT, "rename");
     assert(real_rename != NULL);
   }
 
-  from = remap_file(from, buffer, WRITE);
+  from = remap_file("rename", from, buffer, WRITE);
   if (from == NULL) return -1;
-  to = remap_file(to, buffer2, WRITE);
+  to = remap_file("rename", to, buffer2, WRITE);
   if (to == NULL) return -1;
   return real_rename (from, to);
 }
 int _rename(const char* from, const char* to) {
   return rename(from, to);
+}
+
+/* We override mkdir to just make the directory under tmp/.  Ekam doesn't really care to track
+ * directory creations. */
+typedef int mkdir_t(const char* path, mode_t mode);
+int mkdir(const char* path, mode_t mode) {
+  static mkdir_t* real_mkdir = NULL;
+  char buffer[PATH_MAX] = "tmp/";
+
+  if (real_mkdir == NULL) {
+    real_mkdir = (mkdir_t*) dlsym(RTLD_NEXT, "mkdir");
+    assert(real_mkdir != NULL);
+  }
+
+  if (strlen(path) + strlen(buffer) + 1 > PATH_MAX) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+
+  strcat(buffer, path);
+  return real_mkdir(buffer, mode);
+}
+int _mkdir(const char* path, mode_t mode) {
+  return mkdir(path, mode);
+}
+
+/* HACK:  Ekam doesn't really track directories right now, but some tools call access() on
+ *   directories.  Here, we check if the path exists as a directory in src or tmp and, if so,
+ *   go ahead and return success.  Otherwise, we remap as normal.
+ * TODO:  Add some sort of directory handling to Ekam? */
+typedef int access_t(const char* path, int mode);
+int access(const char* path, int mode) {
+  static access_t* real_access = NULL;
+  static stat_t* real_stat = NULL;
+  char buffer[PATH_MAX];
+  struct stat stats;
+
+  if (real_access == NULL) {
+    real_access = (access_t*) dlsym(RTLD_NEXT, "access");
+    assert(real_access != NULL);
+    real_stat = (stat_t*) dlsym(RTLD_NEXT, "stat");
+    assert(real_stat != NULL);
+  }
+
+  if (*path != '/') {
+    strcpy(buffer, "src/");
+
+    if (strlen(path) + strlen(buffer) + 1 > PATH_MAX) {
+      errno = ENAMETOOLONG;
+      return -1;
+    }
+
+    strcat(buffer, path);
+    if (real_stat(buffer, &stats) == 0 && S_ISDIR(stats.st_mode)) {
+      /* Directory exists in src. */
+      return 0;
+    }
+
+    memcpy(buffer, "tmp", 3);
+    if (real_stat(buffer, &stats) == 0 && S_ISDIR(stats.st_mode)) {
+      /* Directory exists in tmp. */
+      return 0;
+    }
+  }
+
+  path = remap_file("access", path, buffer, READ);
+  if (path == NULL) return -1;
+  if (mode & W_OK) {
+    /* Cannot write to files which already exist. */
+    errno = EACCES;
+    return -1;
+  }
+  return real_access(path, mode);
 }
 
 /*
