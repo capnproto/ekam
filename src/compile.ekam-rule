@@ -88,10 +88,9 @@ case $(basename $OUTPUT) in
     echo provide "$OUTPUT" gtest:main
     ;;
   *_test.o | *_unittest.o | *_regtest.o )
-    # Is this a gtest test?
-    echo findInput "$INPUT"
-    read INPUT_DISK_PATH
-    if egrep '^ *TEST(_F|_P)? *\( *\w+ *, *\w+ *\)' "$INPUT_DISK_PATH" >/dev/null 2>&1; then
+    # Is this a gtest test that needs to link against gtest_main?
+    if grep -q 7testing8internal23MakeAndRegisterTestInfo $DEPFILE && \
+       ! egrep -q '[^U] _?main$' $SYMFILE; then
 	    echo provide "$OUTPUT" gtest:test
     fi
     ;;
