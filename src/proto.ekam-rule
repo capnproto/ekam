@@ -1,0 +1,49 @@
+#! /bin/sh
+
+# TODO:  Move this rule into the protobuf source code.
+
+set -eu
+
+if test $# = 0; then
+  echo trigger filetype:.proto
+  exit 0
+fi
+
+INPUT=$1
+
+PROTO_NAME=$INPUT
+PROTO_NAME=${PROTO_NAME##*/src/}
+PROTO_NAME=${PROTO_NAME#src/}
+PROTO_NAME=${PROTO_NAME##*/include/}
+PROTO_NAME=${PROTO_NAME#include/}
+
+if test "$PROTO_NAME" = "google/protobuf/descriptor.proto" -o \
+        "$PROTO_NAME" = "google/protobuf/compiler/plugin.proto"; then
+  # HACK:  The generated code for this proto is checked into the repository because protoc itself
+  #   depends on it.
+  # TODO:  This could be made more general by checking if the output already exists.  Or maybe
+  #   Ekam itself should detect when the same file exists from two sources and produce an error
+  #   if and only if they are not identical.  That would actually be ideal here because it would
+  #   mean an error is produced if the checked-in generated code is out-of-date.
+  exit 0
+fi
+
+if test "$PROTO_NAME" = "$INPUT"; then
+  SOURCE_ROOT=.
+else
+  SOURCE_ROOT=${INPUT%/$PROTO_NAME}
+fi
+
+echo findProvider special:ekam-interceptor
+read INTERCEPTOR
+
+if test "$INTERCEPTOR" = ""; then
+  echo "error:  couldn't find intercept.so." >&2
+  exit 1
+fi
+
+# TODO:  Use protoc build from the source tree, if any.
+LD_PRELOAD=$INTERCEPTOR protoc -I"$SOURCE_ROOT" -I/ekam-provider/protobuf \
+    --cpp_out="$SOURCE_ROOT" "$INPUT" 3>&1 4<&0 >&2
+
+echo provide "$INPUT" protobuf:"$PROTO_NAME"
