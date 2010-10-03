@@ -57,12 +57,12 @@ public:
   virtual ~BuildContext();
 
   virtual File* findProvider(Tag id) = 0;
-  virtual File* findInput(const std::string& basename) = 0;
+  virtual File* findInput(const std::string& path) = 0;
 
   virtual void provide(File* file, const std::vector<Tag>& tags) = 0;
   virtual void log(const std::string& text) = 0;
 
-  virtual void newOutput(const std::string& basename, OwnedPtr<File>* output) = 0;
+  virtual void newOutput(const std::string& path, OwnedPtr<File>* output) = 0;
 
   virtual void addActionType(OwnedPtr<ActionFactory>* factoryToAdopt) = 0;
 

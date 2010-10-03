@@ -13,19 +13,18 @@ fi
 
 INPUT=$1
 
-BASENAME_EXT=`basename $INPUT`
-case "$BASENAME_EXT" in
+case "$INPUT" in
   *.cpp )
-    BASENAME=${BASENAME_EXT%.cpp}
+    MODULE_NAME=${INPUT%.cpp}
     ;;
   *.cc )
-    BASENAME=${BASENAME_EXT%.cc}
+    MODULE_NAME=${INPUT%.cc}
     ;;
   *.C )
-    BASENAME=${BASENAME_EXT%.C}
+    MODULE_NAME=${INPUT%.C}
     ;;
   *.cxx )
-    BASENAME=${BASENAME_EXT%.cxx}
+    MODULE_NAME=${INPUT%.cxx}
     ;;
   * )
     echo "Wrong file type: $INPUT" >&2
@@ -43,7 +42,7 @@ fi
 
 # Ask Ekam where to put the output file.  Actually, the compiler will make the same request again
 # when it runs, but we need to know the location too.
-echo newOutput ${BASENAME}.o
+echo newOutput ${MODULE_NAME}.o
 read OUTPUT
 
 # Compile!  We LD_PRELOAD intercept.so to intercept open() and other filesystem calls and convert
@@ -54,12 +53,12 @@ read OUTPUT
 CXX=${CXX:-c++}
 CXXFLAGS=${CXXFLAGS:-}
 LD_PRELOAD=$INTERCEPTOR $CXX $CXXFLAGS -I/ekam-provider/c++header \
-    -c $BASENAME_EXT -o ${BASENAME}.o 3>&1 4<&0 >&2
+    -c $INPUT -o ${MODULE_NAME}.o 3>&1 4<&0 >&2
 
 # Ask Ekam where to put the symbol and deps lists.
-echo newOutput ${BASENAME}.o.syms
+echo newOutput ${MODULE_NAME}.o.syms
 read SYMFILE
-echo newOutput ${BASENAME}.o.deps
+echo newOutput ${MODULE_NAME}.o.deps
 read DEPFILE
 
 # Generate the symbol list.

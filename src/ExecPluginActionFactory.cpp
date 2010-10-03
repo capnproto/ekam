@@ -83,15 +83,10 @@ private:
 
 class PluginDerivedAction::CommandReader : public LineReader::Callback {
 public:
-  CommandReader(BuildContext* context, OwnedPtr<FileDescriptor>* responseStreamToAdopt,
-                File* input, File::DiskRef* inputDiskRef)
+  CommandReader(BuildContext* context, OwnedPtr<FileDescriptor>* responseStreamToAdopt, File* input)
       : context(context), lineReader(this) {
     responseStream.adopt(responseStreamToAdopt);
-    OwnedPtr<File> inputClone;
-    input->clone(&inputClone);
-    knownFiles.adopt(inputDiskRef->path(), &inputClone);
-
-    cache.insert(std::make_pair("findInput " + input->basename(), inputDiskRef));
+    input->clone(&this->input);
   }
   ~CommandReader() {}
 
@@ -110,10 +105,13 @@ public:
       File* provider;
       if (command == "findProvider") {
         provider = context->findProvider(Tag::fromName(args));
+      } else if (args == input->canonicalName()) {
+        provider = input.get();
+      } else if (findInCache("newOutput " + args)) {
+        // File was originally created by this action.  findInCache() already wrote the path,
+        // so just return.
+        return;
       } else {
-        // Was this previously an output?
-        if (findInCache("newOutput " + args)) return;
-
         provider = context->findInput(args);
       }
       if (provider != NULL) {
@@ -126,7 +124,7 @@ public:
 
         OwnedPtr<File> fileClone;
         provider->clone(&fileClone);
-        knownFiles.adopt(path, &fileClone);
+        diskPathToFile.adopt(path, &fileClone);
       }
       responseStream->writeAll("\n", 1);
     } else if (command == "newProvider") {
@@ -146,13 +144,13 @@ public:
 
       cache.insert(std::make_pair(line, diskRef.get()));
       diskRefs.adoptBack(&diskRef);
-      knownFiles.adopt(path, &file);
+      diskPathToFile.adopt(path, &file);
 
       responseStream->writeAll(path.data(), path.size());
       responseStream->writeAll("\n", 1);
     } else if (command == "provide") {
       std::string filename = splitToken(&args);
-      File* file = knownFiles.get(filename);
+      File* file = diskPathToFile.get(filename);
       if (file == NULL) {
         context->log("File passed to \"provide\" not created with \"newOutput\" nor noted as an "
                      "input: " + filename + "\n");
@@ -191,13 +189,16 @@ public:
 
 private:
   BuildContext* context;
+  OwnedPtr<File> input;
   OwnedPtr<FileDescriptor> responseStream;
   LineReader lineReader;
 
-  OwnedPtrMap<std::string, File> knownFiles;
+  OwnedPtrMap<std::string, File> diskPathToFile;
+
   typedef std::tr1::unordered_map<std::string, File::DiskRef*> CacheMap;
   CacheMap cache;
   OwnedPtrVector<File::DiskRef> diskRefs;
+
   typedef std::multimap<File*, Tag> ProvisionMap;
   ProvisionMap provisions;
 
@@ -220,7 +221,7 @@ public:
   Process(EventManager* eventManager, BuildContext* context, File* executable, File* input)
       : context(context) {
     subprocess.addArgument(executable, File::READ);
-    File::DiskRef* inputDiskRef = subprocess.addArgument(input, File::READ);
+    subprocess.addArgument(input->canonicalName());
 
     OwnedPtr<FileDescriptor> responseStream;
     subprocess.captureStdin(&responseStream);
@@ -228,7 +229,7 @@ public:
     subprocess.captureStderr(&logStream);
     subprocess.start(eventManager, this);
 
-    commandReader.allocate(context, &responseStream, input, inputDiskRef);
+    commandReader.allocate(context, &responseStream, input);
     commandStream->readAll(eventManager, commandReader->asReadAllCallback(), &commandOp);
 
     logger.allocate(context);

@@ -8,7 +8,8 @@ if test $# = 0; then
   exit 0
 fi
 
-INPUT=$1
+echo findInput $1
+read INPUT
 
 TAG=$(echo "$INPUT" | sed -e 's,^.*/src/,c++header:,g')
 if test "$INPUT" != "$TAG"; then

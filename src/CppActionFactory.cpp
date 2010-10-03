@@ -145,7 +145,7 @@ public:
     deps.swap(depsToAdopt);
 
     std::string base, ext;
-    splitExtension(action->file->basename(), &base, &ext);
+    splitExtension(action->file->canonicalName(), &base, &ext);
 
     const char* cxx = getenv("CXX");
 

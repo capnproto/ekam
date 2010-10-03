@@ -13,10 +13,11 @@ if test $# = 0; then
   exit 0
 fi
 
-INPUT=$1
-BASENAME=`basename $INPUT .c`
+CANONICAL_INPUT=$1
+echo findInput $CANONICAL_INPUT
+read INPUT
 
-echo newOutput ${BASENAME}.so
+echo newOutput ${CANONICAL_INPUT%.c}.so
 read OUTPUT
 
 gcc -g -shared -Wall -fPIC -o $OUTPUT $INPUT

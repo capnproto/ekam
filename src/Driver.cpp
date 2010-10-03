@@ -76,12 +76,12 @@ public:
 
   // implements BuildContext -------------------------------------------------------------
   File* findProvider(Tag id);
-  File* findInput(const std::string& basename);
+  File* findInput(const std::string& path);
 
   void provide(File* file, const std::vector<Tag>& tags);
   void log(const std::string& text);
 
-  void newOutput(const std::string& basename, OwnedPtr<File>* output);
+  void newOutput(const std::string& path, OwnedPtr<File>* output);
 
   void addActionType(OwnedPtr<ActionFactory>* factoryToAdopt);
 
@@ -132,7 +132,6 @@ private:
   OwnedPtr<Action> action;
   OwnedPtr<File> srcfile;
   Hash srcHash;
-  OwnedPtr<File> tmpdir;
   OwnedPtr<Dashboard::Task> dashboardTask;
 
   // TODO:  Get rid of "state".  Maybe replace with "status" or something, but don't try to
@@ -182,11 +181,6 @@ Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdo
   action.adopt(actionToAdopt);
   srcfile->clone(&this->srcfile);
 
-  OwnedPtr<File> tmpLocation;
-  driver->tmp->relative(srcfile->canonicalName(), &tmpLocation);
-  tmpLocation->parent(&this->tmpdir);
-  recursivelyCreateDirectory(tmpdir.get());
-
   dashboardTask.adopt(taskToAdopt);
 }
 Driver::ActionDriver::~ActionDriver() {}
@@ -222,11 +216,11 @@ File* Driver::ActionDriver::findProvider(Tag id) {
   }
 }
 
-File* Driver::ActionDriver::findInput(const std::string& basename) {
+File* Driver::ActionDriver::findInput(const std::string& path) {
   ensureRunning();
 
   OwnedPtr<File> reference;
-  tmpdir->relative(basename, &reference);
+  driver->src->relative(path, &reference);
   return findProvider(Tag::fromFile(reference.get()));
 }
 
@@ -259,10 +253,15 @@ void Driver::ActionDriver::log(const std::string& text) {
   dashboardTask->addOutput(text);
 }
 
-void Driver::ActionDriver::newOutput(const std::string& basename, OwnedPtr<File>* output) {
+void Driver::ActionDriver::newOutput(const std::string& path, OwnedPtr<File>* output) {
   ensureRunning();
   OwnedPtr<File> file;
-  tmpdir->relative(basename, &file);
+  driver->tmp->relative(path, &file);
+
+  OwnedPtr<File> parent;
+  file->parent(&parent);
+  recursivelyCreateDirectory(parent.get());
+
   file->clone(output);
 
   std::vector<Tag> tags;

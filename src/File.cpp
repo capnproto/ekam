@@ -37,7 +37,8 @@ File::DiskRef::~DiskRef() {};
 
 void splitExtension(const std::string& name, std::string* base, std::string* ext) {
   std::string::size_type pos = name.find_last_of('.');
-  if (pos == std::string::npos) {
+  std::string::size_type slashpos = name.find_last_of('/');
+  if (pos == std::string::npos || (slashpos != std::string::npos && pos < slashpos)) {
     base->assign(name);
     ext->clear();
   } else {
