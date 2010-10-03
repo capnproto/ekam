@@ -164,6 +164,8 @@ public:
       } else {
         provisions.insert(std::make_pair(file, Tag::fromName(args)));
       }
+    } else if (command == "passed") {
+      context->passed();
     } else {
       context->log("invalid command: " + command);
       context->failed();

@@ -17,3 +17,6 @@ INCLUDE_NAME=${INCLUDE_NAME##*/include/}
 INCLUDE_NAME=${INCLUDE_NAME#include/}
 
 echo provide "$INPUT" "c++header:$INCLUDE_NAME"
+
+# HACK:  gtest likes to include things from its "src" directory as "src/whatever.h".
+echo provide "$INPUT" "c++header:src/$INCLUDE_NAME"

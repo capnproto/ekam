@@ -48,6 +48,7 @@ public:
 
 private:
   static const Tag MAIN_SYMBOLS[];
+  static const Tag GTEST_TEST;
 };
 
 }  // namespace ekam

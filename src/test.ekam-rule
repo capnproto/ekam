@@ -1,0 +1,25 @@
+#! /bin/sh
+
+set -eu
+
+if test $# = 0; then
+  echo trigger test:executable
+  exit 0
+fi
+
+echo findInput "$1"
+read TEST_PROG
+
+# TODO:  Run in sandbox.
+
+echo newOutput "${1}.log"
+read TEST_LOG
+
+if $TEST_PROG >"$TEST_LOG" 2>&1; then
+	echo passed
+	exit 0
+else
+  echo "full log: $TEST_LOG" >&2
+  grep FAIL "$TEST_LOG" >&2
+  exit 1
+fi

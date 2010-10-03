@@ -52,11 +52,26 @@ void getDepsFile(File* objectFile, OwnedPtr<File>* output) {
   dir->relative(objectFile->basename() + ".deps", output);
 }
 
+bool isTestName(const std::string& name) {
+  std::string::size_type pos = name.find_last_of('_');
+  if (pos == std::string::npos) {
+    return false;
+  } else {
+    std::string suffix = name.substr(pos + 1);
+    return suffix == "test" || suffix == "unittest" || suffix == "regtest";
+  }
+}
+
 }  // namespace
 
 class LinkAction : public Action {
 public:
-  LinkAction(File* file);
+  enum Mode {
+    NORMAL,
+    GTEST
+  };
+
+  LinkAction(File* file, Mode mode);
   ~LinkAction();
 
   // implements Action -------------------------------------------------------------------
@@ -91,10 +106,17 @@ private:
     OwnedPtrMap<File*, File, FileHashFunc, FileEqualFunc> deps;
   };
 
+  static const Tag GTEST_MAIN;
+  static const Tag TEST_EXECUTABLE;
+
   OwnedPtr<File> file;
+  Mode mode;
 };
 
-LinkAction::LinkAction(File* file) {
+const Tag LinkAction::GTEST_MAIN = Tag::fromName("gtest:main");
+const Tag LinkAction::TEST_EXECUTABLE = Tag::fromName("test:executable");
+
+LinkAction::LinkAction(File* file, Mode mode) : mode(mode) {
   file->clone(&this->file);
 }
 
@@ -155,6 +177,12 @@ public:
     context->newOutput(base, &executableFile);
     subprocess.addArgument(executableFile.get(), File::WRITE);
 
+    if (isTestName(base)) {
+      std::vector<Tag> tags;
+      tags.push_back(TEST_EXECUTABLE);
+      context->provide(executableFile.get(), tags);
+    }
+
     for (int i = 0; i < deps.size(); i++) {
       subprocess.addArgument(deps.get(i), File::READ);
     }
@@ -203,6 +231,18 @@ private:
 void LinkAction::start(EventManager* eventManager, BuildContext* context,
                        OwnedPtr<AsyncOperation>* output) {
   DepsSet deps;
+
+  if (mode == GTEST) {
+    File* gtestMain = context->findProvider(GTEST_MAIN);
+    if (gtestMain == NULL) {
+      context->log("Cannot find gtest_main.o.");
+      context->failed();
+      return;
+    }
+
+    deps.addObject(context, gtestMain);
+  }
+
   deps.addObject(context, file.get());
 
   OwnedPtrVector<File> flatDeps;
@@ -218,6 +258,8 @@ const Tag CppActionFactory::MAIN_SYMBOLS[] = {
   Tag::fromName("c++symbol:_main")
 };
 
+const Tag CppActionFactory::GTEST_TEST = Tag::fromName("gtest:test");
+
 CppActionFactory::CppActionFactory() {}
 CppActionFactory::~CppActionFactory() {}
 
@@ -226,14 +268,19 @@ void CppActionFactory::enumerateTriggerTags(
   for (unsigned int i = 0; i < (sizeof(MAIN_SYMBOLS) / sizeof(MAIN_SYMBOLS[0])); i++) {
     *iter++ = MAIN_SYMBOLS[i];
   }
+  *iter++ = GTEST_TEST;
 }
 
 bool CppActionFactory::tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output) {
   for (unsigned int i = 0; i < (sizeof(MAIN_SYMBOLS) / sizeof(MAIN_SYMBOLS[0])); i++) {
     if (id == MAIN_SYMBOLS[i]) {
-      output->allocateSubclass<LinkAction>(file);
+      output->allocateSubclass<LinkAction>(file, LinkAction::NORMAL);
       return true;
     }
+  }
+  if (id == GTEST_TEST) {
+    output->allocateSubclass<LinkAction>(file, LinkAction::GTEST);
+    return true;
   }
   return false;
 }
