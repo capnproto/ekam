@@ -43,7 +43,7 @@ if test "$INTERCEPTOR" = ""; then
 fi
 
 # TODO:  Use protoc build from the source tree, if any.
-LD_PRELOAD=$INTERCEPTOR protoc -I"$SOURCE_ROOT" -I/ekam-provider/protobuf \
-    --cpp_out="$SOURCE_ROOT" "$INPUT" 3>&1 4<&0 >&2
+LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
+protoc -I"$SOURCE_ROOT" -I/ekam-provider/protobuf --cpp_out="$SOURCE_ROOT" "$INPUT" 3>&1 4<&0 >&2
 
 echo provide "$INPUT" protobuf:"$PROTO_NAME"

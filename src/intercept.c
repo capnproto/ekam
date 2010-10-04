@@ -30,6 +30,7 @@
  */
 
 #define _GNU_SOURCE
+#define _DARWIN_NO_64_BIT_INODE  /* See stat madness, below. */
 #include <dlfcn.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -311,6 +312,33 @@ WRAP(int, link, (const char* target, const char* path), (target, path), WRITE)
 WRAP(int, symlink, (const char* target, const char* path), (target, path), WRITE)
 WRAP(int, execve, (const char* path, char* const argv[], char* const envp[]),
                   (path, argv, envp), READ);
+
+#ifdef __APPLE__
+/* OSX defines an alternate version of stat with 64-bit inodes. */
+WRAP(int, stat64, (const char* path, struct stat64* sb), (path, sb), READ)
+
+/* In some crazy attempt to transition the regular "stat" call to use 64-bit inodes, Apple
+ * resorted to some sort of linker magic in which calls to stat() in newly-compiled code
+ * actually go to _stat$INODE64(), which appears to be identical to stat64().  We disabled
+ * this by defining _DARWIN_NO_64_BIT_INODE, above, but we need to intercept all versions
+ * of stat, including the $INODE64 version.  Let's avoid any dependency on stat64, though,
+ * since it is "deprecated".  So, we just make the stat buf pointer opaque. */
+typedef int stat_inode64_t(const char* path, void* sb);
+int stat_inode64(const char* path, void* sb) __asm("_stat$INODE64");
+int stat_inode64(const char* path, void* sb) {
+	static stat_inode64_t* real_stat_inode64 = NULL;
+  char buffer[PATH_MAX];
+
+  if (real_stat_inode64 == NULL) {
+    real_stat_inode64 = (stat_inode64_t*) dlsym(RTLD_NEXT, "stat$INODE64");
+		assert(real_stat_inode64 != NULL);
+  }
+
+  path = remap_file("_stat$INODE64", path, buffer, READ);
+  if (path == NULL) return -1;
+  return real_stat_inode64(path, sb);
+}
+#endif /* __APPLE__ */
 
 static int intercepted_open(const char * pathname, int flags, va_list args) {
   static OpenFunc* real_open;

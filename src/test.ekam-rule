@@ -23,7 +23,8 @@ fi
 echo newOutput "${1}.log"
 read TEST_LOG
 
-if LD_PRELOAD=$INTERCEPTOR $TEST_PROG 3>&1 4<&0 2>"$TEST_LOG" >&2; then
+if LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
+   $TEST_PROG 3>&1 4<&0 2>"$TEST_LOG" >&2; then
 	echo passed
 	exit 0
 else
