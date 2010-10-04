@@ -1,14 +1,15 @@
 #! /bin/sh
 
 # This is a one-off rule that builds intercept.so from intercept.c.
-# TODO:  Improve Ekam's support for one-off rules.
+# TODO:  Improve Ekam's support for one-off rules.  Currently this will try to build *any*
+#   file called intercept.c.
 
 set -eu
 
 if test $# = 0; then
   # Ekam is querying the script.
   echo verb compile-special
-  echo trigger file:ekam/src/intercept.c
+  echo trigger file:intercept.c
   exit 0
 fi
 
