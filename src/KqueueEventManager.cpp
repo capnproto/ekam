@@ -124,13 +124,13 @@ bool KqueueEventManager::handleEvent() {
   int n;
   if (fakeEvents.empty()) {
     n = kevent(kqueueFd, NULL, 0, &event, 1, NULL);
+    DEBUG_INFO << "Received event.";
   } else {
     n = 1;
     event = fakeEvents.front();
     fakeEvents.pop_front();
+    DEBUG_INFO << "Received fake event.";
   }
-
-  DEBUG_INFO << "Received event.";
 
   if (n < 0) {
     DEBUG_ERROR << "kevent: " << strerror(errno);
@@ -164,14 +164,14 @@ void KqueueEventManager::updateKqueue(const KEvent& event) {
       // Child process may have already exited and is now a zombie.  Unfortunately, kevent()
       // rejects this instead of doing the obvious thing and producing an exit event immediately.
       // So we must fake it.
-      // NOTE:  I have not observed this actually happen, but have read stuff on the internet
-      //   suggesting this is a problem, possibly only on some kernels (OSX?).
+      // NOTE:  I have only observed this happening on OSX, not FreeBSD.
       DEBUG_INFO << "Child exited before we could wait?  PID: " << event.ident;
       KEvent fakeEvent = event;
       fakeEvent.data = -1;  // We'll have to get the status from wait() later.
       fakeEvents.push_back(fakeEvent);
+    } else {
+      throw std::runtime_error("kevent: " + std::string(strerror(errno)));
     }
-    throw std::runtime_error("kevent: " + std::string(strerror(errno)));
   } else if (n > 0) {
     DEBUG_ERROR << "kevent() returned events when not asked to.";
   }

@@ -283,7 +283,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
 
 typedef int OpenFunc(const char * pathname, int flags, ...);
 
-#define WRAP(RETURNTYPE, NAME, PARAMTYPES, PARAMS, USAGE)                   \
+#define WRAP(RETURNTYPE, NAME, PARAMTYPES, PARAMS, USAGE, ERROR_RESULT)     \
   typedef RETURNTYPE NAME##_t PARAMTYPES;                                   \
   RETURNTYPE NAME PARAMTYPES {                                              \
     static NAME##_t* real_##NAME = NULL;                                    \
@@ -295,27 +295,27 @@ typedef int OpenFunc(const char * pathname, int flags, ...);
     }                                                                       \
                                                                             \
     path = remap_file(#NAME, path, buffer, USAGE);                          \
-    if (path == NULL) return -1;                                            \
+    if (path == NULL) return ERROR_RESULT;                                  \
     return real_##NAME PARAMS;                                              \
   }                                                                         \
   RETURNTYPE _##NAME PARAMTYPES {                                           \
     return NAME PARAMS;                                                     \
   }
 
-WRAP(int, stat, (const char* path, struct stat* sb), (path, sb), READ)
-WRAP(int, lstat, (const char* path, struct stat* sb), (path, sb), READ)
-WRAP(int, chdir, (const char* path), (path), READ)
-WRAP(int, chmod, (const char* path, mode_t mode), (path, mode), WRITE)
-WRAP(int, lchmod, (const char* path, mode_t mode), (path, mode), WRITE)
-WRAP(int, unlink, (const char* path), (path), WRITE)
-WRAP(int, link, (const char* target, const char* path), (target, path), WRITE)
-WRAP(int, symlink, (const char* target, const char* path), (target, path), WRITE)
+WRAP(int, stat, (const char* path, struct stat* sb), (path, sb), READ, -1)
+WRAP(int, lstat, (const char* path, struct stat* sb), (path, sb), READ, -1)
+WRAP(int, chdir, (const char* path), (path), READ, -1)
+WRAP(int, chmod, (const char* path, mode_t mode), (path, mode), WRITE, -1)
+WRAP(int, lchmod, (const char* path, mode_t mode), (path, mode), WRITE, -1)
+WRAP(int, unlink, (const char* path), (path), WRITE, -1)
+WRAP(int, link, (const char* target, const char* path), (target, path), WRITE, -1)
+WRAP(int, symlink, (const char* target, const char* path), (target, path), WRITE, -1)
 WRAP(int, execve, (const char* path, char* const argv[], char* const envp[]),
-                  (path, argv, envp), READ);
+                  (path, argv, envp), READ, -1);
 
 #ifdef __APPLE__
 /* OSX defines an alternate version of stat with 64-bit inodes. */
-WRAP(int, stat64, (const char* path, struct stat64* sb), (path, sb), READ)
+WRAP(int, stat64, (const char* path, struct stat64* sb), (path, sb), READ, -1)
 
 /* In some crazy attempt to transition the regular "stat" call to use 64-bit inodes, Apple
  * resorted to some sort of linker magic in which calls to stat() in newly-compiled code
@@ -338,6 +338,12 @@ int stat_inode64(const char* path, void* sb) {
   if (path == NULL) return -1;
   return real_stat_inode64(path, sb);
 }
+
+// Somehow fopen() does not seem to call our overridden open() on OSX.
+// TODO:  Figure out why.  Hope that there is just some more obscure open() it is using,
+//   and that it isn't simply that we can't override calls between two libc functions.
+WRAP(FILE*, fopen, (const char* path, const char* mode), (path, mode),
+     mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
 #endif /* __APPLE__ */
 
 static int intercepted_open(const char * pathname, int flags, va_list args) {
