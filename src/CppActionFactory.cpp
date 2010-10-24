@@ -81,17 +81,6 @@ public:
 private:
   class LinkProcess;
 
-  struct FileHashFunc {
-    inline bool operator()(File* file) const {
-      return std::tr1::hash<std::string>()(file->basename());
-    }
-  };
-  struct FileEqualFunc {
-    inline bool operator()(File* a, File* b) const {
-      return a->equals(b);
-    }
-  };
-
   class DepsSet {
   public:
     DepsSet() {}
@@ -103,7 +92,7 @@ private:
     }
 
   private:
-    OwnedPtrMap<File*, File, FileHashFunc, FileEqualFunc> deps;
+    OwnedPtrMap<File*, File, File::HashFunc, File::EqualFunc> deps;
   };
 
   static const Tag GTEST_MAIN;

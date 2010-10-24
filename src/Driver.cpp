@@ -435,54 +435,7 @@ void Driver::ActionDriver::reset() {
 
   // Reset dependents.
   for (int i = 0; i < provisions.size(); i++) {
-    Provision* provision = provisions.get(i);
-
-    // Reset dependents of this provision.
-    {
-      std::vector<ActionDriver*> actionsToReset;
-      for (DependencyTable::SearchIterator<DependencyTable::PROVISION>
-           iter(driver->dependencyTable, provision); iter.next();) {
-        // Can't call reset() directly here because it may invalidate our iterator.
-        actionsToReset.push_back(iter.cell<DependencyTable::ACTION>());
-      }
-      for (size_t j = 0; j < actionsToReset.size(); j++) {
-        actionsToReset[j]->reset();
-      }
-      if (driver->dependencyTable.erase<DependencyTable::PROVISION>(provision) > 0) {
-        DEBUG_ERROR << "Resetting dependents should have removed this provision from "
-                       "dependencyTable.";
-      }
-    }
-
-    // Everything triggered by this provision must be deleted.
-    {
-      std::vector<ActionDriver*> actionsToDelete;
-
-      for (ActionTriggersTable::SearchIterator<ActionTriggersTable::PROVISION>
-           iter(driver->actionTriggersTable, provision); iter.next();) {
-        // Can't call reset() directly here because it may invalidate our iterator.
-        actionsToDelete.push_back(iter.cell<ActionTriggersTable::ACTION>());
-      }
-
-      for (size_t j = 0; j < actionsToDelete.size(); j++) {
-        actionsToDelete[j]->reset();
-
-        // TODO:  Use better data structure for pendingActions.  For now we have to iterate
-        //   through the whole thing to find the action we're deleting.  We iterate from the back
-        //   since it's likely the action was just added there.
-        OwnedPtr<ActionDriver> ownedAction;
-        for (int k = driver->pendingActions.size() - 1; k >= 0; k--) {
-          if (driver->pendingActions.get(k) == actionsToDelete[j]) {
-            driver->pendingActions.releaseAndShift(k, &ownedAction);
-            break;
-          }
-        }
-      }
-
-      driver->actionTriggersTable.erase<ActionTriggersTable::PROVISION>(provision);
-    }
-
-    driver->tagTable.erase<TagTable::PROVISION>(provision);
+    driver->resetDependentActions(provisions.get(i));
   }
 
   // Actions created by any provided ActionFactories must be deleted.
@@ -579,9 +532,9 @@ Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const Tag& tag)
 
 // =======================================================================================
 
-Driver::Driver(EventManager* eventManager, Dashboard* dashboard, File* src, File* tmp,
+Driver::Driver(EventManager* eventManager, Dashboard* dashboard, File* tmp,
                int maxConcurrentActions)
-    : eventManager(eventManager), dashboard(dashboard), src(src), tmp(tmp),
+    : eventManager(eventManager), dashboard(dashboard), tmp(tmp),
       maxConcurrentActions(maxConcurrentActions) {
   if (!tmp->exists()) {
     tmp->createDirectory();
@@ -605,8 +558,22 @@ void Driver::addActionFactory(ActionFactory* factory) {
   }
 }
 
-void Driver::start() {
-  scanSourceTree();
+void Driver::addSourceFile(File* file) {
+  // Apply default tag.
+  std::vector<Tag> tags;
+  tags.push_back(Tag::DEFAULT_TAG);
+
+  OwnedPtr<Provision> provision;
+  if (rootProvisions.release(file, &provision)) {
+    // Source file was modified.  Reset all actions dependent on the old version.
+    resetDependentActions(provision.get());
+  }
+
+  provision.allocate();
+  file->clone(&provision->file);
+  registerProvider(provision.get(), tags);
+  rootProvisions.adopt(provision->file.get(), &provision);
+
   startSomeActions();
 }
 
@@ -622,40 +589,6 @@ void Driver::startSomeActions() {
       ptr->threwException(e);
     } catch (...) {
       ptr->threwUnknownException();
-    }
-  }
-}
-
-void Driver::scanSourceTree() {
-  OwnedPtrVector<File> fileQueue;
-
-  {
-    OwnedPtr<File> root;
-    src->clone(&root);
-    fileQueue.adoptBack(&root);
-  }
-
-  while (!fileQueue.empty()) {
-    OwnedPtr<File> current;
-    fileQueue.releaseBack(&current);
-
-    if (current->isDirectory()) {
-      OwnedPtrVector<File> list;
-      current->list(list.appender());
-      for (int i = 0; i < list.size(); i++) {
-        OwnedPtr<File> child;
-        list.release(i, &child);
-        fileQueue.adoptBack(&child);
-      }
-    } else {
-      // Apply default tag.
-      OwnedPtr<Provision> provision;
-      std::vector<Tag> tags;
-      provision.allocate();
-      tags.push_back(Tag::DEFAULT_TAG);
-      current->clone(&provision->file);
-      registerProvider(provision.get(), tags);
-      rootProvisions.adoptBack(&provision);
     }
   }
 }
@@ -723,6 +656,55 @@ void Driver::resetDependentActions(const Tag& tag) {
   for (size_t i = 0; i < actionsToReset.size(); i++) {
     actionsToReset[i]->reset();
   }
+}
+
+void Driver::resetDependentActions(Provision* provision) {
+  // Reset dependents of this provision.
+  {
+    std::vector<ActionDriver*> actionsToReset;
+    for (DependencyTable::SearchIterator<DependencyTable::PROVISION>
+         iter(dependencyTable, provision); iter.next();) {
+      // Can't call reset() directly here because it may invalidate our iterator.
+      actionsToReset.push_back(iter.cell<DependencyTable::ACTION>());
+    }
+    for (size_t j = 0; j < actionsToReset.size(); j++) {
+      actionsToReset[j]->reset();
+    }
+    if (dependencyTable.erase<DependencyTable::PROVISION>(provision) > 0) {
+      DEBUG_ERROR << "Resetting dependents should have removed this provision from "
+                     "dependencyTable.";
+    }
+  }
+
+  // Everything triggered by this provision must be deleted.
+  {
+    std::vector<ActionDriver*> actionsToDelete;
+
+    for (ActionTriggersTable::SearchIterator<ActionTriggersTable::PROVISION>
+         iter(actionTriggersTable, provision); iter.next();) {
+      // Can't call reset() directly here because it may invalidate our iterator.
+      actionsToDelete.push_back(iter.cell<ActionTriggersTable::ACTION>());
+    }
+
+    for (size_t j = 0; j < actionsToDelete.size(); j++) {
+      actionsToDelete[j]->reset();
+
+      // TODO:  Use better data structure for pendingActions.  For now we have to iterate
+      //   through the whole thing to find the action we're deleting.  We iterate from the back
+      //   since it's likely the action was just added there.
+      OwnedPtr<ActionDriver> ownedAction;
+      for (int k = pendingActions.size() - 1; k >= 0; k--) {
+        if (pendingActions.get(k) == actionsToDelete[j]) {
+          pendingActions.releaseAndShift(k, &ownedAction);
+          break;
+        }
+      }
+    }
+
+    actionTriggersTable.erase<ActionTriggersTable::PROVISION>(provision);
+  }
+
+  tagTable.erase<TagTable::PROVISION>(provision);
 }
 
 void Driver::fireTriggers(const Tag& tag, Provision* provision) {

@@ -46,13 +46,13 @@ namespace ekam {
 
 class Driver {
 public:
-  Driver(EventManager* eventManager, Dashboard* dashboard, File* src, File* tmp,
+  Driver(EventManager* eventManager, Dashboard* dashboard, File* tmp,
          int maxConcurrentActions);
   ~Driver();
 
   void addActionFactory(ActionFactory* factory);
 
-  void start();
+  void addSourceFile(File* file);
 
 private:
   class ActionDriver;
@@ -60,7 +60,6 @@ private:
   EventManager* eventManager;
   Dashboard* dashboard;
 
-  File* src;
   File* tmp;
 
   int maxConcurrentActions;
@@ -109,11 +108,10 @@ private:
   };
   ActionTriggersTable actionTriggersTable;
 
-  OwnedPtrVector<Provision> rootProvisions;
+  OwnedPtrMap<File*, Provision, File::HashFunc, File::EqualFunc> rootProvisions;
 
   void startSomeActions();
 
-  void scanSourceTree();
   void rescanForNewFactory(ActionFactory* factory);
 
   void queueNewAction(ActionFactory* factory, OwnedPtr<Action>* actionToAdopt,
@@ -121,6 +119,7 @@ private:
 
   void registerProvider(Provision* provision, const std::vector<Tag>& tags);
   void resetDependentActions(const Tag& tag);
+  void resetDependentActions(Provision* provision);
   void fireTriggers(const Tag& tag, Provision* provision);
 };
 

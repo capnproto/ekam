@@ -59,6 +59,11 @@ public:
       return file->identityHash();
     }
   };
+  struct EqualFunc {
+    inline bool operator()(File* a, File* b) const {
+      return a->equals(b);
+    }
+  };
 
   class DiskRef {
   public:

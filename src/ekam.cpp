@@ -108,6 +108,33 @@ void usage(const char* command, FILE* out) {
     "usage: %s [-hv] [-j jobcount]\n", command);
 }
 
+void scanSourceTree(File* src, Driver* driver) {
+  OwnedPtrVector<File> fileQueue;
+
+  {
+    OwnedPtr<File> root;
+    src->clone(&root);
+    fileQueue.adoptBack(&root);
+  }
+
+  while (!fileQueue.empty()) {
+    OwnedPtr<File> current;
+    fileQueue.releaseBack(&current);
+
+    if (current->isDirectory()) {
+      OwnedPtrVector<File> list;
+      current->list(list.appender());
+      for (int i = 0; i < list.size(); i++) {
+        OwnedPtr<File> child;
+        list.release(i, &child);
+        fileQueue.adoptBack(&child);
+      }
+    } else {
+      driver->addSourceFile(current.get());
+    }
+  }
+}
+
 int main(int argc, char* argv[]) {
   const char* command = argv[0];
   int maxConcurrentActions = 1;
@@ -160,7 +187,7 @@ int main(int argc, char* argv[]) {
   OwnedPtr<RunnableEventManager> eventManager;
   newPreferredEventManager(&eventManager);
 
-  Driver driver(eventManager.get(), dashboard.get(), &src, &tmp, maxConcurrentActions);
+  Driver driver(eventManager.get(), dashboard.get(), &tmp, maxConcurrentActions);
 
   ExtractTypeActionFactory extractTypeActionFactcory;
   driver.addActionFactory(&extractTypeActionFactcory);
@@ -171,7 +198,7 @@ int main(int argc, char* argv[]) {
   ExecPluginActionFactory execPluginActionFactory;
   driver.addActionFactory(&execPluginActionFactory);
 
-  driver.start();
+  scanSourceTree(&src, &driver);
   eventManager->loop();
 
   // For debugging purposes, check for zombie processes.
