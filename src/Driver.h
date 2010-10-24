@@ -96,8 +96,13 @@ private:
   };
   DependencyTable dependencyTable;
 
-  typedef std::tr1::unordered_multimap<Provision*, ActionDriver*> ActionsByTriggerMap;
-  ActionsByTriggerMap actionsByTrigger;
+  class ActionTriggersTable : public Table<IndexedColumn<Provision*>,
+                                           IndexedColumn<ActionDriver*> > {
+  public:
+    static const int PROVISION = 0;
+    static const int ACTION = 1;
+  };
+  ActionTriggersTable actionTriggersTable;
 
   OwnedPtrVector<Provision> rootProvisions;
 

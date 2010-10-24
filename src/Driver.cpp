@@ -441,18 +441,21 @@ void Driver::ActionDriver::reset() {
       for (size_t j = 0; j < actionsToReset.size(); j++) {
         actionsToReset[j]->reset();
       }
+      if (driver->dependencyTable.erase<DependencyTable::PROVISION>(provision) > 0) {
+        DEBUG_ERROR << "Resetting dependents should have removed this provision from "
+                       "dependencyTable.";
+      }
     }
 
     // Everything triggered by this provision must be deleted.
     {
       std::vector<ActionDriver*> actionsToDelete;
-      std::pair<ActionsByTriggerMap::iterator, ActionsByTriggerMap::iterator> range =
-          driver->actionsByTrigger.equal_range(provision);
-      for (ActionsByTriggerMap::iterator iter = range.first; iter != range.second; ++iter) {
+
+      for (ActionTriggersTable::SearchIterator<ActionTriggersTable::PROVISION>
+           iter(driver->actionTriggersTable, provision); iter.next();) {
         // Can't call reset() directly here because it may invalidate our iterator.
-        actionsToDelete.push_back(iter->second);
+        actionsToDelete.push_back(iter.cell<ActionTriggersTable::ACTION>());
       }
-      driver->actionsByTrigger.erase(range.first, range.second);
 
       for (size_t j = 0; j < actionsToDelete.size(); j++) {
         actionsToDelete[j]->reset();
@@ -468,13 +471,11 @@ void Driver::ActionDriver::reset() {
           }
         }
       }
+
+      driver->actionTriggersTable.erase<ActionTriggersTable::PROVISION>(provision);
     }
 
     driver->tagTable.erase<TagTable::PROVISION>(provision);
-    if (driver->dependencyTable.erase<DependencyTable::PROVISION>(provision) > 0) {
-      DEBUG_ERROR << "Resetting dependents should have removed this provision from "
-                     "dependencyTable.";
-    }
   }
 
   // Remove all entries in dependencyTable pointing at this action.
@@ -646,7 +647,7 @@ void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, Provision* provisio
 
   OwnedPtr<ActionDriver> actionDriver;
   actionDriver.allocate(this, actionToAdopt, provision->file.get(), provision->contentHash, &task);
-  actionsByTrigger.insert(std::make_pair(provision, actionDriver.get()));
+  actionTriggersTable.add(provision, actionDriver.get());
 
   // Put new action on front of queue because it was probably triggered by another action that
   // just completed, and it's good to run related actions together to improve cache locality.
