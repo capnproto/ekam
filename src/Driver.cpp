@@ -554,8 +554,6 @@ Driver::~Driver() {
 }
 
 void Driver::addActionFactory(ActionFactory* factory) {
-  actionFactories.push_back(factory);
-
   std::vector<Tag> triggerTags;
   factory->enumerateTriggerTags(std::back_inserter(triggerTags));
   for (unsigned int i = 0; i < triggerTags.size(); i++) {

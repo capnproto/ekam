@@ -64,7 +64,6 @@ private:
 
   int maxConcurrentActions;
 
-  std::vector<ActionFactory*> actionFactories;
   OwnedPtrVector<ActionFactory> ownedFactories;
 
   typedef std::tr1::unordered_multimap<Tag, ActionFactory*, Tag::HashFunc> TriggerMap;
