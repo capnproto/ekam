@@ -436,7 +436,7 @@ void Driver::ActionDriver::reset() {
       for (DependencyTable::SearchIterator<DependencyTable::PROVISION>
            iter(driver->dependencyTable, provision); iter.next();) {
         // Can't call reset() directly here because it may invalidate our iterator.
-        actionsToReset.push_back(iter.row().cell<DependencyTable::ACTION>());
+        actionsToReset.push_back(iter.cell<DependencyTable::ACTION>());
       }
       for (size_t j = 0; j < actionsToReset.size(); j++) {
         actionsToReset[j]->reset();
@@ -492,7 +492,7 @@ Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const Tag& tag)
     return NULL;
   } else {
     std::string srcName = srcfile->canonicalName();
-    Provision* bestMatch = iter.row().cell<TagTable::PROVISION>();
+    Provision* bestMatch = iter.cell<TagTable::PROVISION>();
 
     if (iter.next()) {
       // There are multiple files with this tag.  We must choose which one we like best.
@@ -501,7 +501,7 @@ Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const Tag& tag)
       int bestMatchCommonPrefix = commonPrefixLength(srcName, bestMatchName);
 
       do {
-        Provision* candidate = iter.row().cell<TagTable::PROVISION>();
+        Provision* candidate = iter.cell<TagTable::PROVISION>();
         std::string candidateName = candidate->file->canonicalName();
         int candidateDepth = fileDepth(candidateName);
         int candidateCommonPrefix = commonPrefixLength(srcName, candidateName);
@@ -629,7 +629,7 @@ void Driver::rescanForNewFactory(ActionFactory* factory) {
   factory->enumerateTriggerTags(std::back_inserter(triggerTags));
   for (unsigned int i = 0; i < triggerTags.size(); i++) {
     for (TagTable::SearchIterator<TagTable::TAG> iter(tagTable, triggerTags[i]); iter.next();) {
-      Provision* provision = iter.row().cell<TagTable::PROVISION>();
+      Provision* provision = iter.cell<TagTable::PROVISION>();
       OwnedPtr<Action> action;
       if (factory->tryMakeAction(triggerTags[i], provision->file.get(), &action)) {
         queueNewAction(&action, provision);
@@ -673,8 +673,8 @@ void Driver::resetDependentActions(const Tag& tag) {
 
   for (DependencyTable::SearchIterator<DependencyTable::TAG> iter(dependencyTable, tag);
        iter.next();) {
-    ActionDriver* action = iter.row().cell<DependencyTable::ACTION>();
-    Provision* previousProvider = iter.row().cell<DependencyTable::PROVISION>();
+    ActionDriver* action = iter.cell<DependencyTable::ACTION>();
+    Provision* previousProvider = iter.cell<DependencyTable::PROVISION>();
 
     if (action->choosePreferredProvider(tag) != previousProvider) {
       // We can't just call reset() here because it could invalidate our iterator.

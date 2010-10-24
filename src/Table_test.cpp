@@ -65,9 +65,9 @@ void testTable() {
       MyTable::RowIterator iter(table);
 
       ASSERT(iter.next());
-      values.insert(iter.row().cell<0>());
+      values.insert(iter.cell<0>());
       ASSERT(iter.next());
-      values.insert(iter.row().cell<0>());
+      values.insert(iter.cell<0>());
       ASSERT(!iter.next());
 
       ASSERT(values.count(1234) == 1);
@@ -95,9 +95,9 @@ void testTable() {
       MyTable::SearchIterator<1> iter(table, 34);
 
       ASSERT(iter.next());
-      values.insert(iter.row().cell<0>());
+      values.insert(iter.cell<0>());
       ASSERT(iter.next());
-      values.insert(iter.row().cell<0>());
+      values.insert(iter.cell<0>());
       ASSERT(!iter.next());
 
       ASSERT(values.count(12) == 1);
@@ -114,7 +114,7 @@ void testTable() {
       MyTable::SearchIterator<1> iter(table, 34);
 
       ASSERT(iter.next());
-      ASSERT(iter.row().cell<0>() == 56);
+      ASSERT(iter.cell<0>() == 56);
       ASSERT(!iter.next());
     }
   }
@@ -135,14 +135,14 @@ void testTable() {
       MyTable::SearchIterator<0> iter(table, "bar");
 
       ASSERT(iter.next());
-      ASSERT(iter.row().cell<0>() == "bar");
-      values[iter.row().cell<1>()] = iter.row().cell<2>();
+      ASSERT(iter.cell<0>() == "bar");
+      values[iter.cell<1>()] = iter.cell<2>();
       ASSERT(iter.next());
-      ASSERT(iter.row().cell<0>() == "bar");
-      values[iter.row().cell<1>()] = iter.row().cell<2>();
+      ASSERT(iter.cell<0>() == "bar");
+      values[iter.cell<1>()] = iter.cell<2>();
       ASSERT(iter.next());
-      ASSERT(iter.row().cell<0>() == "bar");
-      values[iter.row().cell<1>()] = iter.row().cell<2>();
+      ASSERT(iter.cell<0>() == "bar");
+      values[iter.cell<1>()] = iter.cell<2>();
       ASSERT(!iter.next());
 
       ASSERT(values[1] == 'b');
@@ -155,11 +155,11 @@ void testTable() {
       MyTable::SearchIterator<1> iter(table, 2);
 
       ASSERT(iter.next());
-      ASSERT(iter.row().cell<1>() == 2);
-      values[iter.row().cell<0>()] = iter.row().cell<2>();
+      ASSERT(iter.cell<1>() == 2);
+      values[iter.cell<0>()] = iter.cell<2>();
       ASSERT(iter.next());
-      ASSERT(iter.row().cell<1>() == 2);
-      values[iter.row().cell<0>()] = iter.row().cell<2>();
+      ASSERT(iter.cell<1>() == 2);
+      values[iter.cell<0>()] = iter.cell<2>();
       ASSERT(!iter.next());
 
       ASSERT(values["foo"] == 'o');
@@ -204,7 +204,7 @@ void testTable() {
 
       for (int i = 0; i < 50; i++) {
         ASSERT(iter.next());
-        values.insert(iter.row().cell<1>());
+        values.insert(iter.cell<1>());
       }
       ASSERT(!iter.next());
 
@@ -223,8 +223,8 @@ void testTable() {
 
       for (int i = 0; i < 50; i++) {
         ASSERT(iter.next());
-        values0.insert(iter.row().cell<0>());
-        values1.insert(iter.row().cell<1>());
+        values0.insert(iter.cell<0>());
+        values1.insert(iter.cell<1>());
       }
       ASSERT(!iter.next());
 

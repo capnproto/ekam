@@ -120,13 +120,12 @@ public:
   Table() : deletedCount(0) {}
   ~Table() {}
 
-  // TODO(kenton):  Row could be private if the iterators implemented cell() directly!
   class Row {
   public:
     inline Row() {}
 
     template <int columnNumber>
-    const typename Column<columnNumber>::Value& cell() const {
+    inline const typename Column<columnNumber>::Value& cell() const {
       return Column<columnNumber>::cell(*this);
     }
 
@@ -163,8 +162,9 @@ public:
       }
     }
 
-    inline const Row& row() {
-      return *current;
+    template <int columnNumber>
+    inline const typename Column<columnNumber>::Value& cell() const {
+      return Column<columnNumber>::cell(*current);
     }
 
   private:
@@ -199,8 +199,9 @@ public:
       }
     }
 
-    inline const Row& row() {
-      return *current;
+    template <int cellColumnNumber>
+    inline const typename Column<cellColumnNumber>::Value& cell() const {
+      return Column<cellColumnNumber>::cell(*current);
     }
 
   private:
