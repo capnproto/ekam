@@ -84,11 +84,17 @@ private:
 
   OwnedPtrVector<ActionDriver> activeActions;
   OwnedPtrDeque<ActionDriver> pendingActions;
-
-  typedef std::tr1::unordered_multimap<Tag, ActionDriver*, Tag::HashFunc>
-      CompletedActionMap;
-  CompletedActionMap completedActions;
   OwnedPtrMap<ActionDriver*, ActionDriver> completedActionPtrs;
+
+  class DependencyTable : public Table<IndexedColumn<Tag, Tag::HashFunc>,
+                                       IndexedColumn<ActionDriver*>,
+                                       IndexedColumn<Provision*> > {
+  public:
+    static const int TAG = 0;
+    static const int ACTION = 1;
+    static const int PROVISION = 2;
+  };
+  DependencyTable dependencyTable;
 
   typedef std::tr1::unordered_multimap<Provision*, ActionDriver*> ActionsByTriggerMap;
   ActionsByTriggerMap actionsByTrigger;

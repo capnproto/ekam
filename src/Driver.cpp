@@ -154,9 +154,6 @@ private:
   bool isRunning;
   OwnedPtr<AsyncOperation> runningAction;
 
-  typedef std::tr1::unordered_map<Tag, Hash, Tag::HashFunc> DependencySet;
-  DependencySet dependencies;
-
   OwnedPtrVector<File> outputs;
 
   OwnedPtrVector<Provision> provisions;
@@ -165,10 +162,8 @@ private:
   void ensureRunning();
   void queueDoneCallback();
   void returned();
-  void reset(std::tr1::unordered_set<Tag, Tag::HashFunc>* tagsToReset,
-             std::vector<ActionDriver*>* actionsToDelete);
+  void reset();
   Provision* choosePreferredProvider(const Tag& tag);
-  bool hasPreferredDependencyChanged(const Tag& tag);
 
   friend class Driver;
 };
@@ -190,7 +185,7 @@ void Driver::ActionDriver::start() {
   if (state != PENDING) {
     DEBUG_ERROR << "State must be PENDING here.";
   }
-  assert(dependencies.empty());
+  assert(!driver->dependencyTable.has<DependencyTable::ACTION>(this));
   assert(outputs.empty());
   assert(provisions.empty());
   assert(!isRunning);
@@ -203,16 +198,16 @@ void Driver::ActionDriver::start() {
   eventGroup.runAsynchronously(&startCallback, &asyncCallbackOp);
 }
 
-File* Driver::ActionDriver::findProvider(Tag id) {
+File* Driver::ActionDriver::findProvider(Tag tag) {
   ensureRunning();
 
-  Provision* provision = choosePreferredProvider(id);
+  Provision* provision = choosePreferredProvider(tag);
 
   if (provision == NULL) {
-    dependencies.insert(std::make_pair(id, Hash::NULL_HASH));
+    driver->dependencyTable.add(tag, this, NULL);
     return NULL;
   } else {
-    dependencies.insert(std::make_pair(id, provision->contentHash));
+    driver->dependencyTable.add(tag, this, provision);
     return provision->file.get();
   }
 }
@@ -362,30 +357,7 @@ void Driver::ActionDriver::returned() {
     }
   }
 
-  // Did the action use any tags that changed since the action started?
-  for (DependencySet::const_iterator iter = dependencies.begin();
-       iter != dependencies.end(); ++iter) {
-    if (hasPreferredDependencyChanged(iter->first)) {
-      // Yep.  Must do over.  Clear everything and add again to the action queue.
-      state = PENDING;
-      provisions.clear();
-      providedTags.clear();
-      outputs.clear();
-      dependencies.clear();
-      // Put on back of queue to avoid repeatedly retrying an action that has lots of
-      // interference.
-      driver->pendingActions.adoptBack(&self);
-      dashboardTask->setState(Dashboard::BLOCKED);
-      return;
-    }
-  }
-
-  // Insert self into the completed actions map.
   driver->completedActionPtrs.adopt(this, &self);
-  for (DependencySet::const_iterator iter = dependencies.begin();
-       iter != dependencies.end(); ++iter) {
-    driver->completedActions.insert(std::make_pair(iter->first, this));
-  }
 
   if (state == FAILED) {
     // Failed, possibly due to missing dependencies.
@@ -416,47 +388,98 @@ void Driver::ActionDriver::returned() {
   }
 }
 
-void Driver::ActionDriver::reset(
-    std::tr1::unordered_set<Tag, Tag::HashFunc>* tagsToReset,
-    std::vector<ActionDriver*>* actionsToDelete) {
-  state = ActionDriver::PENDING;
-
-  for (int i = 0; i < provisions.size(); i++) {
-    Provision* provision = provisions.get(i);
-
-    // All provided tags must be reset as well.
-    for (TagTable::SearchIterator<TagTable::PROVISION> iter(driver->tagTable, provision);
-         iter.next();) {
-      tagsToReset->insert(iter.row().cell<TagTable::TAG>());
-    }
-
-    // Remove from tagTable.
-    driver->tagTable.erase<TagTable::PROVISION>(provision);
-
-    // Everything triggered by this provision must be deleted.
-    std::pair<ActionsByTriggerMap::iterator, ActionsByTriggerMap::iterator> range =
-        driver->actionsByTrigger.equal_range(provision);
-    for (ActionsByTriggerMap::iterator iter = range.first; iter != range.second; ++iter) {
-      actionsToDelete->push_back(iter->second);
-    }
-    driver->actionsByTrigger.erase(range.first, range.second);
+void Driver::ActionDriver::reset() {
+  if (state == PENDING) {
+    // Nothing to do.
+    return;
   }
 
-  // Remove all entries in CompletedActionMap pointing at this action.
-  for (ActionDriver::DependencySet::const_iterator iter = dependencies.begin();
-       iter != dependencies.end(); ++iter) {
-    std::pair<CompletedActionMap::iterator, CompletedActionMap::iterator>
-        range = driver->completedActions.equal_range(iter->first);
-    for (CompletedActionMap::iterator iter2 = range.first;
-         iter2 != range.second; ++iter2) {
-      if (iter2->second == this) {
-        driver->completedActions.erase(iter2);
+  OwnedPtr<ActionDriver> self;
+
+  if (isRunning) {
+    dashboardTask->setState(Dashboard::BLOCKED);
+    runningAction.clear();
+    asyncCallbackOp.clear();
+
+    for (int i = 0; i < driver->activeActions.size(); i++) {
+      if (driver->activeActions.get(i) == this) {
+        driver->activeActions.releaseAndShift(i, &self);
         break;
       }
     }
+
+    isRunning = false;
+  } else {
+    if (!driver->completedActionPtrs.release(this, &self)) {
+      throw std::logic_error("Action not running or pending, but not in completedActionPtrs?");
+    }
   }
 
-  dependencies.clear();
+  state = PENDING;
+
+  // Put on back of queue (as opposed to front) so that actions which are frequently reset
+  // don't get redundantly rebuilt too much.  We add the action to the queue before resetting
+  // dependents so that this action gets re-run before its dependents.
+  // TODO:  The second point probably doesn't help much when multiprocessing.  Maybe the
+  //   action queue should really be a graph that remembers what depended on what the last
+  //   time we ran them, and avoids re-running any action before re-running actions on which it
+  //   depended last time.
+  driver->pendingActions.adoptBack(&self);
+
+  // Reset dependents.
+  for (int i = 0; i < provisions.size(); i++) {
+    Provision* provision = provisions.get(i);
+
+    // Reset dependents of this provision.
+    {
+      std::vector<ActionDriver*> actionsToReset;
+      for (DependencyTable::SearchIterator<DependencyTable::PROVISION>
+           iter(driver->dependencyTable, provision); iter.next();) {
+        // Can't call reset() directly here because it may invalidate our iterator.
+        actionsToReset.push_back(iter.row().cell<DependencyTable::ACTION>());
+      }
+      for (size_t j = 0; j < actionsToReset.size(); j++) {
+        actionsToReset[j]->reset();
+      }
+    }
+
+    // Everything triggered by this provision must be deleted.
+    {
+      std::vector<ActionDriver*> actionsToDelete;
+      std::pair<ActionsByTriggerMap::iterator, ActionsByTriggerMap::iterator> range =
+          driver->actionsByTrigger.equal_range(provision);
+      for (ActionsByTriggerMap::iterator iter = range.first; iter != range.second; ++iter) {
+        // Can't call reset() directly here because it may invalidate our iterator.
+        actionsToDelete.push_back(iter->second);
+      }
+      driver->actionsByTrigger.erase(range.first, range.second);
+
+      for (size_t j = 0; j < actionsToDelete.size(); j++) {
+        actionsToDelete[j]->reset();
+
+        // TODO:  Use better data structure for pendingActions.  For now we have to iterate
+        //   through the whole thing to find the action we're deleting.  We iterate from the back
+        //   since it's likely the action was just added there.
+        OwnedPtr<ActionDriver> ownedAction;
+        for (int k = driver->pendingActions.size() - 1; k >= 0; k--) {
+          if (driver->pendingActions.get(k) == actionsToDelete[j]) {
+            driver->pendingActions.releaseAndShift(k, &ownedAction);
+            break;
+          }
+        }
+      }
+    }
+
+    driver->tagTable.erase<TagTable::PROVISION>(provision);
+    if (driver->dependencyTable.erase<DependencyTable::PROVISION>(provision) > 0) {
+      DEBUG_ERROR << "Resetting dependents should have removed this provision from "
+                     "dependencyTable.";
+    }
+  }
+
+  // Remove all entries in dependencyTable pointing at this action.
+  driver->dependencyTable.erase<DependencyTable::ACTION>(this);
+
   provisions.clear();
   providedTags.clear();
   outputs.clear();
@@ -514,20 +537,6 @@ Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const Tag& tag)
     }
 
     return bestMatch;
-  }
-}
-
-bool Driver::ActionDriver::hasPreferredDependencyChanged(const Tag& tag) {
-  // TODO:  Do we care if the file name changes, assuming the content hash is the same?  Here
-  //   we only check for a hash change.
-  Provision* preferred = choosePreferredProvider(tag);
-  const Hash& currentHash = preferred == NULL ? Hash::NULL_HASH : preferred->contentHash;
-  DependencySet::const_iterator actual = dependencies.find(tag);
-  if (actual == dependencies.end()) {
-    DEBUG_ERROR << "hasPreferredDependencyChanged() called on tag which we don't depend on.";
-    return false;
-  } else {
-    return currentHash != actual->second;
   }
 }
 
@@ -658,65 +667,23 @@ void Driver::registerProvider(Provision* provision, const std::vector<Tag>& tags
 }
 
 void Driver::resetDependentActions(const Tag& tag) {
-  std::tr1::unordered_set<Tag, Tag::HashFunc> tagsToReset;
-  tagsToReset.insert(tag);
+  std::tr1::unordered_set<Provision*> provisionsToReset;
 
-  while (!tagsToReset.empty()) {
-    std::vector<ActionDriver*> actionsToDelete;
+  std::vector<ActionDriver*> actionsToReset;
 
-    Tag currentTag = *tagsToReset.begin();
-    tagsToReset.erase(tagsToReset.begin());
+  for (DependencyTable::SearchIterator<DependencyTable::TAG> iter(dependencyTable, tag);
+       iter.next();) {
+    ActionDriver* action = iter.row().cell<DependencyTable::ACTION>();
+    Provision* previousProvider = iter.row().cell<DependencyTable::PROVISION>();
 
-    std::pair<CompletedActionMap::const_iterator, CompletedActionMap::const_iterator>
-        range = completedActions.equal_range(currentTag);
-    int pendingActionsPos = pendingActions.size();
-    for (CompletedActionMap::const_iterator iter = range.first; iter != range.second; ++iter) {
-      if (iter->second->hasPreferredDependencyChanged(currentTag)) {
-        // Reset action to pending.
-        OwnedPtr<ActionDriver> action;
-        if (completedActionPtrs.release(iter->second, &action)) {
-          // Put on back of queue (as opposed to front) so that actions which are frequently reset
-          // don't get redundantly rebuilt too much.  Note that we actually reset the action below.
-          pendingActions.adoptBack(&action);
-        } else {
-          DEBUG_ERROR << "ActionDriver in completedActions but not completedActionPtrs?";
-        }
-      }
+    if (action->choosePreferredProvider(tag) != previousProvider) {
+      // We can't just call reset() here because it could invalidate our iterator.
+      actionsToReset.push_back(action);
     }
+  }
 
-    // Reset all the actions that we added to pendingActions.  We couldn't do this before because
-    // it involves updating the CompletedActionMap.
-    for (; pendingActionsPos < pendingActions.size(); pendingActionsPos++) {
-      ActionDriver* action = pendingActions.get(pendingActionsPos);
-      action->reset(&tagsToReset, &actionsToDelete);
-    }
-
-    for (unsigned int i = 0; i < actionsToDelete.size(); i++) {
-      OwnedPtr<ActionDriver> ownedAction;
-
-      if (actionsToDelete[i]->isRunning) {
-        for (int j = 0; j < activeActions.size(); j++) {
-          if (activeActions.get(j) == actionsToDelete[i]) {
-            activeActions.releaseAndShift(j, &ownedAction);
-            break;
-          }
-        }
-        // Note that deleting the action will cancel whatever it's doing.
-      } else if (actionsToDelete[i]->state == ActionDriver::PENDING) {
-        // TODO:  Use better data structure for pendingActions.
-        for (int j = 0; j < pendingActions.size(); j++) {
-          if (pendingActions.get(j) == actionsToDelete[i]) {
-            pendingActions.releaseAndShift(j, &ownedAction);
-            break;
-          }
-        }
-      } else {
-        completedActionPtrs.release(actionsToDelete[i], &ownedAction);
-        ownedAction->reset(&tagsToReset, &actionsToDelete);
-      }
-
-      // Let the action leave scope and be deleted.
-    }
+  for (size_t i = 0; i < actionsToReset.size(); i++) {
+    actionsToReset[i]->reset();
   }
 }
 

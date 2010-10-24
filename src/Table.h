@@ -120,6 +120,7 @@ public:
   Table() : deletedCount(0) {}
   ~Table() {}
 
+  // TODO(kenton):  Row could be private if the iterators implemented cell() directly!
   class Row {
   public:
     inline Row() {}
@@ -254,6 +255,20 @@ public:
     handleInsertResult(index1.insert(typename Column<1>::Index::value_type(value1, rows.size())));
     handleInsertResult(index2.insert(typename Column<2>::Index::value_type(value2, rows.size())));
     rows.push_back(Row(value0, value1, value2));
+  }
+
+  template <int columnNumber>
+  const bool has(const typename Column<columnNumber>::Value& value) {
+    typedef typename Column<columnNumber>::Index::iterator ColumnIterator;
+    std::pair<ColumnIterator, ColumnIterator> range =
+        Column<columnNumber>::index(this)->equal_range(value);
+
+    for (ColumnIterator iter = range.first; iter != range.second; ++iter) {
+      if (!rows[iter->second].deleted) {
+        return true;
+      }
+    }
+    return false;
   }
 
   int size() {
