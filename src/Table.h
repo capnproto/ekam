@@ -71,13 +71,13 @@ struct ChooseType<Choices, 2> : public Choices::Choice2 {};
 template <typename T, typename Hasher = std::tr1::hash<T>, typename Eq = std::equal_to<T> >
 struct IndexedColumn {
   typedef T Value;
-  typedef std::tr1::unordered_multimap<T, int> Index;
+  typedef std::tr1::unordered_multimap<T, int, Hasher, Eq> Index;
 };
 
 template <typename T, typename Hasher = std::tr1::hash<T>, typename Eq = std::equal_to<T> >
 struct UniqueColumn {
   typedef T Value;
-  typedef std::tr1::unordered_map<T, int> Index;
+  typedef std::tr1::unordered_map<T, int, Hasher, Eq> Index;
 };
 
 template <typename T, typename Hasher = std::tr1::hash<T>, typename Eq = std::equal_to<T> >
@@ -222,12 +222,12 @@ public:
   }
 
   template <int columnNumber>
-  const int erase(const typename Column<columnNumber>::Value& value) {
+  const size_t erase(const typename Column<columnNumber>::Value& value) {
     typedef typename Column<columnNumber>::Index::iterator ColumnIterator;
     std::pair<ColumnIterator, ColumnIterator> range =
         Column<columnNumber>::index(this)->equal_range(value);
 
-    int count = 0;
+    size_t count = 0;
     for (ColumnIterator iter = range.first; iter != range.second; ++iter) {
       if (!rows[iter->second].deleted) {
         rows[iter->second].deleted = true;

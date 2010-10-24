@@ -40,6 +40,7 @@
 #include "Action.h"
 #include "Tag.h"
 #include "Dashboard.h"
+#include "Table.h"
 
 namespace ekam {
 
@@ -72,16 +73,14 @@ private:
   struct Provision {
     OwnedPtr<File> file;
     Hash contentHash;
-    std::vector<Tag> tags;
   };
 
-  // TODO:  Most tags only have one instance, so creating a whole ProvisionSet for them is
-  //   wasteful.  But some tags have LOTS of provisions, in which case a set (rather than, say,
-  //   having TagMap be an unordered_map<Tag, Provision*>) seems necessary.  This may call
-  //   for a specialized data structure.
-  typedef std::set<Provision*> ProvisionSet;
-  typedef OwnedPtrMap<Tag, ProvisionSet, Tag::HashFunc> TagMap;
-  TagMap tagMap;
+  class TagTable : public Table<IndexedColumn<Tag, Tag::HashFunc>, IndexedColumn<Provision*> > {
+  public:
+    static const int TAG = 0;
+    static const int PROVISION = 1;
+  };
+  TagTable tagTable;
 
   OwnedPtrVector<ActionDriver> activeActions;
   OwnedPtrDeque<ActionDriver> pendingActions;
@@ -103,7 +102,7 @@ private:
 
   void queueNewAction(OwnedPtr<Action>* actionToAdopt, Provision* provision);
 
-  void registerProvider(Provision* provision);
+  void registerProvider(Provision* provision, const std::vector<Tag>& tags);
   void resetDependentActions(const Tag& tag);
   void fireTriggers(const Tag& tag, Provision* provision);
 };

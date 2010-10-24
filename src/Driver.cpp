@@ -160,6 +160,7 @@ private:
   OwnedPtrVector<File> outputs;
 
   OwnedPtrVector<Provision> provisions;
+  OwnedPtrVector<std::vector<Tag> > providedTags;
 
   void ensureRunning();
   void queueDoneCallback();
@@ -231,6 +232,7 @@ void Driver::ActionDriver::provide(File* file, const std::vector<Tag>& tags) {
   for (int i = 0; i < provisions.size(); i++) {
     if (provisions.get(i)->file->equals(file)) {
       provision = provisions.get(i);
+      providedTags.get(i)->insert(providedTags.get(i)->end(), tags.begin(), tags.end());
       break;
     }
   }
@@ -240,10 +242,13 @@ void Driver::ActionDriver::provide(File* file, const std::vector<Tag>& tags) {
     ownedProvision.allocate();
     provision = ownedProvision.get();
     provisions.adoptBack(&ownedProvision);
+
+    OwnedPtr<std::vector<Tag> > tagsCopy;
+    tagsCopy.allocate(tags);
+    providedTags.adoptBack(&tagsCopy);
   }
 
   file->clone(&provision->file);
-  provision->tags.insert(provision->tags.end(), tags.begin(), tags.end());
 }
 
 void Driver::ActionDriver::log(const std::string& text) {
@@ -364,6 +369,7 @@ void Driver::ActionDriver::returned() {
       // Yep.  Must do over.  Clear everything and add again to the action queue.
       state = PENDING;
       provisions.clear();
+      providedTags.clear();
       outputs.clear();
       dependencies.clear();
       // Put on back of queue to avoid repeatedly retrying an action that has lots of
@@ -384,6 +390,7 @@ void Driver::ActionDriver::returned() {
   if (state == FAILED) {
     // Failed, possibly due to missing dependencies.
     provisions.clear();
+    providedTags.clear();
     outputs.clear();
     dashboardTask->setState(Dashboard::BLOCKED);
   } else {
@@ -403,8 +410,9 @@ void Driver::ActionDriver::returned() {
 
     // Register providers.
     for (int i = 0; i < provisions.size(); i++) {
-      driver->registerProvider(provisions.get(i));
+      driver->registerProvider(provisions.get(i), *providedTags.get(i));
     }
+    providedTags.clear();  // Not needed anymore.
   }
 }
 
@@ -415,25 +423,15 @@ void Driver::ActionDriver::reset(
 
   for (int i = 0; i < provisions.size(); i++) {
     Provision* provision = provisions.get(i);
-    const std::vector<Tag>& subTags = provision->tags;
 
     // All provided tags must be reset as well.
-    tagsToReset->insert(subTags.begin(), subTags.end());
-
-    // Remove from tagMap.
-    for (unsigned int j = 0; j < subTags.size(); j++) {
-      const Tag& tag = subTags[j];
-
-      ProvisionSet* provisions = driver->tagMap.get(tag);
-      if (provisions == NULL || provisions->erase(provision) == 0) {
-        DEBUG_ERROR << "Provision not in driver->tagMap?";
-        continue;
-      }
-
-      if (provisions->empty()) {
-        driver->tagMap.erase(tag);
-      }
+    for (TagTable::SearchIterator<TagTable::PROVISION> iter(driver->tagTable, provision);
+         iter.next();) {
+      tagsToReset->insert(iter.row().cell<TagTable::TAG>());
     }
+
+    // Remove from tagTable.
+    driver->tagTable.erase<TagTable::PROVISION>(provision);
 
     // Everything triggered by this provision must be deleted.
     std::pair<ActionsByTriggerMap::iterator, ActionsByTriggerMap::iterator> range =
@@ -460,27 +458,27 @@ void Driver::ActionDriver::reset(
 
   dependencies.clear();
   provisions.clear();
+  providedTags.clear();
   outputs.clear();
 }
 
 Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const Tag& tag) {
-  ProvisionSet* provisions = driver->tagMap.get(tag);
-  if (provisions == NULL || provisions->empty()) {
+  TagTable::SearchIterator<TagTable::TAG> iter(driver->tagTable, tag);
+
+  if (!iter.next()) {
     return NULL;
   } else {
-    ProvisionSet::iterator iter = provisions->begin();
     std::string srcName = srcfile->canonicalName();
-    Provision* bestMatch = *iter;
-    ++iter;
+    Provision* bestMatch = iter.row().cell<TagTable::PROVISION>();
 
-    if (iter != provisions->end()) {
+    if (iter.next()) {
       // There are multiple files with this tag.  We must choose which one we like best.
       std::string bestMatchName = bestMatch->file->canonicalName();
       int bestMatchDepth = fileDepth(bestMatchName);
       int bestMatchCommonPrefix = commonPrefixLength(srcName, bestMatchName);
 
-      for (; iter != provisions->end(); ++iter) {
-        Provision* candidate = *iter;
+      do {
+        Provision* candidate = iter.row().cell<TagTable::PROVISION>();
         std::string candidateName = candidate->file->canonicalName();
         int candidateDepth = fileDepth(candidateName);
         int candidateCommonPrefix = commonPrefixLength(srcName, candidateName);
@@ -512,7 +510,7 @@ Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const Tag& tag)
         bestMatchName.swap(candidateName);
         bestMatchDepth = candidateDepth;
         bestMatchCommonPrefix = candidateCommonPrefix;
-      }
+      } while(iter.next());
     }
 
     return bestMatch;
@@ -606,10 +604,11 @@ void Driver::scanSourceTree() {
     } else {
       // Apply default tag.
       OwnedPtr<Provision> provision;
+      std::vector<Tag> tags;
       provision.allocate();
-      provision->tags.push_back(Tag::DEFAULT_TAG);
+      tags.push_back(Tag::DEFAULT_TAG);
       current->clone(&provision->file);
-      registerProvider(provision.get());
+      registerProvider(provision.get(), tags);
       rootProvisions.adoptBack(&provision);
     }
   }
@@ -620,14 +619,11 @@ void Driver::rescanForNewFactory(ActionFactory* factory) {
   std::vector<Tag> triggerTags;
   factory->enumerateTriggerTags(std::back_inserter(triggerTags));
   for (unsigned int i = 0; i < triggerTags.size(); i++) {
-    ProvisionSet* provisions = tagMap.get(triggerTags[i]);
-    if (provisions != NULL) {
-      for (ProvisionSet::iterator iter = provisions->begin(); iter != provisions->end(); ++iter) {
-        Provision* provision = *iter;
-        OwnedPtr<Action> action;
-        if (factory->tryMakeAction(triggerTags[i], provision->file.get(), &action)) {
-          queueNewAction(&action, provision);
-        }
+    for (TagTable::SearchIterator<TagTable::TAG> iter(tagTable, triggerTags[i]); iter.next();) {
+      Provision* provision = iter.row().cell<TagTable::PROVISION>();
+      OwnedPtr<Action> action;
+      if (factory->tryMakeAction(triggerTags[i], provision->file.get(), &action)) {
+        queueNewAction(&action, provision);
       }
     }
   }
@@ -648,20 +644,12 @@ void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, Provision* provisio
   pendingActions.adoptFront(&actionDriver);
 }
 
-void Driver::registerProvider(Provision* provision) {
+void Driver::registerProvider(Provision* provision, const std::vector<Tag>& tags) {
   provision->contentHash = provision->file->contentHash();
 
-  for (std::vector<Tag>::const_iterator iter = provision->tags.begin();
-       iter != provision->tags.end(); ++iter) {
+  for (std::vector<Tag>::const_iterator iter = tags.begin(); iter != tags.end(); ++iter) {
     const Tag& tag = *iter;
-    ProvisionSet* provisions = tagMap.get(tag);
-    if (provisions == NULL) {
-      OwnedPtr<ProvisionSet> newProvisions;
-      newProvisions.allocate();
-      provisions = newProvisions.get();
-      tagMap.adopt(tag, &newProvisions);
-    }
-    provisions->insert(provision);
+    tagTable.add(tag, provision);
 
     resetDependentActions(tag);
 
