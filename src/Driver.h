@@ -65,10 +65,13 @@ private:
 
   int maxConcurrentActions;
 
-  OwnedPtrVector<ActionFactory> ownedFactories;
-
-  typedef std::tr1::unordered_multimap<Tag, ActionFactory*, Tag::HashFunc> TriggerMap;
-  TriggerMap triggers;
+  class TriggerTable : public Table<IndexedColumn<Tag, Tag::HashFunc>,
+                                    IndexedColumn<ActionFactory*> > {
+  public:
+    static const int TAG = 0;
+    static const int FACTORY = 1;
+  };
+  TriggerTable triggers;
 
   struct Provision {
     OwnedPtr<File> file;
@@ -96,11 +99,13 @@ private:
   };
   DependencyTable dependencyTable;
 
-  class ActionTriggersTable : public Table<IndexedColumn<Provision*>,
+  class ActionTriggersTable : public Table<IndexedColumn<ActionFactory*>,
+                                           IndexedColumn<Provision*>,
                                            IndexedColumn<ActionDriver*> > {
   public:
-    static const int PROVISION = 0;
-    static const int ACTION = 1;
+    static const int FACTORY = 0;
+    static const int PROVISION = 1;
+    static const int ACTION = 2;
   };
   ActionTriggersTable actionTriggersTable;
 
@@ -111,7 +116,8 @@ private:
   void scanSourceTree();
   void rescanForNewFactory(ActionFactory* factory);
 
-  void queueNewAction(OwnedPtr<Action>* actionToAdopt, Provision* provision);
+  void queueNewAction(ActionFactory* factory, OwnedPtr<Action>* actionToAdopt,
+                      Provision* provision);
 
   void registerProvider(Provision* provision, const std::vector<Tag>& tags);
   void resetDependentActions(const Tag& tag);

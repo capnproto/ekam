@@ -158,6 +158,7 @@ private:
 
   OwnedPtrVector<Provision> provisions;
   OwnedPtrVector<std::vector<Tag> > providedTags;
+  OwnedPtrVector<ActionFactory> providedFactories;
 
   void ensureRunning();
   void queueDoneCallback();
@@ -188,6 +189,7 @@ void Driver::ActionDriver::start() {
   assert(!driver->dependencyTable.has<DependencyTable::ACTION>(this));
   assert(outputs.empty());
   assert(provisions.empty());
+  assert(providedFactories.empty());
   assert(!isRunning);
 
   state = RUNNING;
@@ -271,9 +273,7 @@ void Driver::ActionDriver::newOutput(const std::string& path, OwnedPtr<File>* ou
 
 void Driver::ActionDriver::addActionType(OwnedPtr<ActionFactory>* factoryToAdopt) {
   ensureRunning();
-  driver->addActionFactory(factoryToAdopt->get());
-  driver->rescanForNewFactory(factoryToAdopt->get());
-  driver->ownedFactories.adoptBack(factoryToAdopt);
+  providedFactories.adoptBack(factoryToAdopt);
 }
 
 void Driver::ActionDriver::noMoreEvents() {
@@ -363,6 +363,7 @@ void Driver::ActionDriver::returned() {
     // Failed, possibly due to missing dependencies.
     provisions.clear();
     providedTags.clear();
+    providedFactories.clear();
     outputs.clear();
     dashboardTask->setState(Dashboard::BLOCKED);
   } else {
@@ -385,6 +386,12 @@ void Driver::ActionDriver::returned() {
       driver->registerProvider(provisions.get(i), *providedTags.get(i));
     }
     providedTags.clear();  // Not needed anymore.
+
+    // Register factories.
+    for (int i = 0; i < providedFactories.size(); i++) {
+      driver->addActionFactory(providedFactories.get(i));
+      driver->rescanForNewFactory(providedFactories.get(i));
+    }
   }
 }
 
@@ -478,6 +485,35 @@ void Driver::ActionDriver::reset() {
     driver->tagTable.erase<TagTable::PROVISION>(provision);
   }
 
+  // Actions created by any provided ActionFactories must be deleted.
+  for (int i = 0; i < providedFactories.size(); i++) {
+    ActionFactory* factory = providedFactories.get(i);
+
+    std::vector<ActionDriver*> actionsToDelete;
+    for (ActionTriggersTable::SearchIterator<ActionTriggersTable::FACTORY>
+         iter(driver->actionTriggersTable, factory); iter.next();) {
+      // Can't call reset() directly here because it may invalidate our iterator.
+      actionsToDelete.push_back(iter.cell<ActionTriggersTable::ACTION>());
+    }
+
+    for (size_t j = 0; j < actionsToDelete.size(); j++) {
+      actionsToDelete[j]->reset();
+
+      // TODO:  Use better data structure for pendingActions.  For now we have to iterate
+      //   through the whole thing to find the action we're deleting.  We iterate from the back
+      //   since it's likely the action was just added there.
+      OwnedPtr<ActionDriver> ownedAction;
+      for (int k = driver->pendingActions.size() - 1; k >= 0; k--) {
+        if (driver->pendingActions.get(k) == actionsToDelete[j]) {
+          driver->pendingActions.releaseAndShift(k, &ownedAction);
+          break;
+        }
+      }
+    }
+
+    driver->actionTriggersTable.erase<ActionTriggersTable::FACTORY>(factory);
+  }
+
   // Remove all entries in dependencyTable pointing at this action.
   driver->dependencyTable.erase<DependencyTable::ACTION>(this);
 
@@ -565,7 +601,7 @@ void Driver::addActionFactory(ActionFactory* factory) {
   std::vector<Tag> triggerTags;
   factory->enumerateTriggerTags(std::back_inserter(triggerTags));
   for (unsigned int i = 0; i < triggerTags.size(); i++) {
-    triggers.insert(std::make_pair(triggerTags[i], factory));
+    triggers.add(triggerTags[i], factory);
   }
 }
 
@@ -633,13 +669,14 @@ void Driver::rescanForNewFactory(ActionFactory* factory) {
       Provision* provision = iter.cell<TagTable::PROVISION>();
       OwnedPtr<Action> action;
       if (factory->tryMakeAction(triggerTags[i], provision->file.get(), &action)) {
-        queueNewAction(&action, provision);
+        queueNewAction(factory, &action, provision);
       }
     }
   }
 }
 
-void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, Provision* provision) {
+void Driver::queueNewAction(ActionFactory* factory, OwnedPtr<Action>* actionToAdopt,
+                            Provision* provision) {
   OwnedPtr<Dashboard::Task> task;
   dashboard->beginTask((*actionToAdopt)->getVerb(), provision->file->canonicalName(),
                        (*actionToAdopt)->isSilent() ? Dashboard::SILENT : Dashboard::NORMAL,
@@ -647,7 +684,7 @@ void Driver::queueNewAction(OwnedPtr<Action>* actionToAdopt, Provision* provisio
 
   OwnedPtr<ActionDriver> actionDriver;
   actionDriver.allocate(this, actionToAdopt, provision->file.get(), provision->contentHash, &task);
-  actionTriggersTable.add(provision, actionDriver.get());
+  actionTriggersTable.add(factory, provision, actionDriver.get());
 
   // Put new action on front of queue because it was probably triggered by another action that
   // just completed, and it's good to run related actions together to improve cache locality.
@@ -689,12 +726,11 @@ void Driver::resetDependentActions(const Tag& tag) {
 }
 
 void Driver::fireTriggers(const Tag& tag, Provision* provision) {
-  std::pair<TriggerMap::const_iterator, TriggerMap::const_iterator>
-      range = triggers.equal_range(tag);
-  for (TriggerMap::const_iterator iter = range.first; iter != range.second; ++iter) {
+  for (TriggerTable::SearchIterator<TriggerTable::TAG> iter(triggers, tag); iter.next();) {
+    ActionFactory* factory = iter.cell<TriggerTable::FACTORY>();
     OwnedPtr<Action> triggeredAction;
-    if (iter->second->tryMakeAction(tag, provision->file.get(), &triggeredAction)) {
-      queueNewAction(&triggeredAction, provision);
+    if (factory->tryMakeAction(tag, provision->file.get(), &triggeredAction)) {
+      queueNewAction(factory, &triggeredAction, provision);
     }
   }
 }
