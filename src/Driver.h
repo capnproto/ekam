@@ -53,6 +53,7 @@ public:
   void addActionFactory(ActionFactory* factory);
 
   void addSourceFile(File* file);
+  void removeSourceFile(File* file);
 
 private:
   class ActionDriver;
@@ -121,6 +122,8 @@ private:
   void resetDependentActions(const Tag& tag);
   void resetDependentActions(Provision* provision);
   void fireTriggers(const Tag& tag, Provision* provision);
+
+  void dumpErrors();
 };
 
 }  // namespace ekam

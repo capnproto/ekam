@@ -56,6 +56,8 @@ public:
                      OwnedPtr<AsyncOperation>* output);
   void onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
   void onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
+  void onFileChange(const std::string& filename, FileChangeCallback* callback,
+                    OwnedPtr<AsyncOperation>* output);
 
 private:
   class KEventHandler;
@@ -64,6 +66,7 @@ private:
   class ProcessExitHandler;
   class ReadHandler;
   class WriteHandler;
+  class FileChangeHandler;
 
   struct IntptrShortPairHash {
     inline bool operator()(const std::pair<intptr_t, short>& p) const {

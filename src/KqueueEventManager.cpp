@@ -36,6 +36,7 @@
 #include <sys/wait.h>
 #include <sys/event.h>
 #include <sys/time.h>
+#include <sys/fcntl.h>
 #include <algorithm>
 #include <stdexcept>
 #include <assert.h>
@@ -335,6 +336,72 @@ private:
 void KqueueEventManager::onWritable(int fd, IoCallback* callback,
                                     OwnedPtr<AsyncOperation>* output) {
   output->allocateSubclass<WriteHandler>(this, fd, callback);
+}
+
+// =======================================================================================
+
+class KqueueEventManager::FileChangeHandler : public KEventHandler {
+public:
+  FileChangeHandler(KqueueEventManager* eventManager, const std::string& filename,
+                    FileChangeCallback* callback)
+      : eventManager(eventManager), callback(callback) {
+    fd = open(filename.c_str(), O_RDONLY);
+    if (fd >= 0) {
+      eventManager->updateKqueue(fd, EVFILT_VNODE, EV_ADD | EV_CLEAR, this,
+                                 NOTE_DELETE | NOTE_WRITE | NOTE_EXTEND |
+                                 NOTE_RENAME | NOTE_REVOKE);
+      ++eventManager->handlerCount;
+
+      DEBUG_INFO << "Monitoring changes on " << fd << " for: " << filename;
+    } else {
+      DEBUG_ERROR << "Cannot monitor changes: " << filename << ": " << strerror(errno);
+    }
+  }
+  ~FileChangeHandler() {
+    if (fd >= 0) {
+      cleanup();
+    }
+  }
+
+  // implements KEventHandler ------------------------------------------------------------
+  void handle(const KEvent& event) {
+    DEBUG_INFO << "File change on " << fd << ":"
+               << ((event.fflags & NOTE_DELETE) ? " NOTE_DELETE" : "")
+               << ((event.fflags & NOTE_WRITE ) ? " NOTE_WRITE"  : "")
+               << ((event.fflags & NOTE_EXTEND) ? " NOTE_EXTEND" : "")
+               << ((event.fflags & NOTE_RENAME) ? " NOTE_RENAME" : "")
+               << ((event.fflags & NOTE_REVOKE) ? " NOTE_REVOKE" : "");
+
+    if (event.fflags & (NOTE_DELETE | NOTE_RENAME | NOTE_REVOKE)) {
+      // In the rename case, the kqueue will continue notifying us of changes to the file in its
+      // new location, but we don't want that.  So, call cleanup() to unregister the event.  Do
+      // this before calling the callback since the callback may delete the handler.
+      cleanup();
+      callback->deleted();
+    } else {
+      callback->modified();
+    }
+  }
+
+private:
+  KqueueEventManager* eventManager;
+  int fd;
+  FileChangeCallback* callback;
+
+  void cleanup() {
+    --eventManager->handlerCount;
+    eventManager->updateKqueue(fd, EVFILT_VNODE, EV_DELETE);
+
+    if (close(fd) < 0) {
+      DEBUG_ERROR << "close: " << strerror(errno);
+    }
+    fd = -1;
+  }
+};
+
+void KqueueEventManager::onFileChange(const std::string& filename, FileChangeCallback* callback,
+                                      OwnedPtr<AsyncOperation>* output) {
+  output->allocateSubclass<FileChangeHandler>(this, filename, callback);
 }
 
 // =======================================================================================

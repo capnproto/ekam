@@ -316,6 +316,13 @@ void PollEventManager::onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOp
 
 // =======================================================================================
 
+void PollEventManager::onFileChange(const std::string& filename, FileChangeCallback* callback,
+                                    OwnedPtr<AsyncOperation>* output) {
+  throw std::logic_error("PollEventManager::onFileChange not implemented.");
+}
+
+// =======================================================================================
+
 void PollEventManager::loop() {
   while (handleEvent()) {}
 }

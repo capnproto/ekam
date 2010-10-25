@@ -67,11 +67,14 @@ public:
                      OwnedPtr<AsyncOperation>* output);
   void onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
   void onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
+  void onFileChange(const std::string& filename, FileChangeCallback* callback,
+                    OwnedPtr<AsyncOperation>* output);
 
 private:
   class CallbackWrapper;
   class ProcessExitCallbackWrapper;
   class IoCallbackWrapper;
+  class FileChangeCallbackWrapper;
 
   EventManager* inner;
   ExceptionHandler* exceptionHandler;

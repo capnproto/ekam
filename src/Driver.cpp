@@ -541,14 +541,7 @@ Driver::Driver(EventManager* eventManager, Dashboard* dashboard, File* tmp,
   }
 }
 
-Driver::~Driver() {
-  // Error out all blocked tasks.
-  for (OwnedPtrMap<ActionDriver*, ActionDriver>::Iterator iter(completedActionPtrs); iter.next();) {
-    if (iter.key()->state == ActionDriver::FAILED) {
-      iter.value()->dashboardTask->setState(Dashboard::FAILED);
-    }
-  }
-}
+Driver::~Driver() {}
 
 void Driver::addActionFactory(ActionFactory* factory) {
   std::vector<Tag> triggerTags;
@@ -559,15 +552,15 @@ void Driver::addActionFactory(ActionFactory* factory) {
 }
 
 void Driver::addSourceFile(File* file) {
-  // Apply default tag.
-  std::vector<Tag> tags;
-  tags.push_back(Tag::DEFAULT_TAG);
-
   OwnedPtr<Provision> provision;
   if (rootProvisions.release(file, &provision)) {
     // Source file was modified.  Reset all actions dependent on the old version.
     resetDependentActions(provision.get());
   }
+
+  // Apply default tag.
+  std::vector<Tag> tags;
+  tags.push_back(Tag::DEFAULT_TAG);
 
   provision.allocate();
   file->clone(&provision->file);
@@ -575,6 +568,18 @@ void Driver::addSourceFile(File* file) {
   rootProvisions.adopt(provision->file.get(), &provision);
 
   startSomeActions();
+}
+
+void Driver::removeSourceFile(File* file) {
+  OwnedPtr<Provision> provision;
+  if (rootProvisions.release(file, &provision)) {
+    resetDependentActions(provision.get());
+
+    // In case some active actions were canceled.
+    startSomeActions();
+  } else {
+    DEBUG_ERROR << "Tried to remove source file that wasn't ever added: " << file->canonicalName();
+  }
 }
 
 void Driver::startSomeActions() {
@@ -590,6 +595,10 @@ void Driver::startSomeActions() {
     } catch (...) {
       ptr->threwUnknownException();
     }
+  }
+
+  if (activeActions.size() == 0) {
+    dumpErrors();
   }
 }
 
@@ -713,6 +722,14 @@ void Driver::fireTriggers(const Tag& tag, Provision* provision) {
     OwnedPtr<Action> triggeredAction;
     if (factory->tryMakeAction(tag, provision->file.get(), &triggeredAction)) {
       queueNewAction(factory, &triggeredAction, provision);
+    }
+  }
+}
+
+void Driver::dumpErrors() {
+  for (OwnedPtrMap<ActionDriver*, ActionDriver>::Iterator iter(completedActionPtrs); iter.next();) {
+    if (iter.key()->state == ActionDriver::FAILED) {
+      iter.value()->dashboardTask->setState(Dashboard::FAILED);
     }
   }
 }

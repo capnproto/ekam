@@ -33,6 +33,7 @@
 
 #include <stddef.h>
 #include <sys/types.h>
+#include <string>
 #include "OwnedPtr.h"
 
 namespace ekam {
@@ -86,6 +87,17 @@ public:
 
   // Call the callback whenever the file descriptor is writable.
   virtual void onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) = 0;
+
+  class FileChangeCallback {
+  public:
+    virtual ~FileChangeCallback();
+
+    virtual void modified() = 0;
+    virtual void deleted() = 0;
+  };
+
+  virtual void onFileChange(const std::string& filename, FileChangeCallback* callback,
+                            OwnedPtr<AsyncOperation>* output) = 0;
 };
 
 class RunnableEventManager : public EventManager {

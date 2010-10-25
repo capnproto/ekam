@@ -538,6 +538,10 @@ public:
     map.clear();
   }
 
+  void swap(OwnedPtrMap* other) {
+    map.swap(other->map);
+  }
+
   class Iterator {
   public:
     Iterator(const OwnedPtrMap& map)
@@ -558,7 +562,7 @@ public:
       return iter->first;
     }
 
-    const T* value() {
+    T* value() {
       return iter->second;
     }
 

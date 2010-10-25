@@ -105,8 +105,182 @@ public:
 
 void usage(const char* command, FILE* out) {
   fprintf(out,
-    "usage: %s [-hv] [-j jobcount]\n", command);
+    "usage: %s [-hvc] [-j jobcount]\n", command);
 }
+
+// =======================================================================================
+// TODO:  Move file-watching code to another module.
+
+class Watcher : public EventManager::FileChangeCallback {
+public:
+  Watcher(OwnedPtr<File>* fileToAdopt, EventManager* eventManager, Driver* driver,
+          bool isDirectory)
+      : eventManager(eventManager), driver(driver), isDirectory(isDirectory) {
+    file.adopt(fileToAdopt);
+    resetWatch();
+  }
+
+  EventManager* const eventManager;
+  Driver* const driver;
+  const bool isDirectory;
+  OwnedPtr<File> file;
+
+  void resetWatch() {
+    asyncOp.clear();
+    OwnedPtr<File::DiskRef> diskRef;
+    file->getOnDisk(File::READ, &diskRef);
+    eventManager->onFileChange(diskRef->path(), this, &asyncOp);
+  }
+
+  void clearWatch() {
+    asyncOp.clear();
+  }
+
+  bool isDeleted() {
+    return asyncOp == NULL;
+  }
+
+  virtual void reallyDeleted() = 0;
+
+private:
+  OwnedPtr<AsyncOperation> asyncOp;
+};
+
+class FileWatcher : public Watcher {
+public:
+  FileWatcher(OwnedPtr<File>* fileToAdopt, EventManager* eventManager, Driver* driver)
+      : Watcher(fileToAdopt, eventManager, driver, false) {}
+  ~FileWatcher() {}
+
+  // implements FileChangeCallback -------------------------------------------------------
+  void modified() {
+    DEBUG_INFO << "Source file modified: " << file->canonicalName();
+
+    driver->addSourceFile(file.get());
+  }
+  void deleted() {
+    if (file->exists() && file->isFile()) {
+      // A new file was created in place of the old.  Reset the watch.
+      resetWatch();
+      modified();
+    } else {
+      reallyDeleted();
+    }
+  }
+
+  // implements Watcher ------------------------------------------------------------------
+  void reallyDeleted() {
+    DEBUG_INFO << "Source file deleted: " << file->canonicalName();
+
+    clearWatch();
+    driver->removeSourceFile(file.get());
+  }
+
+private:
+  OwnedPtr<AsyncOperation> asyncOp;
+};
+
+class DirectoryWatcher : public Watcher {
+  typedef OwnedPtrMap<File*, Watcher, File::HashFunc, File::EqualFunc> ChildMap;
+public:
+  DirectoryWatcher(OwnedPtr<File>* fileToAdopt, EventManager* eventManager, Driver* driver)
+      : Watcher(fileToAdopt, eventManager, driver, true) {}
+  ~DirectoryWatcher() {}
+
+  // implements FileChangeCallback -------------------------------------------------------
+  void modified() {
+    DEBUG_INFO << "Directory modified: " << file->canonicalName();
+
+    OwnedPtrVector<File> list;
+    file->list(list.appender());
+
+    ChildMap newChildren;
+
+    // Build new child list, copying over child watchers where possible.
+    for (int i = 0; i < list.size(); i++) {
+      OwnedPtr<File> childFile;
+      list.release(i, &childFile);
+
+      OwnedPtr<Watcher> child;
+      bool childIsDirectory = childFile->isDirectory();
+
+      // When a file is deleted and replaced with a new one of the same type, we run into a lot
+      // of awkward race conditions.  There are three things that can happen in any order:
+      // 1) Notification of file deletion.
+      // 2) Notification of directory change.
+      // 3) New file is created.
+      //
+      // Here is how we handle each possible ordering:
+      // 1, 2, 3)  File will not show up in directory list, so we won't transfer the watcher or
+      //   create a new one.  It will be destroyed.
+      // 1, 3, 2)  child->isDeleted will be true so we'll create a new watcher to replace it.
+      // 2, 1, 3)  Like 1, 2, 3 except we directly call deleted() on the old child watcher from
+      //   this function (see below).  We actually never receive the file deletion event from
+      //   the EventManager in this case.
+      // 2, 3, 1)  Same as 2, 1, 3.
+      // 3, 1, 2)  File watcher notices new file already exists and simply resumes watching.
+      //   Parent watcher thinks nothing happened.
+      // 3, 2, 1)  Same as 3, 1, 2.
+      //
+      // The last two are different if a file was replaced with a directory or vice versa:
+      // 3, 1, 2)  Child watcher notices replacement is a different type and so does not resume
+      //   watching.  The parent notices child->isDeleted is true and replaces it.
+      // 3, 2, 1)  The parent notices that child->isDirectory does not match the type of the new
+      //   file, and so deletes the child watcher explicitly.
+      if (!children.release(childFile.get(), &child) ||
+          child->isDeleted() || child->isDirectory != childIsDirectory) {
+        if (childIsDirectory) {
+          child.allocateSubclass<DirectoryWatcher>(&childFile, eventManager, driver);
+        } else {
+          child.allocateSubclass<FileWatcher>(&childFile, eventManager, driver);
+        }
+        child->modified();
+      }
+
+      newChildren.adopt(child->file.get(), &child);
+    }
+
+    // Make sure remaining children have been notified of deletion before we destroy the objects.
+    for (ChildMap::Iterator iter(children); iter.next();) {
+      if (!iter.value()->isDeleted()) {
+        iter.value()->reallyDeleted();
+      }
+    }
+
+    // Swap in new children.
+    children.swap(&newChildren);
+  }
+
+  void deleted() {
+    if (file->exists() && file->isDirectory()) {
+      // A new directory was created in place of the old.  Reset the watch.
+      resetWatch();
+      modified();
+    } else {
+      reallyDeleted();
+    }
+  }
+
+  // implements Watcher ------------------------------------------------------------------
+  void reallyDeleted() {
+    DEBUG_INFO << "Directory deleted: " << file->canonicalName();
+
+    clearWatch();
+
+    // Delete all children.
+    for (ChildMap::Iterator iter(children); iter.next();) {
+      if (!iter.value()->isDeleted()) {
+        iter.value()->reallyDeleted();
+      }
+    }
+    children.clear();
+  }
+
+private:
+  ChildMap children;
+};
+
+// =======================================================================================
 
 void scanSourceTree(File* src, Driver* driver) {
   OwnedPtrVector<File> fileQueue;
@@ -138,9 +312,10 @@ void scanSourceTree(File* src, Driver* driver) {
 int main(int argc, char* argv[]) {
   const char* command = argv[0];
   int maxConcurrentActions = 1;
+  bool continuous = false;
 
   while (true) {
-    int opt = getopt(argc, argv, "hvj:");
+    int opt = getopt(argc, argv, "chvj:");
     if (opt == -1) break;
 
     switch (opt) {
@@ -159,6 +334,9 @@ int main(int argc, char* argv[]) {
       case 'h':
         usage(command, stdout);
         return 0;
+      case 'c':
+        continuous = true;
+        break;
       default:
         usage(command, stderr);
         return 1;
@@ -198,7 +376,15 @@ int main(int argc, char* argv[]) {
   ExecPluginActionFactory execPluginActionFactory;
   driver.addActionFactory(&execPluginActionFactory);
 
-  scanSourceTree(&src, &driver);
+  OwnedPtr<DirectoryWatcher> rootWatcher;
+  if (continuous) {
+    OwnedPtr<File> srcCopy;
+    src.clone(&srcCopy);
+    rootWatcher.allocate(&srcCopy, eventManager.get(), &driver);
+    rootWatcher->modified();
+  } else {
+    scanSourceTree(&src, &driver);
+  }
   eventManager->loop();
 
   // For debugging purposes, check for zombie processes.

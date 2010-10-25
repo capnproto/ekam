@@ -111,12 +111,33 @@ public:
 
   OwnedPtr<AsyncOperation> inner;
 
-  // implements ProcessExitCallback ------------------------------------------------------
+  // implements IoCallback ---------------------------------------------------------------
   void ready() { HANDLE_EXCEPTIONS(wrapped->ready()); }
 
 private:
   EventGroup* group;
   IoCallback* wrapped;
+};
+
+class EventGroup::FileChangeCallbackWrapper : public FileChangeCallback, public AsyncOperation {
+public:
+  FileChangeCallbackWrapper(EventGroup* group, FileChangeCallback* wrapped)
+      : group(group), wrapped(wrapped) {
+    ++group->eventCount;
+  }
+  ~FileChangeCallbackWrapper() {
+    --group->eventCount;
+  }
+
+  OwnedPtr<AsyncOperation> inner;
+
+  // implements FileChangeCallback -------------------------------------------------------
+  void modified() { HANDLE_EXCEPTIONS(wrapped->modified()); }
+  void deleted() { HANDLE_EXCEPTIONS(wrapped->deleted()); }
+
+private:
+  EventGroup* group;
+  FileChangeCallback* wrapped;
 };
 
 #undef HANDLE_EXCEPTIONS
@@ -154,6 +175,14 @@ void EventGroup::onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperatio
   OwnedPtr<IoCallbackWrapper> wrappedCallback;
   wrappedCallback.allocate(this, callback);
   inner->onWritable(fd, wrappedCallback.get(), &wrappedCallback->inner);
+  output->adopt(&wrappedCallback);
+}
+
+void EventGroup::onFileChange(const std::string& filename, FileChangeCallback* callback,
+                              OwnedPtr<AsyncOperation>* output) {
+  OwnedPtr<FileChangeCallbackWrapper> wrappedCallback;
+  wrappedCallback.allocate(this, callback);
+  inner->onFileChange(filename, wrappedCallback.get(), &wrappedCallback->inner);
   output->adopt(&wrappedCallback);
 }
 

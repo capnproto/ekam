@@ -37,6 +37,7 @@ EventManager::~EventManager() {}
 EventManager::Callback::~Callback() {}
 EventManager::ProcessExitCallback::~ProcessExitCallback() {}
 EventManager::IoCallback::~IoCallback() {}
+EventManager::FileChangeCallback::~FileChangeCallback() {}
 RunnableEventManager::~RunnableEventManager() {}
 
 }  // namespace ekam
