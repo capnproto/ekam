@@ -95,6 +95,12 @@ void initSignalHandler(int number) {
     //   on some systems, SA_NOCLDWAIT also causes SIGCHLD not to be sent!  WTF?  This behavior
     //   defeats the whole purpose of SA_NOCLDWAIT -- it becomes effectively equivalent to
     //   calling signal(SIGCHLD, SIG_IGN).  Argh.
+
+    // RANT(kenton):  The above rant, of course, is completely irrelevant if we're waiting on
+    //   more than one child at a time, because if multiple SIGCHLDs are received while the signal
+    //   is blocked, only ONE will actually be delivered when unblocked.  So you *must* call wait()
+    //   otherwise you might miss a child.  Signals are stupid.  Weirdly, on FreeBSD, I never
+    //   actually encountered this issue, whereas it happened immediately on OSX and Linux.
   }
 
   // Block all signals in handler.
@@ -344,6 +350,7 @@ bool PollEventManager::handleEvent() {
       return false;
     } else {
       siginfo_t siginfo;
+      DEBUG_INFO << "Waiting for signals...";
       if (sigWait(&siginfo)) {
         handleSignal(siginfo);
       }
@@ -404,25 +411,38 @@ bool PollEventManager::handleEvent() {
 void PollEventManager::handleSignal(const siginfo_t& siginfo) {
   switch (siginfo.si_signo) {
     case SIGCHLD: {
-      // Clean up zombie child.  See rant earlier in this file.
-      int waitStatus;
-      if (waitpid(siginfo.si_pid, &waitStatus, 0) != siginfo.si_pid) {
-        DEBUG_ERROR << "waitpid: " << strerror(errno);
-      }
+      // If multiple signals with the same signal number are delivered while signals are blocked,
+      // only one of them is actually delivered once un-blocked.  The others are cast into the
+      // void.  Therefore, the contents of the siginfo structure are effectively useless for
+      // SIGCHLD.  We must instead call waitpid() repeatedly until there are no more completed
+      // children.  Signals suck so much.
+      while (true) {
+        int waitStatus;
+        pid_t pid = waitpid(-1, &waitStatus, WNOHANG);
+        if (pid < 0) {
+          DEBUG_ERROR << "waitpid: " << strerror(errno);
+          break;
+        } else if (pid == 0) {
+          // No more completed children.
+          break;
+        }
 
-      // Get the handler associated with this PID.
-      std::tr1::unordered_map<pid_t, ProcessExitHandler*>::iterator iter =
-          processExitHandlerMap.find(siginfo.si_pid);
-      if (iter == processExitHandlerMap.end()) {
-        // It is actually important that every sub-process be waited on via the EventManager to
-        // avoid a built-up of zombie sub-processes.  Technically PollEventManager doesn't have
-        // this problem since it wait()s on any PID for which it gets a SIGCHLD, but other
-        // implementations are likely to be different.
-        DEBUG_ERROR << "Got SIGCHLD for PID we weren't waiting for: " << siginfo.si_pid;
-        return;
-      }
+        // Get the handler associated with this PID.
+        std::tr1::unordered_map<pid_t, ProcessExitHandler*>::iterator iter =
+            processExitHandlerMap.find(pid);
+        if (iter == processExitHandlerMap.end()) {
+          // It is actually important that any code creating a subprocess call onProcessExit()
+          // to receive notification of completion even if it doesn't care about completion,
+          // because otherwise the sub-process may be stuck as a zombie.  This is actually
+          // NOT the case with PollEventManager because it waits on all sub-processes whether
+          // onProcessExit() was called or not, but we should warn if we encounter a process for
+          // which onProcessExit() was never called so that the code can be fixed.
+          DEBUG_ERROR << "Got SIGCHLD for PID we weren't waiting for: " << pid;
+          return;
+        }
 
-      iter->second->handle(waitStatus);
+        iter->second->handle(waitStatus);
+      }
       break;
     }
 
