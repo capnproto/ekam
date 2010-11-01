@@ -420,10 +420,13 @@ void PollEventManager::handleSignal(const siginfo_t& siginfo) {
         int waitStatus;
         pid_t pid = waitpid(-1, &waitStatus, WNOHANG);
         if (pid < 0) {
-          DEBUG_ERROR << "waitpid: " << strerror(errno);
+          // ECHILD indicates there are no child processes.  Anything else is a real error.
+          if (errno != ECHILD) {
+            DEBUG_ERROR << "waitpid: " << strerror(errno);
+          }
           break;
         } else if (pid == 0) {
-          // No more completed children.
+          // There are child processes, but they are still running.
           break;
         }
 
