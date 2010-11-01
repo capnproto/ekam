@@ -45,6 +45,27 @@
 #include <sys/stat.h>
 #include <pthread.h>
 
+static const int EKAM_DEBUG = 0;
+
+typedef int open_t(const char * pathname, int flags, ...);
+void __attribute__((constructor)) start_interceptor() {
+  if (EKAM_DEBUG) {
+    static open_t* real_open;
+
+    if (real_open == NULL) {
+      real_open = (open_t*) dlsym(RTLD_NEXT, "open");
+      assert(real_open != NULL);
+    }
+
+    int fd = real_open("/proc/self/cmdline", O_RDONLY);
+    char buffer[1024];
+    int n = read(fd, buffer, 1024);
+    close(fd);
+    write(STDERR_FILENO, buffer, n);
+    write(STDERR_FILENO, "\n", 1);
+  }
+}
+
 /****************************************************************************************/
 /* Bootstrap pthreads without linking agaist libpthread. */
 
@@ -68,7 +89,7 @@ void init_pthreads() {
     dynamic_pthread_once =
         (pthread_once_func*) dlsym(RTLD_DEFAULT, "pthread_once");
   }
-  // TODO:  For some reason the pthread_once returned by dlsym() doesn't do anything?
+  /* TODO:  For some reason the pthread_once returned by dlsym() doesn't do anything? */
   if (dynamic_pthread_once == NULL || 1) {
     dynamic_pthread_once = &fake_pthread_once;
   }
@@ -129,6 +150,8 @@ typedef enum usage {
 } usage_t;
 
 static const char TAG_PROVIDER_PREFIX[] = "/ekam-provider/";
+static const char TMP[] = "/tmp";
+static const char VAR_TMP[] = "/var/tmp";
 static const char TMP_PREFIX[] = "/tmp/";
 static const char VAR_TMP_PREFIX[] = "/var/tmp/";
 
@@ -160,7 +183,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
                               char* buffer, usage_t usage) {
   char* pos;
 
-  if (0) {
+  if (EKAM_DEBUG) {
     fprintf(stderr, "remap for %s (%s): %s\n",
             syscall_name, (usage == READ ? "read" : "write"), pathname);
   }
@@ -169,11 +192,13 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
 
   if (strlen(pathname) >= PATH_MAX) {
     /* Too long. */
+    if (EKAM_DEBUG) fprintf(stderr, "  name too long\n");
     errno = ENAMETOOLONG;
     return NULL;
   }
 
   if (get_cached_result(pathname, buffer, usage)) {
+    if (EKAM_DEBUG) fprintf(stderr, "  cached: %s\n", buffer);
     return buffer;
   }
 
@@ -192,6 +217,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
          * We can use the current directory.  TODO:  Return some fake empty directory instead. */
         funlockfile(ekam_call_stream);
         strcpy(buffer, ".");
+        if (EKAM_DEBUG) fprintf(stderr, "  is directory\n");
         return buffer;
       }
       *pos = ':';
@@ -201,10 +227,13 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
     fputs(usage == READ ? "findProvider " : "newProvider ", ekam_call_stream);
     fputs(buffer, ekam_call_stream);
     fputs("\n", ekam_call_stream);
-  } else if (strncmp(pathname, TMP_PREFIX, strlen(TMP_PREFIX)) == 0 ||
+  } else if (strcmp(pathname, TMP) == 0 ||
+             strcmp(pathname, VAR_TMP) == 0 ||
+             strncmp(pathname, TMP_PREFIX, strlen(TMP_PREFIX)) == 0 ||
              strncmp(pathname, VAR_TMP_PREFIX, strlen(VAR_TMP_PREFIX)) == 0) {
     /* Temp file.  Ignore. */
     funlockfile(ekam_call_stream);
+    if (EKAM_DEBUG) fprintf(stderr, "  temp file: %s\n", pathname);
     return pathname;
   } else if (pathname[0] == '/') {
     /* Absolute path.  Note the access but don't remap. */
@@ -212,6 +241,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
       /* Cannot write to absolute paths. */
       funlockfile(ekam_call_stream);
       errno = EACCES;
+      if (EKAM_DEBUG) fprintf(stderr, "  absolute path, can't write\n");
       return NULL;
     }
 
@@ -226,10 +256,12 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
     }
     cache_result(pathname, pathname, usage);
     funlockfile(ekam_call_stream);
+    if (EKAM_DEBUG) fprintf(stderr, "  absolute path: %s\n", pathname);
     return pathname;
   } else if (strcmp(pathname, ".") == 0) {
     /* HACK:  Don't try to remap current directory. */
     funlockfile(ekam_call_stream);
+    if (EKAM_DEBUG) fprintf(stderr, "  current directory\n");
     return pathname;
   } else {
     /* Ask ekam to remap the file name. */
@@ -271,17 +303,17 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
   if (*buffer == '\0') {
     /* Not found. */
     errno = ENOENT;
+    if (EKAM_DEBUG) fprintf(stderr, "  ekam says no such file\n");
     return NULL;
   }
 
   cache_result(pathname, buffer, usage);
 
+  if (EKAM_DEBUG) fprintf(stderr, "  remapped to: %s\n", buffer);
   return buffer;
 }
 
 /****************************************************************************************/
-
-typedef int OpenFunc(const char * pathname, int flags, ...);
 
 #define WRAP(RETURNTYPE, NAME, PARAMTYPES, PARAMS, USAGE, ERROR_RESULT)     \
   typedef RETURNTYPE NAME##_t PARAMTYPES;                                   \
@@ -302,8 +334,6 @@ typedef int OpenFunc(const char * pathname, int flags, ...);
     return NAME PARAMS;                                                     \
   }
 
-WRAP(int, stat, (const char* path, struct stat* sb), (path, sb), READ, -1)
-WRAP(int, lstat, (const char* path, struct stat* sb), (path, sb), READ, -1)
 WRAP(int, chdir, (const char* path), (path), READ, -1)
 WRAP(int, chmod, (const char* path, mode_t mode), (path, mode), WRITE, -1)
 WRAP(int, lchmod, (const char* path, mode_t mode), (path, mode), WRITE, -1)
@@ -314,6 +344,9 @@ WRAP(int, execve, (const char* path, char* const argv[], char* const envp[]),
                   (path, argv, envp), READ, -1);
 
 #ifdef __APPLE__
+WRAP(int, stat, (const char* path, struct stat* sb), (path, sb), READ, -1)
+WRAP(int, lstat, (const char* path, struct stat* sb), (path, sb), READ, -1)
+
 /* OSX defines an alternate version of stat with 64-bit inodes. */
 WRAP(int, stat64, (const char* path, struct stat64* sb), (path, sb), READ, -1)
 
@@ -326,12 +359,12 @@ WRAP(int, stat64, (const char* path, struct stat64* sb), (path, sb), READ, -1)
 typedef int stat_inode64_t(const char* path, void* sb);
 int stat_inode64(const char* path, void* sb) __asm("_stat$INODE64");
 int stat_inode64(const char* path, void* sb) {
-	static stat_inode64_t* real_stat_inode64 = NULL;
+  static stat_inode64_t* real_stat_inode64 = NULL;
   char buffer[PATH_MAX];
 
   if (real_stat_inode64 == NULL) {
     real_stat_inode64 = (stat_inode64_t*) dlsym(RTLD_NEXT, "stat$INODE64");
-		assert(real_stat_inode64 != NULL);
+    assert(real_stat_inode64 != NULL);
   }
 
   path = remap_file("_stat$INODE64", path, buffer, READ);
@@ -339,20 +372,73 @@ int stat_inode64(const char* path, void* sb) {
   return real_stat_inode64(path, sb);
 }
 
-// Somehow fopen() does not seem to call our overridden open() on OSX.
-// TODO:  Figure out why.  Hope that there is just some more obscure open() it is using,
-//   and that it isn't simply that we can't override calls between two libc functions.
+/* Cannot intercept intra-libc function calls on OSX, so we must intercept fopen() as well. */
 WRAP(FILE*, fopen, (const char* path, const char* mode), (path, mode),
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
-#endif /* __APPLE__ */
+
+/* Called by access(), below. */
+static int direct_stat64(const char* path, struct stat64* sb) {
+  static stat64_t* real_stat64 = NULL;
+
+  if (real_stat64 == NULL) {
+    real_stat64 = (stat64_t*) dlsym(RTLD_NEXT, "stat64");
+    assert(real_stat64 != NULL);
+  }
+
+  return real_stat64(path, sb);
+}
+
+#elif defined(__linux__)
+
+WRAP(int, stat64, (const char* path, struct stat64* sb), (path, sb), READ, -1)
+WRAP(int, lstat64, (const char* path, struct stat64* sb), (path, sb), READ, -1)
+WRAP(int, __xstat64, (int ver, const char* path, struct stat64* sb), (ver, path, sb), READ, -1)
+WRAP(int, __lxstat64, (int ver, const char* path, struct stat64* sb), (ver, path, sb), READ, -1)
+
+/* Cannot intercept intra-libc function calls on Linux, so we must intercept fopen() as well. */
+WRAP(FILE*, fopen, (const char* path, const char* mode), (path, mode),
+     mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
+WRAP(FILE*, fopen64, (const char* path, const char* mode), (path, mode),
+     mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
+
+/* Called by access(), below. */
+static int direct_stat64(const char* path, struct stat64* sb) {
+  static __xstat64_t* real_xstat64 = NULL;
+
+  if (real_xstat64 == NULL) {
+    real_xstat64 = (__xstat64_t*) dlsym(RTLD_NEXT, "__xstat64");
+    assert(real_xstat64 != NULL);
+  }
+
+  return real_xstat64(_STAT_VER, path, sb);
+}
+
+#else
+
+WRAP(int, stat, (const char* path, struct stat* sb), (path, sb), READ, -1)
+WRAP(int, lstat, (const char* path, struct stat* sb), (path, sb), READ, -1)
+
+/* Called by access(), below. */
+static int direct_stat64(const char* path, struct stat64* sb) {
+  static stat64_t* real_stat64 = NULL;
+
+  if (real_stat64 == NULL) {
+    real_stat64 = (stat64_t*) dlsym(RTLD_NEXT, "stat64");
+    assert(real_stat64 != NULL);
+  }
+
+  return real_stat64(path, sb);
+}
+
+#endif  /* platform */
 
 static int intercepted_open(const char * pathname, int flags, va_list args) {
-  static OpenFunc* real_open;
+  static open_t* real_open;
   char buffer[PATH_MAX];
   const char* remapped;
 
   if (real_open == NULL) {
-    real_open = (OpenFunc*) dlsym(RTLD_NEXT, "open");
+    real_open = (open_t*) dlsym(RTLD_NEXT, "open");
     assert(real_open != NULL);
   }
 
@@ -380,12 +466,12 @@ int _open(const char * pathname, int flags, ...) {
 }
 
 static int intercepted_open64(const char * pathname, int flags, va_list args) {
-  static OpenFunc* real_open64;
+  static open_t* real_open64;
   char buffer[PATH_MAX];
   const char* remapped;
 
   if (real_open64 == NULL) {
-    real_open64 = (OpenFunc*) dlsym(RTLD_NEXT, "open64");
+    real_open64 = (open_t*) dlsym(RTLD_NEXT, "open64");
     assert(real_open64 != NULL);
   }
 
@@ -410,6 +496,26 @@ int _open64(const char * pathname, int flags, ...) {
   va_list args;
   va_start(args, flags);
   return intercepted_open64(pathname, flags, args);
+}
+
+int openat(int dirfd, const char * pathname, int flags, ...) {
+  fprintf(stderr, "openat(%s) not intercepted\n", pathname);
+  return -1;
+}
+
+int _openat(int dirfd, const char * pathname, int flags, ...) {
+  fprintf(stderr, "_openat(%s) not intercepted\n", pathname);
+  return -1;
+}
+
+int openat64(int dirfd, const char * pathname, int flags, ...) {
+  fprintf(stderr, "openat64(%s) not intercepted\n", pathname);
+  return -1;
+}
+
+int _openat64(int dirfd, const char * pathname, int flags, ...) {
+  fprintf(stderr, "_openat64(%s) not intercepted\n", pathname);
+  return -1;
 }
 
 /* For rename(), we consider both locations to be outputs, since both are modified. */
@@ -448,8 +554,8 @@ int mkdir(const char* path, mode_t mode) {
   }
 
   if (*path == '/') {
-    // Absolute path.  Use the regular remap logic (which as of this writing will only allow
-    // writes to /tmp).
+    /* Absolute path.  Use the regular remap logic (which as of this writing will only allow
+     * writes to /tmp). */
     path = remap_file("mkdir", path, buffer, WRITE);
     if (path == NULL) return -1;
     return real_mkdir(path, mode);
@@ -462,17 +568,17 @@ int mkdir(const char* path, mode_t mode) {
 
     strcat(buffer, path);
 
-    // Attempt to create parent directories.
+    /* Attempt to create parent directories. */
     slash_pos = buffer;
     while ((slash_pos = strchr(slash_pos, '/')) != NULL) {
       *slash_pos = '\0';
-      // We don't care if this fails -- we'll find out when we make the final mkdir call below.
+      /* We don't care if this fails -- we'll find out when we make the final mkdir call below. */
       real_mkdir(buffer, mode);
       *slash_pos = '/';
       ++slash_pos;
     }
 
-    // Finally create the requested directory.
+    /* Finally create the requested directory. */
     return real_mkdir(buffer, mode);
   }
 }
@@ -487,15 +593,12 @@ int _mkdir(const char* path, mode_t mode) {
 typedef int access_t(const char* path, int mode);
 int access(const char* path, int mode) {
   static access_t* real_access = NULL;
-  static stat_t* real_stat = NULL;
   char buffer[PATH_MAX];
-  struct stat stats;
+  struct stat64 stats;
 
   if (real_access == NULL) {
     real_access = (access_t*) dlsym(RTLD_NEXT, "access");
     assert(real_access != NULL);
-    real_stat = (stat_t*) dlsym(RTLD_NEXT, "stat");
-    assert(real_stat != NULL);
   }
 
   if (*path != '/') {
@@ -507,13 +610,13 @@ int access(const char* path, int mode) {
     }
 
     strcat(buffer, path);
-    if (real_stat(buffer, &stats) == 0 && S_ISDIR(stats.st_mode)) {
+    if (direct_stat64(buffer, &stats) == 0 && S_ISDIR(stats.st_mode)) {
       /* Directory exists in src. */
       return 0;
     }
 
     memcpy(buffer, "tmp", 3);
-    if (real_stat(buffer, &stats) == 0 && S_ISDIR(stats.st_mode)) {
+    if (direct_stat64(buffer, &stats) == 0 && S_ISDIR(stats.st_mode)) {
       /* Directory exists in tmp. */
       return 0;
     }
@@ -527,7 +630,7 @@ int access(const char* path, int mode) {
     }
     return real_access(path, mode);
   } else {
-    // Absolute path.  Don't do anything fancy.
+    /* Absolute path.  Don't do anything fancy. */
     path = remap_file("access", path, buffer, (mode & W_OK) ? WRITE : READ);
     if (path == NULL) return -1;
     return real_access(path, mode);
