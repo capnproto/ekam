@@ -42,10 +42,18 @@
 namespace ekam {
 
 template <typename T>
+inline void deleteEnsuringCompleteType(T* ptr) {
+  enum { type_must_be_complete = sizeof(T) };
+  delete ptr;
+}
+
+template <typename T>
 class OwnedPtr {
 public:
   OwnedPtr() : ptr(NULL) {}
-  ~OwnedPtr() { delete ptr; }
+  ~OwnedPtr() {
+    deleteEnsuringCompleteType(ptr);
+  }
 
   T* get() const { return ptr; }
   T* operator->() const { assert(ptr != NULL); return ptr; }
@@ -128,7 +136,7 @@ private:
   void reset(T* newValue) {
     T* oldValue = ptr;
     ptr = newValue;
-    delete oldValue;
+    deleteEnsuringCompleteType(oldValue);
   }
 
   T* release() {
@@ -157,7 +165,7 @@ public:
   SmartPtr() : ptr(NULL), refcount(NULL) {}
   ~SmartPtr() {
     if (refcount != NULL && --*refcount == 0) {
-      delete ptr;
+      deleteEnsuringCompleteType(ptr);
     }
   }
 
@@ -186,7 +194,7 @@ public:
 
     T* result = ptr;
     ptr = NULL;
-    delete refcount;
+    deleteEnsuringCompleteType(refcount);
     other->reset(result);
     return true;
   }
@@ -257,7 +265,7 @@ private:
     if (refcount != NULL) ++*refcount;
     if (oldRefcount != NULL && --*oldRefcount == 0) {
       delete oldRefcount;
-      delete oldValue;
+      deleteEnsuringCompleteType(oldValue);
     }
   }
 
@@ -277,7 +285,7 @@ public:
   OwnedPtrVector() {}
   ~OwnedPtrVector() {
     for (typename std::vector<T*>::const_iterator iter = vec.begin(); iter != vec.end(); ++iter) {
-      delete *iter;
+      deleteEnsuringCompleteType(*iter);
     }
   }
 
@@ -286,7 +294,7 @@ public:
   bool empty() const { return vec.empty(); }
 
   void adopt(int index, OwnedPtr<T>* ptr) {
-    delete vec[index];
+    deleteEnsuringCompleteType(vec[index]);
     vec[index] = ptr->release();
   }
 
@@ -311,7 +319,7 @@ public:
 
   void clear() {
     for (typename std::vector<T*>::const_iterator iter = vec.begin(); iter != vec.end(); ++iter) {
-      delete *iter;
+      deleteEnsuringCompleteType(*iter);
     }
     vec.clear();
   }
@@ -346,7 +354,7 @@ public:
   OwnedPtrDeque() {}
   ~OwnedPtrDeque() {
     for (typename std::deque<T*>::const_iterator iter = q.begin(); iter != q.end(); ++iter) {
-      delete *iter;
+      deleteEnsuringCompleteType(*iter);
     }
   }
 
@@ -379,7 +387,7 @@ public:
 
   void clear() {
     for (typename std::deque<T*>::const_iterator iter = q.begin(); iter != q.end(); ++iter) {
-      delete *iter;
+      deleteEnsuringCompleteType(*iter);
     }
     q.clear();
   }
@@ -414,7 +422,7 @@ public:
 
   void clear() {
     while (!q.empty()) {
-      delete q.front();
+      deleteEnsuringCompleteType(q.front());
       q.pop();
     }
   }
@@ -450,7 +458,7 @@ public:
   ~OwnedPtrMap() {
     for (typename InnerMap::const_iterator iter = map.begin();
          iter != map.end(); ++iter) {
-      delete iter->second;
+      deleteEnsuringCompleteType(iter->second);
     }
   }
 
@@ -480,7 +488,7 @@ public:
     std::pair<typename InnerMap::iterator, bool> insertResult =
         map.insert(std::make_pair(key, value));
     if (!insertResult.second) {
-      delete insertResult.first->second;
+      deleteEnsuringCompleteType(insertResult.first->second);
       insertResult.first->second = value;
     }
   }
@@ -524,7 +532,7 @@ public:
     if (iter == map.end()) {
       return false;
     } else {
-      delete iter->second;
+      deleteEnsuringCompleteType(iter->second);
       map.erase(iter);
       return true;
     }
@@ -533,7 +541,7 @@ public:
   void clear() {
     for (typename InnerMap::const_iterator iter = map.begin();
          iter != map.end(); ++iter) {
-      delete iter->second;
+      deleteEnsuringCompleteType(iter->second);
     }
     map.clear();
   }
