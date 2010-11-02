@@ -375,6 +375,8 @@ int stat_inode64(const char* path, void* sb) {
 /* Cannot intercept intra-libc function calls on OSX, so we must intercept fopen() as well. */
 WRAP(FILE*, fopen, (const char* path, const char* mode), (path, mode),
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
+WRAP(FILE*, freopen, (const char* path, const char* mode, FILE* file), (path, mode, file),
+     mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
 
 /* Called by access(), below. */
 static int direct_stat64(const char* path, struct stat64* sb) {
@@ -390,8 +392,8 @@ static int direct_stat64(const char* path, struct stat64* sb) {
 
 #elif defined(__linux__)
 
-WRAP(int, stat64, (const char* path, struct stat64* sb), (path, sb), READ, -1)
-WRAP(int, lstat64, (const char* path, struct stat64* sb), (path, sb), READ, -1)
+WRAP(int, __xstat, (int ver, const char* path, struct stat* sb), (ver, path, sb), READ, -1)
+WRAP(int, __lxstat, (int ver, const char* path, struct stat* sb), (ver, path, sb), READ, -1)
 WRAP(int, __xstat64, (int ver, const char* path, struct stat64* sb), (ver, path, sb), READ, -1)
 WRAP(int, __lxstat64, (int ver, const char* path, struct stat64* sb), (ver, path, sb), READ, -1)
 
@@ -399,6 +401,10 @@ WRAP(int, __lxstat64, (int ver, const char* path, struct stat64* sb), (ver, path
 WRAP(FILE*, fopen, (const char* path, const char* mode), (path, mode),
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
 WRAP(FILE*, fopen64, (const char* path, const char* mode), (path, mode),
+     mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
+WRAP(FILE*, freopen, (const char* path, const char* mode, FILE* file), (path, mode, file),
+     mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
+WRAP(FILE*, freopen64, (const char* path, const char* mode, FILE* file), (path, mode, file),
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
 
 /* Called by access(), below. */
