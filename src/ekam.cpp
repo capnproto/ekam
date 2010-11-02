@@ -45,6 +45,7 @@
 #include "ConsoleDashboard.h"
 #include "CppActionFactory.h"
 #include "ExecPluginActionFactory.h"
+#include "FileDescriptor.h"
 
 namespace ekam {
 
@@ -159,8 +160,9 @@ public:
     driver->addSourceFile(file.get());
   }
   void deleted() {
-    if (file->exists() && file->isFile()) {
+    if (file->isFile()) {
       // A new file was created in place of the old.  Reset the watch.
+      DEBUG_INFO << "Source file replaced: " << file->canonicalName();
       resetWatch();
       modified();
     } else {
@@ -192,7 +194,13 @@ public:
     DEBUG_INFO << "Directory modified: " << file->canonicalName();
 
     OwnedPtrVector<File> list;
-    file->list(list.appender());
+    try {
+      file->list(list.appender());
+    } catch (OsError e) {
+      // Probably the directory has been deleted but we weren't yet notified.
+      reallyDeleted();
+      return;
+    }
 
     ChildMap newChildren;
 
@@ -252,8 +260,9 @@ public:
   }
 
   void deleted() {
-    if (file->exists() && file->isDirectory()) {
+    if (file->isDirectory()) {
       // A new directory was created in place of the old.  Reset the watch.
+      DEBUG_INFO << "Directory replaced: " << file->canonicalName();
       resetWatch();
       modified();
     } else {

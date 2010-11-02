@@ -28,13 +28,15 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_POLLEVENTMANAGER_H_
-#define EKAM_POLLEVENTMANAGER_H_
+
+#ifndef EKAM_EPOLLEVENTMANAGER_H_
+#define EKAM_EPOLLEVENTMANAGER_H_
 
 #include <sys/types.h>
 #include <stdint.h>
 #include <signal.h>
 #include <deque>
+#include <set>
 #include <tr1/unordered_map>
 
 #include "EventManager.h"
@@ -44,10 +46,10 @@ typedef struct pollfd PollFd;
 
 namespace ekam {
 
-class PollEventManager : public RunnableEventManager {
+class EpollEventManager : public RunnableEventManager {
 public:
-  PollEventManager();
-  ~PollEventManager();
+  EpollEventManager();
+  ~EpollEventManager();
 
   // implements RunnableEventManager -----------------------------------------------------
   void loop();
@@ -68,16 +70,27 @@ private:
   class ProcessExitHandler;
   class ReadHandler;
   class WriteHandler;
+  class WatchedDirectory;
+  class WatchOperation;
 
   std::deque<AsyncCallbackHandler*> asyncCallbacks;
   std::tr1::unordered_map<pid_t, ProcessExitHandler*> processExitHandlerMap;
   std::tr1::unordered_map<int, IoHandler*> readHandlerMap;
   std::tr1::unordered_map<int, IoHandler*> writeHandlerMap;
 
+  int inotifyFd;
+  OwnedPtrMap<WatchedDirectory*, WatchedDirectory> ownedWatchDirectories;
+  typedef std::tr1::unordered_map<int, WatchedDirectory*> WatchMap;
+  WatchMap watchMap;
+  typedef std::tr1::unordered_map<std::string, WatchedDirectory*> WatchByNameMap;
+  WatchByNameMap watchByNameMap;
+  std::set<WatchedDirectory*> currentlyHandlingWatches;
+
   bool handleEvent();
   void handleSignal(const siginfo_t& siginfo);
+  void handleInotify(short pollFlags);
 };
 
 }  // namespace ekam
 
-#endif  // EKAM_POLLEVENTMANAGER_H_
+#endif  // EKAM_EPOLLEVENTMANAGER_H_
