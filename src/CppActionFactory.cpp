@@ -34,7 +34,7 @@
 #include <stdlib.h>
 
 #include "Debug.h"
-#include "FileDescriptor.h"
+#include "ByteStream.h"
 #include "Subprocess.h"
 #include "ActionUtil.h"
 
@@ -212,7 +212,7 @@ private:
   OwnedPtr<File> executableFile;
 
   Subprocess subprocess;
-  OwnedPtr<FileDescriptor> logStream;
+  OwnedPtr<ByteStream> logStream;
   OwnedPtr<Logger> logger;
   OwnedPtr<AsyncOperation> logOp;
 };

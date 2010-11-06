@@ -42,7 +42,8 @@
 #include <tr1/unordered_map>
 
 #include "Debug.h"
-#include "FileDescriptor.h"
+#include "OsHandle.h"
+#include "ByteStream.h"
 #include "Hash.h"
 
 namespace ekam {
@@ -200,7 +201,7 @@ bool DiskFile::isDirectory() {
 Hash DiskFile::contentHash() {
   try {
     Hash::Builder hasher;
-    FileDescriptor fd(path, O_RDONLY);
+    ByteStream fd(path, O_RDONLY);
 
     char buffer[8192];
 
@@ -221,7 +222,7 @@ Hash DiskFile::contentHash() {
 }
 
 std::string DiskFile::readAll() {
-  FileDescriptor fd(path, O_RDONLY);
+  ByteStream fd(path, O_RDONLY);
 
   struct stat stats;
   fd.stat(&stats);
@@ -248,7 +249,7 @@ std::string DiskFile::readAll() {
 }
 
 void DiskFile::writeAll(const std::string& content) {
-  FileDescriptor fd(path, O_WRONLY | O_TRUNC | O_CREAT);
+  ByteStream fd(path, O_WRONLY | O_TRUNC | O_CREAT);
 
   std::string::size_type pos = 0;
   while (pos < content.size()) {
@@ -257,7 +258,7 @@ void DiskFile::writeAll(const std::string& content) {
 }
 
 void DiskFile::writeAll(const void* data, int size) {
-  FileDescriptor fd(path, O_WRONLY | O_TRUNC | O_CREAT);
+  ByteStream fd(path, O_WRONLY | O_TRUNC | O_CREAT);
 
   const char* pos = reinterpret_cast<const char*>(data);
   while (size > 0) {

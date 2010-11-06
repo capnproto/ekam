@@ -28,82 +28,76 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_FILEDESCRIPTOR_H_
-#define EKAM_FILEDESCRIPTOR_H_
+#include "OsHandle.h"
 
+#include <string.h>
+#include <errno.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <stdexcept>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sstream>
 
-#include "OwnedPtr.h"
-#include "EventManager.h"
+#include "Debug.h"
 
 namespace ekam {
 
-class EventManager;
+OsHandle::OsHandle(const std::string& name, int fd)
+    : name(name), fd(fd) {
+  if (fd < 0) {
+    throw std::invalid_argument("Negative file descriptor given for: " + name);
+  }
+  fcntl(fd, F_SETFD, FD_CLOEXEC);
+}
 
-class FileDescriptor {
-public:
-  FileDescriptor(const std::string& path, int flags);
-  FileDescriptor(const std::string& path, int flags, int mode);
-  FileDescriptor(int fd, const std::string& name);
-  ~FileDescriptor();
+OsHandle::~OsHandle() {
+  if (close(fd) < 0) {
+    DEBUG_ERROR << "close(" << name << "): " << strerror(errno);
+  }
+}
 
-  size_t read(void* buffer, size_t size);
-  size_t write(const void* buffer, size_t size);
-  void writeAll(const void* buffer, size_t size);
-  void stat(struct stat* stats);
+std::string toString(const char* arg) {
+  return arg;
+}
+std::string toString(int arg) {
+  std::stringstream sout(std::stringstream::out);
+  sout << arg;
+  return sout.str();
+}
+std::string toString(const OsHandle& arg) {
+  return arg.getName();
+}
 
-  class ReadAllCallback {
-  public:
-    virtual ~ReadAllCallback();
+OsError::OsError(const std::string& path, const char* function, int errorNumber)
+    : errorNumber(errorNumber) {
+  if (function != NULL && *function != '\0') {
+    description.append(function);
+    if (!path.empty()) {
+      description.append("(");
+      description.append(path);
+      description.append(")");
+    }
+    description.append(": ");
+  } else if (!path.empty()) {
+    description.append(path);
+    description.append(": ");
+  }
+  description.append(strerror(errorNumber));
+}
 
-    virtual void consume(const void* buffer, size_t size) = 0;
-    virtual void eof() = 0;
-    virtual void error(int number) = 0;
-  };
+OsError::OsError(const char* function, int errorNumber)
+    : errorNumber(errorNumber) {
+  if (function != NULL && *function != '\0') {
+    description.append(function);
+    description.append(": ");
+  }
+  description.append(strerror(errorNumber));
+}
 
-  void readAll(EventManager* eventManager, ReadAllCallback* callback,
-               OwnedPtr<AsyncOperation>* output);
+OsError::~OsError() throw() {}
 
-private:
-  class ReadEventCallback;
-
-  std::string path;
-  int fd;
-};
-
-class Pipe {
-public:
-  Pipe();
-  ~Pipe();
-
-  void releaseReadEnd(OwnedPtr<FileDescriptor>* output);
-  void releaseWriteEnd(OwnedPtr<FileDescriptor>* output);
-  void attachReadEndForExec(int target);
-  void attachWriteEndForExec(int target);
-
-private:
-  int fds[2];
-
-  void closeReadEnd();
-  void closeWriteEnd();
-};
-
-class OsError : public std::exception {
-public:
-  OsError(const std::string& path, const char* function, int errorNumber);
-  virtual ~OsError() throw();
-
-  virtual const char* what() const throw();
-
-  inline int getErrorNumber() const { return errorNumber; }
-
-private:
-  std::string description;
-  int errorNumber;
-};
+const char* OsError::what() const throw() {
+  return description.c_str();
+}
 
 }  // namespace ekam
-
-#endif  // EKAM_FILEDESCRIPTOR_H_

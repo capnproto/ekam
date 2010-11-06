@@ -33,12 +33,12 @@
 
 #include <string>
 
-#include "FileDescriptor.h"
+#include "ByteStream.h"
 #include "Action.h"
 
 namespace ekam {
 
-class Logger : public FileDescriptor::ReadAllCallback {
+class Logger : public ByteStream::ReadAllCallback {
 public:
   Logger(BuildContext* context);
   ~Logger();
@@ -52,7 +52,7 @@ private:
   BuildContext* context;
 };
 
-class LineReader : public FileDescriptor::ReadAllCallback {
+class LineReader : public ByteStream::ReadAllCallback {
 public:
   class Callback {
   public:

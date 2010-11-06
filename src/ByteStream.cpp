@@ -28,7 +28,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "FileDescriptor.h"
+#include "ByteStream.h"
 
 #include <string.h>
 #include <errno.h>
@@ -41,67 +41,28 @@
 
 namespace ekam {
 
-FileDescriptor::ReadAllCallback::~ReadAllCallback() {}
+ByteStream::ReadAllCallback::~ReadAllCallback() {}
 
-FileDescriptor::FileDescriptor(const std::string& path, int flags)
-    : path(path) {
-  do {
-    fd = ::open(path.c_str(), flags, 0666);
-  } while (fd < 0 && errno == EINTR);
+ByteStream::ByteStream(const std::string& path, int flags)
+    : handle(path, WRAP_SYSCALL(open, path.c_str(), flags, 0666)) {}
 
-  if (fd < 0) {
-    throw OsError(path, "open", errno);
-  }
+ByteStream::ByteStream(const std::string& path, int flags, int mode)
+    : handle(path, WRAP_SYSCALL(open, path.c_str(), flags, mode)) {}
 
-  fcntl(fd, F_SETFD, FD_CLOEXEC);
+ByteStream::ByteStream(int fd, const std::string& name)
+    : handle(name, fd) {}
+
+ByteStream::~ByteStream() {}
+
+size_t ByteStream::read(void* buffer, size_t size) {
+  return WRAP_SYSCALL(read, handle, buffer, size);
 }
 
-FileDescriptor::FileDescriptor(const std::string& path, int flags, int mode)
-    : path(path) {
-  do {
-    fd = ::open(path.c_str(), flags, mode);
-  } while (fd < 0 && errno == EINTR);
-
-  if (fd < 0) {
-    throw OsError(path, "open", errno);
-  }
-
-  fcntl(fd, F_SETFD, FD_CLOEXEC);
+size_t ByteStream::write(const void* buffer, size_t size) {
+  return WRAP_SYSCALL(write, handle, buffer, size);
 }
 
-FileDescriptor::FileDescriptor(int fd, const std::string& name) : path(name), fd(fd) {
-  fcntl(fd, F_SETFD, FD_CLOEXEC);
-}
-
-FileDescriptor::~FileDescriptor() {
-  if (close(fd) < 0) {
-    DEBUG_ERROR << "close(" << path << "): " << strerror(errno);
-  }
-}
-
-size_t FileDescriptor::read(void* buffer, size_t size) {
-  while (true) {
-    ssize_t result = ::read(fd, buffer, size);
-    if (result >= 0) {
-      return result;
-    } else if (errno != EINTR) {
-      throw OsError(path, "read", errno);
-    }
-  }
-}
-
-size_t FileDescriptor::write(const void* buffer, size_t size) {
-  while (true) {
-    ssize_t result = ::write(fd, buffer, size);
-    if (result >= 0) {
-      return result;
-    } else if (errno != EINTR) {
-      throw OsError(path, "write", errno);
-    }
-  }
-}
-
-void FileDescriptor::writeAll(const void* buffer, size_t size) {
+void ByteStream::writeAll(const void* buffer, size_t size) {
   const char* cbuffer = reinterpret_cast<const char*>(buffer);
 
   while (size > 0) {
@@ -111,17 +72,11 @@ void FileDescriptor::writeAll(const void* buffer, size_t size) {
   }
 }
 
-void FileDescriptor::stat(struct stat* stats) {
-  while (true) {
-    if (fstat(fd, stats) >= 0) {
-      return;
-    } else if (errno != EINTR) {
-      throw OsError(path, "fstat", errno);
-    }
-  }
+void ByteStream::stat(struct stat* stats) {
+  WRAP_SYSCALL(fstat, handle, stats);
 }
 
-class FileDescriptor::ReadEventCallback : public AsyncOperation, public EventManager::IoCallback {
+class ByteStream::ReadEventCallback : public AsyncOperation, public EventManager::IoCallback {
 public:
   ReadEventCallback(int fd, ReadAllCallback* callback)
       : fd(fd), callback(callback) {}
@@ -153,12 +108,12 @@ private:
   ReadAllCallback* callback;
 };
 
-void FileDescriptor::readAll(EventManager* eventManager,
+void ByteStream::readAll(EventManager* eventManager,
                              ReadAllCallback* callback,
                              OwnedPtr<AsyncOperation>* output) {
   OwnedPtr<ReadEventCallback> eventCallback;
-  eventCallback.allocate(fd, callback);
-  eventManager->onReadable(fd, eventCallback.get(), &eventCallback->inner);
+  eventCallback.allocate(handle.get(), callback);
+  eventManager->onReadable(handle.get(), eventCallback.get(), &eventCallback->inner);
   output->adopt(&eventCallback);
 }
 
@@ -178,12 +133,12 @@ Pipe::~Pipe() {
   closeWriteEnd();
 }
 
-void Pipe::releaseReadEnd(OwnedPtr<FileDescriptor>* output) {
+void Pipe::releaseReadEnd(OwnedPtr<ByteStream>* output) {
   output->allocate(fds[0], "pipe.readEnd");
   fds[0] = -1;
 }
 
-void Pipe::releaseWriteEnd(OwnedPtr<FileDescriptor>* output) {
+void Pipe::releaseWriteEnd(OwnedPtr<ByteStream>* output) {
   output->allocate(fds[1], "pipe.writeEnd");
   fds[1] = -1;
 }
@@ -216,31 +171,6 @@ void Pipe::closeWriteEnd() {
     }
     fds[1] = -1;
   }
-}
-
-// =======================================================================================
-
-OsError::OsError(const std::string& path, const char* function, int errorNumber)
-    : errorNumber(errorNumber) {
-  if (function != NULL && *function != '\0') {
-    description.append(function);
-    if (!path.empty()) {
-      description.append("(");
-      description.append(path);
-      description.append(")");
-    }
-    description.append(": ");
-  } else if (!path.empty()) {
-    description.append(path);
-    description.append(": ");
-  }
-  description.append(strerror(errorNumber));
-}
-
-OsError::~OsError() throw() {}
-
-const char* OsError::what() const throw() {
-  return description.c_str();
 }
 
 }  // namespace ekam

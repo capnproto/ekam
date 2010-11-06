@@ -39,6 +39,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "OsHandle.h"
 #include "Debug.h"
 
 namespace ekam {
@@ -103,24 +104,24 @@ File::DiskRef* Subprocess::addArgument(File* file, File::Usage usage) {
   return result;
 }
 
-void Subprocess::captureStdin(OwnedPtr<FileDescriptor>* output) {
+void Subprocess::captureStdin(OwnedPtr<ByteStream>* output) {
   stdinPipe.allocate();
   stdinPipe->releaseWriteEnd(output);
 }
 
-void Subprocess::captureStdout(OwnedPtr<FileDescriptor>* output) {
+void Subprocess::captureStdout(OwnedPtr<ByteStream>* output) {
   stdoutPipe.allocate();
   stdoutPipe->releaseReadEnd(output);
   stdoutAndStderrPipe.clear();
 }
 
-void Subprocess::captureStderr(OwnedPtr<FileDescriptor>* output) {
+void Subprocess::captureStderr(OwnedPtr<ByteStream>* output) {
   stderrPipe.allocate();
   stderrPipe->releaseReadEnd(output);
   stdoutAndStderrPipe.clear();
 }
 
-void Subprocess::captureStdoutAndStderr(OwnedPtr<FileDescriptor>* output) {
+void Subprocess::captureStdoutAndStderr(OwnedPtr<ByteStream>* output) {
   stdoutAndStderrPipe.allocate();
   stdoutAndStderrPipe->releaseReadEnd(output);
   stdoutPipe.clear();

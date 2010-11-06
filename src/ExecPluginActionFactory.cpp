@@ -83,7 +83,7 @@ private:
 
 class PluginDerivedAction::CommandReader : public LineReader::Callback {
 public:
-  CommandReader(BuildContext* context, OwnedPtr<FileDescriptor>* responseStreamToAdopt, File* input)
+  CommandReader(BuildContext* context, OwnedPtr<ByteStream>* responseStreamToAdopt, File* input)
       : context(context), lineReader(this) {
     responseStream.adopt(responseStreamToAdopt);
     input->clone(&this->input);
@@ -94,7 +94,7 @@ public:
   }
   ~CommandReader() {}
 
-  FileDescriptor::ReadAllCallback* asReadAllCallback() {
+  ByteStream::ReadAllCallback* asReadAllCallback() {
     return &lineReader;
   }
 
@@ -198,7 +198,7 @@ public:
 private:
   BuildContext* context;
   OwnedPtr<File> input;
-  OwnedPtr<FileDescriptor> responseStream;
+  OwnedPtr<ByteStream> responseStream;
   LineReader lineReader;
 
   OwnedPtrMap<std::string, File> knownFiles;
@@ -231,7 +231,7 @@ public:
     subprocess.addArgument(executable, File::READ);
     subprocess.addArgument(input->canonicalName());
 
-    OwnedPtr<FileDescriptor> responseStream;
+    OwnedPtr<ByteStream> responseStream;
     subprocess.captureStdin(&responseStream);
     subprocess.captureStdout(&commandStream);
     subprocess.captureStderr(&logStream);
@@ -259,11 +259,11 @@ private:
   BuildContext* context;
   Subprocess subprocess;
 
-  OwnedPtr<FileDescriptor> commandStream;
+  OwnedPtr<ByteStream> commandStream;
   OwnedPtr<CommandReader> commandReader;
   OwnedPtr<AsyncOperation> commandOp;
 
-  OwnedPtr<FileDescriptor> logStream;
+  OwnedPtr<ByteStream> logStream;
   OwnedPtr<Logger> logger;
   OwnedPtr<AsyncOperation> logOp;
 };
@@ -332,7 +332,7 @@ public:
   }
   ~CommandReader() {}
 
-  FileDescriptor::ReadAllCallback* asReadAllCallback() {
+  ByteStream::ReadAllCallback* asReadAllCallback() {
     return &lineReader;
   }
 
@@ -402,11 +402,11 @@ private:
   BuildContext* context;
   Subprocess subprocess;
 
-  OwnedPtr<FileDescriptor> commandStream;
+  OwnedPtr<ByteStream> commandStream;
   OwnedPtr<CommandReader> commandReader;
   OwnedPtr<AsyncOperation> commandOp;
 
-  OwnedPtr<FileDescriptor> logStream;
+  OwnedPtr<ByteStream> logStream;
   OwnedPtr<Logger> logger;
   OwnedPtr<AsyncOperation> logOp;
 };

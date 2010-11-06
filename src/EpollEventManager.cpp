@@ -48,7 +48,7 @@
 #include "Debug.h"
 #include "Table.h"
 #include "DiskFile.h"
-#include "FileDescriptor.h"  // for OsError
+#include "OsHandle.h"
 
 namespace ekam {
 
