@@ -49,8 +49,8 @@ public:
   int get() const { return fd; }
 
 private:
-  std::string name;
-  int fd;
+  const std::string name;
+  const int fd;
 };
 
 class OsError : public std::exception {
@@ -119,6 +119,19 @@ long wrapSyscall(const char* name, const Func& func, const Arg1& arg1,
   long result;
   do {
     result = func(toSyscallArg(arg1), toSyscallArg(arg2), toSyscallArg(arg3));
+  } while (result < 0 && errno == EINTR);
+  if (result < 0) {
+    throw OsError(toString(arg1), name, errno);
+  }
+  return result;
+}
+
+template <typename Func, typename Arg1, typename Arg2, typename Arg3, typename Arg4>
+long wrapSyscall(const char* name, const Func& func, const Arg1& arg1,
+                 const Arg2& arg2, const Arg3& arg3, const Arg4& arg4) {
+  long result;
+  do {
+    result = func(toSyscallArg(arg1), toSyscallArg(arg2), toSyscallArg(arg3), toSyscallArg(arg4));
   } while (result < 0 && errno == EINTR);
   if (result < 0) {
     throw OsError(toString(arg1), name, errno);

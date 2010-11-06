@@ -51,6 +51,8 @@ public:
   ByteStream(int fd, const std::string& name);
   ~ByteStream();
 
+  inline OsHandle* getHandle() { return &handle; }
+
   size_t read(void* buffer, size_t size);
   size_t write(const void* buffer, size_t size);
   void writeAll(const void* buffer, size_t size);

@@ -36,6 +36,8 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/time.h>
+#include <sys/epoll.h>
+#include <sys/signalfd.h>
 #include <sys/inotify.h>
 #include <algorithm>
 #include <stdexcept>
@@ -48,135 +50,172 @@
 #include "Debug.h"
 #include "Table.h"
 #include "DiskFile.h"
-#include "OsHandle.h"
 
 namespace ekam {
 
 namespace {
 
-// TODO:  This could be somewhat more object-oriented (but only somewhat -- these are signals,
-//   after all).
-
-bool initialized = false;
-sigset_t handledSignals;
-
-static sigjmp_buf sigJumpBuf;
-siginfo_t* saveSignalTo = NULL;
-
-static const int SIGPOLL_ERROR = -1;
-static const int SIGPOLL_SIGNALED = -2;
-
-void signalHandler(int number, siginfo_t* info, void* context) {
-  DEBUG_INFO << "Got signal: " << number;
-  *saveSignalTo = *info;
-  siglongjmp(sigJumpBuf, 1);
-}
-
-void initSignalHandler(int number) {
-  DEBUG_INFO << "Registering signal: " << number;
-
-  if (sigaddset(&handledSignals, number) < 0) {
-    DEBUG_ERROR << "sigaddset: " << strerror(errno);
+std::string epollEventsToString(uint32_t events) {
+  std::string result;
+  if (events & EPOLLIN) {
+    result.append(" EPOLLIN");
   }
-  if (sigprocmask(SIG_BLOCK, &handledSignals, NULL) < 0) {
-    DEBUG_ERROR << "sigprocmask: " << strerror(errno);
+  if (events & EPOLLOUT) {
+    result.append(" EPOLLOUT");
   }
-
-  struct sigaction action;
-
-  action.sa_sigaction = &signalHandler;
-  action.sa_flags = SA_SIGINFO;
-
-  if (number == SIGCHLD) {
-    // The siginfo_t contains all the info we need, so let the child process be reaped
-    // immediately.
-    // We only want to know if the child exits, not if it stops.
-    action.sa_flags |= SA_NOCLDSTOP;
-
-    // RANT(kenton):  The siginfo_t actually contains the exit status.  Ideally we'd just use
-    //   that and not call wait().  However, if we don't call wait(), we leak a zombie process.
-    //   Unless, of course, we set SA_NOCLDWAIT, which tells the system that we're never going
-    //   to call wait() so it shouldn't bother creating zombies.  Just one problem with that:
-    //   on some systems, SA_NOCLDWAIT also causes SIGCHLD not to be sent!  WTF?  This behavior
-    //   defeats the whole purpose of SA_NOCLDWAIT -- it becomes effectively equivalent to
-    //   calling signal(SIGCHLD, SIG_IGN).  Argh.
-
-    // RANT(kenton):  The above rant, of course, is completely irrelevant if we're waiting on
-    //   more than one child at a time, because if multiple SIGCHLDs are received while the signal
-    //   is blocked, only ONE will actually be delivered when unblocked.  So you *must* call wait()
-    //   otherwise you might miss a child.  Signals are stupid.  Weirdly, on FreeBSD, I never
-    //   actually encountered this issue, whereas it happened immediately on OSX and Linux.
+  if (events & EPOLLRDHUP) {
+    result.append(" EPOLLRDHUP");
+  }
+  if (events & EPOLLPRI) {
+    result.append(" EPOLLPRI");
+  }
+  if (events & EPOLLERR) {
+    result.append(" EPOLLERR");
+  }
+  if (events & EPOLLHUP) {
+    result.append(" EPOLLHUP");
+  }
+  if (events & EPOLLET) {
+    result.append(" EPOLLET");
+  }
+  if (events & EPOLLONESHOT) {
+    result.append(" EPOLLONESHOT");
   }
 
-  // Block all signals in handler.
-  if (sigfillset(&action.sa_mask) < 0) {
-    DEBUG_ERROR << "sigfillset: " << strerror(errno);
+  if (events & ~(EPOLLIN || EPOLLOUT || EPOLLRDHUP || EPOLLPRI || EPOLLERR || EPOLLHUP ||
+                 EPOLLET || EPOLLONESHOT)) {
+    result.append(" (others)");
   }
 
-  if (sigaction(number, &action, NULL) < 0) {
-    DEBUG_ERROR << "sigaction: " << strerror(errno);
-  }
-}
-
-void initSignalHandling() {
-  if (!initialized) {
-    sigemptyset(&handledSignals);
-    initSignalHandler(SIGCHLD);
-    initialized = true;
-  }
-}
-
-int sigPoll(struct pollfd pfd[], nfds_t nfds, int timeout, siginfo_t* siginfo) {
-  saveSignalTo = siginfo;
-
-  if (sigsetjmp(sigJumpBuf, true) != 0) {
-    // Got a signal.
-    return SIGPOLL_SIGNALED;
-  }
-
-  sigprocmask(SIG_UNBLOCK, &handledSignals, NULL);
-  int result = poll(pfd, nfds, timeout);
-  sigprocmask(SIG_BLOCK, &handledSignals, NULL);
-  return result < 0 ? SIGPOLL_ERROR : result;
-}
-
-bool sigWait(siginfo_t* siginfo) {
-  saveSignalTo = siginfo;
-
-  if (sigsetjmp(sigJumpBuf, true) != 0) {
-    // Got a signal.
-    return true;
-  }
-
-  sigset_t sigset;
-  sigemptyset(&sigset);
-  sigsuspend(&sigset);
-
-  // Must have received a signal not handled by us.
-  return false;
+  return result;
 }
 
 }  // namespace
 
-// =======================================================================================
+EpollEventManager::Epoller::Epoller()
+    : epollHandle("epoll", WRAP_SYSCALL(epoll_create1, (int)EPOLL_CLOEXEC)),
+      watchCount(0) {}
 
-EpollEventManager::EpollEventManager() {
-  initSignalHandling();
-  inotifyFd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
-}
-
-EpollEventManager::~EpollEventManager() {
-  if (close(inotifyFd) != 0) {
-    DEBUG_ERROR << "close(inotifyFd): " << strerror(errno);
+EpollEventManager::Epoller::~Epoller() {
+  if (watchCount > 0) {
+    DEBUG_ERROR << "Epoller destroyed before all Watches destroyed.";
   }
 }
 
-class EpollEventManager::IoHandler {
-public:
-  virtual ~IoHandler() {}
+EpollEventManager::Epoller::Watch::Watch(Epoller* epoller, OsHandle* handle,
+                                         uint32_t events, IoHandler* handler)
+    : epoller(epoller), expecting(true), fd(handle->get()), name(handle->getName()),
+      handler(handler) {
+  struct epoll_event event;
+  event.events = events;
+  event.data.ptr = this;
+  WRAP_SYSCALL(epoll_ctl, epoller->epollHandle, EPOLL_CTL_ADD, *handle, &event);
+  ++epoller->watchCount;
+}
 
-  virtual void handle(short pollFlags) = 0;
-};
+EpollEventManager::Epoller::Watch::Watch(Epoller* epoller, int fd,
+                                         uint32_t events, IoHandler* handler)
+    : epoller(epoller), expecting(true), fd(fd), name(toString(fd)), handler(handler) {
+  struct epoll_event event;
+  event.events = events;
+  event.data.ptr = this;
+  WRAP_SYSCALL(epoll_ctl, epoller->epollHandle, EPOLL_CTL_ADD, fd, &event);
+  ++epoller->watchCount;
+}
+
+EpollEventManager::Epoller::Watch::~Watch() {
+  if (expecting) --epoller->watchCount;
+  WRAP_SYSCALL(epoll_ctl, epoller->epollHandle, EPOLL_CTL_DEL, fd, (struct epoll_event*)NULL);
+}
+
+void EpollEventManager::Epoller::Watch::setExpecting(bool expecting) {
+  if (expecting != this->expecting) {
+    if (expecting) {
+      ++epoller->watchCount;
+    } else {
+      --epoller->watchCount;
+    }
+    this->expecting = expecting;
+  }
+}
+
+bool EpollEventManager::Epoller::handleEvent() {
+  if (watchCount == 0) {
+    DEBUG_INFO << "No more events.";
+    return false;
+  }
+
+  DEBUG_INFO << "Waiting for " << watchCount << " events...";
+  struct epoll_event event;
+  int result = WRAP_SYSCALL(epoll_wait, epollHandle, &event, 1, -1);
+  if (result == 0) {
+    throw std::logic_error("epoll_wait() returned zero despite infinite timeout.");
+  } else if (result > 1) {
+    throw std::logic_error("epoll_wait() returned more than one event when only one requested.");
+  }
+
+  Watch* watch = reinterpret_cast<Watch*>(event.data.ptr);
+  DEBUG_INFO << "epoll event: " << watch->name << ": " << epollEventsToString(event.events);
+
+  watch->handler->handle(event.events);
+
+  return true;
+}
+
+// =============================================================================
+
+namespace {
+
+sigset_t getHandledSignals() {
+  sigset_t result;
+  sigemptyset(&result);
+  sigaddset(&result, SIGCHLD);
+  return result;
+}
+
+const sigset_t HANDLED_SIGNALS = getHandledSignals();
+
+void dummyHandler(int i) {}
+
+}  // namespace
+
+EpollEventManager::SignalHandler::SignalHandler(Epoller* epoller)
+    : signalStream(WRAP_SYSCALL(signalfd, -1, &HANDLED_SIGNALS, SFD_NONBLOCK | SFD_CLOEXEC),
+                   "signalfd"),
+      watch(epoller, signalStream.getHandle(), EPOLLIN, this) {
+  sigprocmask(SIG_BLOCK, &HANDLED_SIGNALS, NULL);
+  watch.setExpecting(false);
+}
+
+EpollEventManager::SignalHandler::~SignalHandler() {
+  sigprocmask(SIG_UNBLOCK, &HANDLED_SIGNALS, NULL);
+}
+
+void EpollEventManager::SignalHandler::handle(uint32_t events) {
+  DEBUG_INFO << "Received signal on signalfd.";
+
+  struct signalfd_siginfo signalEvent;
+  if (signalStream.read(&signalEvent, sizeof(signalEvent)) != sizeof(signalEvent)) {
+    DEBUG_ERROR << "read(signalfd) returned wrong size.";
+    return;
+  }
+
+  if (signalEvent.ssi_signo == SIGCHLD) {
+    // Alas, the contents of signalEvent are useless, as the signal queue only holds one signal
+    // per signal number.  Therefore, if two SIGCHLDs are received before we have a chance to
+    // handle the first one, one of the two is discarded.  But we have to wait() to avoid zombies
+    // anyway so I guess it's no big deal.
+    handleProcessExit();
+  } else {
+    DEBUG_ERROR << "Unexpected signal number: " << signalEvent.ssi_signo;
+  }
+}
+
+void EpollEventManager::SignalHandler::maybeStopExpecting() {
+  if (processExitHandlerMap.empty()) {
+    watch.setExpecting(false);
+  }
+}
 
 // =======================================================================================
 
@@ -216,21 +255,30 @@ void EpollEventManager::runAsynchronously(Callback* callback, OwnedPtr<AsyncOper
 
 // =======================================================================================
 
-class EpollEventManager::ProcessExitHandler : public AsyncOperation {
+class EpollEventManager::SignalHandler::ProcessExitHandler : public AsyncOperation {
 public:
-  ProcessExitHandler(EpollEventManager* eventManager, pid_t pid,
+  ProcessExitHandler(SignalHandler* signalHandler, pid_t pid,
                      ProcessExitCallback* callback)
-      : eventManager(eventManager), pid(pid), callback(callback) {
-    if (!eventManager->processExitHandlerMap.insert(std::make_pair(pid, this)).second) {
+      : signalHandler(signalHandler), pid(pid), callback(callback) {
+    if (!signalHandler->processExitHandlerMap.insert(
+        std::make_pair(pid, this)).second) {
       throw std::runtime_error("Already waiting on this process.");
     }
+    signalHandler->watch.setExpecting(true);
   }
   ~ProcessExitHandler() {
-    eventManager->processExitHandlerMap.erase(pid);
+    if (pid != -1) {
+      signalHandler->processExitHandlerMap.erase(pid);
+      signalHandler->maybeStopExpecting();
+    }
   }
 
   void handle(int waitStatus) {
     DEBUG_INFO << "Process " << pid << " exited with status: " << waitStatus;
+
+    signalHandler->processExitHandlerMap.erase(pid);
+    signalHandler->maybeStopExpecting();
+    pid = -1;
 
     if (WIFEXITED(waitStatus)) {
       callback->exited(WEXITSTATUS(waitStatus));
@@ -243,96 +291,108 @@ public:
   }
 
 private:
-  EpollEventManager* eventManager;
+  SignalHandler* signalHandler;
   pid_t pid;
   ProcessExitCallback* callback;
 };
 
+void EpollEventManager::SignalHandler::handleProcessExit() {
+  // If multiple signals with the same signal number are delivered while signals are blocked,
+  // only one of them is actually delivered once un-blocked.  The others are cast into the
+  // void.  Therefore, the contents of the siginfo structure are effectively useless for
+  // SIGCHLD.  We must instead call waitpid() repeatedly until there are no more completed
+  // children.  Signals suck so much.
+  while (true) {
+    int waitStatus;
+    pid_t pid = waitpid(-1, &waitStatus, WNOHANG);
+    if (pid < 0) {
+      // ECHILD indicates there are no child processes.  Anything else is a real error.
+      if (errno != ECHILD) {
+        DEBUG_ERROR << "waitpid: " << strerror(errno);
+      }
+      break;
+    } else if (pid == 0) {
+      // There are child processes, but they are still running.
+      break;
+    }
+
+    // Get the handler associated with this PID.
+    std::tr1::unordered_map<pid_t, ProcessExitHandler*>::iterator iter =
+        processExitHandlerMap.find(pid);
+    if (iter == processExitHandlerMap.end()) {
+      // It is actually important that any code creating a subprocess call onProcessExit()
+      // to receive notification of completion even if it doesn't care about completion,
+      // because otherwise the sub-process may be stuck as a zombie.  This is actually
+      // NOT the case with EpollEventManager because it waits on all sub-processes whether
+      // onProcessExit() was called or not, but we should warn if we encounter a process for
+      // which onProcessExit() was never called so that the code can be fixed.
+      DEBUG_ERROR << "Got SIGCHLD for PID we weren't waiting for: " << pid;
+      return;
+    }
+
+    iter->second->handle(waitStatus);
+  }
+}
+
+void EpollEventManager::SignalHandler::onProcessExit(pid_t pid,
+                                                     ProcessExitCallback* callback,
+                                                     OwnedPtr<AsyncOperation>* output) {
+  output->allocateSubclass<ProcessExitHandler>(this, pid, callback);
+}
+
 void EpollEventManager::onProcessExit(pid_t pid,
                                       ProcessExitCallback* callback,
                                       OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<ProcessExitHandler>(this, pid, callback);
+  signalHandler.onProcessExit(pid, callback, output);
 }
 
 // =======================================================================================
 
 class EpollEventManager::ReadHandler : public AsyncOperation, public IoHandler {
 public:
-  ReadHandler(EpollEventManager* eventManager, int fd, IoCallback* callback)
-      : eventManager(eventManager), fd(fd), callback(callback) {
-    if (!eventManager->readHandlerMap.insert(std::make_pair(fd, this)).second) {
-      throw std::runtime_error("Already waiting for readability on this file descriptor.");
-    }
-  }
-  ~ReadHandler() {
-    eventManager->readHandlerMap.erase(fd);
-  }
+  ReadHandler(Epoller* epoller, int fd, IoCallback* callback)
+      : watch(epoller, fd, EPOLLIN, this), callback(callback) {}
+  ~ReadHandler() {}
 
-  void handle(short pollFlags) {
-    if (pollFlags & POLLIN) {
-      DEBUG_INFO << "FD is readable: " << fd;
-    } else if (pollFlags & POLLERR) {
-      DEBUG_INFO << "FD has error: " << fd;
-    } else if (pollFlags & POLLHUP) {
-      DEBUG_INFO << "FD hung up: " << fd;
-    } else {
-      DEBUG_ERROR << "ReadHandler should only get POLLIN, POLLERR, or POLLHUP events.";
-      return;
-    }
-
+  void handle(uint32_t events) {
+    DEBUG_INFO << "Read ready.";
     callback->ready();
   }
 
 private:
-  EpollEventManager* eventManager;
-  int fd;
+  Epoller::Watch watch;
   IoCallback* callback;
 };
 
 void EpollEventManager::onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<ReadHandler>(this, fd, callback);
+  output->allocateSubclass<ReadHandler>(&epoller, fd, callback);
 }
 
 // =======================================================================================
 
 class EpollEventManager::WriteHandler : public AsyncOperation, public IoHandler {
 public:
-  WriteHandler(EpollEventManager* eventManager, int fd, IoCallback* callback)
-      : eventManager(eventManager), fd(fd), callback(callback) {
-    if (!eventManager->writeHandlerMap.insert(std::make_pair(fd, this)).second) {
-      throw std::runtime_error("Already waiting for writability on this file descriptor.");
-    }
-  }
-  ~WriteHandler() {
-    eventManager->writeHandlerMap.erase(fd);
-  }
+  WriteHandler(Epoller* epoller, int fd, IoCallback* callback)
+      : watch(epoller, fd, EPOLLOUT, this), callback(callback) {}
+  ~WriteHandler() {}
 
-  void handle(short pollFlags) {
-    if (pollFlags & POLLOUT) {
-      DEBUG_INFO << "FD is writable: " << fd;
-    } else if (pollFlags & POLLERR) {
-      DEBUG_INFO << "FD has error: " << fd;
-    } else {
-      DEBUG_ERROR << "WriteHandler should only get POLLOUT or POLLERR events.";
-      return;
-    }
-
+  void handle(uint32_t events) {
+    DEBUG_INFO << "Write ready.";
     callback->ready();
   }
 
 private:
-  EpollEventManager* eventManager;
-  int fd;
+  Epoller::Watch watch;
   IoCallback* callback;
 };
 
 void EpollEventManager::onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<WriteHandler>(this, fd, callback);
+  output->allocateSubclass<WriteHandler>(&epoller, fd, callback);
 }
 
 // =======================================================================================
 
-class EpollEventManager::WatchedDirectory {
+class EpollEventManager::InotifyHandler::WatchedDirectory {
   class CallbackTable : public Table<IndexedColumn<std::string>,
                                      UniqueColumn<WatchOperation*> > {
   public:
@@ -341,18 +401,15 @@ class EpollEventManager::WatchedDirectory {
   };
 
 public:
-  WatchedDirectory(EpollEventManager* eventManager, const std::string& path)
-      : eventManager(eventManager), path(path), currentlyHandling(NULL) {
-    wd = inotify_add_watch(eventManager->inotifyFd, path.c_str(),
-                           IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY | IN_MOVE_SELF |
-                           IN_MOVED_FROM | IN_MOVED_TO);
-    if (wd < 0) {
-      throw OsError(path, "inotify_add_watch", errno);
-    } else {
-      DEBUG_INFO << "inotify_add_watch(" << path << ") [" << wd << "]";
-      eventManager->watchMap[wd] = this;
-      eventManager->watchByNameMap[path] = this;
-    }
+  WatchedDirectory(InotifyHandler* inotifyHandler, const std::string& path)
+      : inotifyHandler(inotifyHandler), path(path), currentlyHandling(NULL) {
+    wd = WRAP_SYSCALL(inotify_add_watch, *inotifyHandler->inotifyStream.getHandle(), path.c_str(),
+                      IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY | IN_MOVE_SELF |
+                      IN_MOVED_FROM | IN_MOVED_TO);
+    DEBUG_INFO << "inotify_add_watch(" << path << ") [" << wd << "]";
+    inotifyHandler->watchMap[wd] = this;
+    inotifyHandler->watchByNameMap[path] = this;
+    inotifyHandler->watch.setExpecting(true);
   }
 
   ~WatchedDirectory() {
@@ -365,7 +422,7 @@ public:
     if (wd >= 0) {
       DEBUG_INFO << "inotify_rm_watch(" << path << ") [" << wd << "]";
 
-      if (inotify_rm_watch(eventManager->inotifyFd, wd) < 0) {
+      if (WRAP_SYSCALL(inotify_rm_watch, *inotifyHandler->inotifyStream.getHandle(), wd) < 0) {
         DEBUG_ERROR << "inotify_rm_watch(" << path << "): " << strerror(errno);
       }
     }
@@ -373,7 +430,11 @@ public:
     invalidate();
 
     // Make sure that if this WatchedDirectory has a pending event, that event is ignored.
-    eventManager->currentlyHandlingWatches.erase(this);
+    inotifyHandler->currentlyHandlingWatches.erase(this);
+
+    if (inotifyHandler->currentlyHandlingWatches.empty()) {
+      inotifyHandler->watch.setExpecting(false);
+    }
   }
 
   void addWatch(const std::string& basename, WatchOperation* op) {
@@ -396,8 +457,8 @@ public:
 
   void invalidate() {
     if (wd >= 0) {
-      eventManager->watchMap.erase(wd);
-      eventManager->watchByNameMap.erase(path);
+      inotifyHandler->watchMap.erase(wd);
+      inotifyHandler->watchByNameMap.erase(path);
       wd = -1;
     }
   }
@@ -405,7 +466,7 @@ public:
   void handle(struct inotify_event* event);
 
 private:
-  EpollEventManager* eventManager;
+  InotifyHandler* inotifyHandler;
   int wd;
   std::string path;
 
@@ -415,7 +476,7 @@ private:
 
   void deleteSelfIfEmpty() {
     if (callbackTable.size() == 0) {
-      eventManager->ownedWatchDirectories.erase(this);
+      inotifyHandler->ownedWatchDirectories.erase(this);
     }
   }
 
@@ -429,9 +490,9 @@ private:
   }
 };
 
-class EpollEventManager::WatchOperation : public AsyncOperation {
+class EpollEventManager::InotifyHandler::WatchOperation : public AsyncOperation {
 public:
-  WatchOperation(EpollEventManager* eventManager, const std::string& filename,
+  WatchOperation(InotifyHandler* inotifyHandler, const std::string& filename,
                  FileChangeCallback* callback)
       : callback(callback), watchedDirectory(NULL), modified(false), deleted(false) {
     // Split directory and basename.
@@ -451,12 +512,12 @@ public:
     }
 
     // Find or create WatchedDirectory object.
-    WatchByNameMap::iterator iter = eventManager->watchByNameMap.find(directory);
-    if (iter == eventManager->watchByNameMap.end()) {
+    WatchByNameMap::iterator iter = inotifyHandler->watchByNameMap.find(directory);
+    if (iter == inotifyHandler->watchByNameMap.end()) {
       OwnedPtr<WatchedDirectory> newWatchedDirectory;
-      newWatchedDirectory.allocate(eventManager, directory);
+      newWatchedDirectory.allocate(inotifyHandler, directory);
       watchedDirectory = newWatchedDirectory.get();
-      eventManager->ownedWatchDirectories.adopt(watchedDirectory, &newWatchedDirectory);
+      inotifyHandler->ownedWatchDirectories.adopt(watchedDirectory, &newWatchedDirectory);
     } else {
       watchedDirectory = iter->second;
     }
@@ -501,7 +562,15 @@ private:
   bool deleted;
 };
 
-void EpollEventManager::WatchedDirectory::handle(struct inotify_event* event) {
+EpollEventManager::InotifyHandler::InotifyHandler(Epoller* epoller)
+    : inotifyStream(WRAP_SYSCALL(inotify_init1, IN_NONBLOCK | IN_CLOEXEC), "inotify"),
+      watch(epoller, inotifyStream.getHandle(), EPOLLIN, this) {
+  watch.setExpecting(false);
+}
+
+EpollEventManager::InotifyHandler::~InotifyHandler() {}
+
+void EpollEventManager::InotifyHandler::WatchedDirectory::handle(struct inotify_event* event) {
   std::string basename;
 
   if (event->len > 0) {
@@ -563,130 +632,125 @@ void EpollEventManager::WatchedDirectory::handle(struct inotify_event* event) {
   deleteSelfIfEmpty();
 }
 
-void EpollEventManager::onFileChange(const std::string& filename, FileChangeCallback* callback,
-                                     OwnedPtr<AsyncOperation>* output) {
+void EpollEventManager::InotifyHandler::handle(uint32_t epollEvents) {
+  char buffer[sizeof(struct inotify_event) + PATH_MAX];
+
+  ssize_t n = inotifyStream.read(buffer, sizeof(buffer));
+
+  char* pos = buffer;
+  char* end = buffer + n;
+
+  // Annoyingly, inotify() provides no way to read a single event at a time.  Unfortunately,
+  // each time we handle an event, any subsequent event could become invalid.  E.g. handling
+  // the first event might cause the watch descriptor for the second event to be unregistered.
+  //
+  // As if that weren't bad enough, any particular event in the stream might indicate that a
+  // particular watch descriptor has been automatically removed because the thing it was watching
+  // no longer exists.  This removal takes place at the time of the read().  So if the second
+  // event in the buffer has the "watch descriptor removed" flag, and then while handling the
+  // *first* event we create a new watch descriptor, that new descriptor may have the same
+  // number as the one associated with the second event THAT WE HAVEN'T EVEN HANDLED YET.
+  //
+  // Therefore, we have to verify carefully make multiple passes over the events, making sure
+  // that we understand exactly what is happening to each descriptor before we call any
+  // callbacks.
+  //
+  // FFFFFFFFFFFFFFFFFFFFFFUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU-
+
+  // First parse all the events.
+  std::vector<std::pair<struct inotify_event*, WatchedDirectory*> > events;
+
+  while (pos < end) {
+    if (end - pos < (signed)sizeof(struct inotify_event)) {
+      DEBUG_ERROR << "read(inotifyFd) returned too few bytes to be an inotify_event.";
+      break;
+    }
+
+    struct inotify_event* event = reinterpret_cast<struct inotify_event*>(pos);
+
+    if (end - pos - sizeof(struct inotify_event) < event->len) {
+      DEBUG_ERROR
+          << "read(inotifyFd) returned inotify_event with 'len' that overruns the buffer.";
+      break;
+    }
+
+    pos += sizeof(struct inotify_event) + event->len;
+
+    DEBUG_INFO << "inotify " << event->wd << ":"
+               << ((event->mask & IN_CREATE     ) ? " IN_CREATE"      : "")
+               << ((event->mask & IN_DELETE     ) ? " IN_DELETE"      : "")
+               << ((event->mask & IN_DELETE_SELF) ? " IN_DELETE_SELF" : "")
+               << ((event->mask & IN_MODIFY     ) ? " IN_MODIFY"      : "")
+               << ((event->mask & IN_MOVE_SELF  ) ? " IN_MOVE_SELF"   : "")
+               << ((event->mask & IN_MOVED_FROM ) ? " IN_MOVED_FROM"  : "")
+               << ((event->mask & IN_MOVED_TO   ) ? " IN_MOVED_TO"    : "");
+
+    WatchMap::iterator iter = watchMap.find(event->wd);
+    if (iter == watchMap.end()) {
+      DEBUG_ERROR << "inotify event had unknown watch descriptor?";
+    } else {
+      events.push_back(std::make_pair(event, iter->second));
+    }
+  }
+
+  // Some events implicitly remove the watch descriptor (because the watched directory no longer
+  // exists).  Such descriptors are now invalid and may be reused the next time
+  // inotify_add_watch() is called.  But, the corresponding WatchedDirectories still have
+  // WatchOperations pointing at them, so we can't just delete them.  So, invalidate them so
+  // that no future WatchOperations will use them.
+  //
+  // inotify has a special kind of event called IN_IGNORED which is supposed to signal that the
+  // watch descriptor was removed, either implicitly or explicitly.  However, in my testing,
+  // this event does not seem to be generated in the case of IN_MOVE_SELF, even though this
+  // case *does* implicitly remove the watch descriptor (which I know because the next call
+  // to inotify_add_watch() typically reuses it).  This appears to be a bug in Linux (observed
+  // in 2.6.35-22-generic).  Will file a bug report if I get time to write a demo program.
+  for (size_t i = 0; i < events.size(); i++) {
+    struct inotify_event* event = events[i].first;
+    WatchedDirectory* watchedDirectory = events[i].second;
+
+    if (event->mask & (IN_DELETE_SELF | IN_MOVE_SELF)) {
+      DEBUG_INFO << "Watch descriptor implicitly removed: " << event->wd;
+      watchedDirectory->invalidate();
+    }
+  }
+
+  // Calling a callback could delete the WatchedDirectory for a subsequent event.  So, record
+  // what objects we're handling.  The destructor for WatchedDirectory will remove the object
+  // from this set if present.
+  currentlyHandlingWatches.clear();
+  for (size_t i = 0; i < events.size(); i++) {
+    currentlyHandlingWatches.insert(events[i].second);
+  }
+
+  // Finally, let's call the callbacks.
+  for (size_t i = 0; i < events.size(); i++) {
+    struct inotify_event* event = events[i].first;
+    WatchedDirectory* watchedDirectory = events[i].second;
+
+    if (currentlyHandlingWatches.count(watchedDirectory) > 0) {
+      watchedDirectory->handle(event);
+    }
+  }
+}
+
+void EpollEventManager::InotifyHandler::onFileChange(
+    const std::string& filename, FileChangeCallback* callback,
+    OwnedPtr<AsyncOperation>* output) {
   output->allocateSubclass<WatchOperation>(this, filename, callback);
 }
 
-void EpollEventManager::handleInotify(short pollFlags) {
-  if (pollFlags & POLLIN) {
-    DEBUG_INFO << "inotify FD is readable";
-  } else if (pollFlags & POLLERR) {
-    DEBUG_INFO << "inotify FD has error";
-  } else if (pollFlags & POLLHUP) {
-    DEBUG_INFO << "inotify FD hung up";
-  } else {
-    DEBUG_ERROR << "handleInotify should only get POLLIN, POLLERR, or POLLHUP events.";
-    return;
-  }
-
-  char buffer[sizeof(struct inotify_event) + PATH_MAX];
-
-  ssize_t n = read(inotifyFd, buffer, sizeof(buffer));
-  if (n < 0) {
-    DEBUG_ERROR << "read(inotifyFd): " << strerror(errno);
-  } else if (n == 0) {
-    DEBUG_ERROR << "read(inotifyFd) returned zero";
-  } else {
-    char* pos = buffer;
-    char* end = buffer + n;
-
-    // Annoyingly, inotify() provides no way to read a single event at a time.  Unfortunately,
-    // each time we handle an event, any subsequent event could become invalid.  E.g. handling
-    // the first event might cause the watch descriptor for the second event to be unregistered.
-    //
-    // As if that weren't bad enough, any particular event in the stream might indicate that a
-    // particular watch descriptor has been automatically removed because the thing it was watching
-    // no longer exists.  This removal takes place at the time of the read().  So if the second
-    // event in the buffer has the "watch descriptor removed" flag, and then while handling the
-    // *first* event we create a new watch descriptor, that new descriptor may have the same
-    // number as the one associated with the second event THAT WE HAVEN'T EVEN HANDLED YET.
-    //
-    // Therefore, we have to verify carefully make multiple passes over the events, making sure
-    // that we understand exactly what is happening to each descriptor before we call any
-    // callbacks.
-    //
-    // FFFFFFFFFFFFFFFFFFFFFFUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU-
-
-    // First parse all the events.
-    std::vector<std::pair<struct inotify_event*, WatchedDirectory*> > events;
-
-    while (pos < end) {
-      if (end - pos < (signed)sizeof(struct inotify_event)) {
-        DEBUG_ERROR << "read(inotifyFd) returned too few bytes to be an inotify_event.";
-        break;
-      }
-
-      struct inotify_event* event = reinterpret_cast<struct inotify_event*>(pos);
-
-      if (end - pos - sizeof(struct inotify_event) < event->len) {
-        DEBUG_ERROR
-            << "read(inotifyFd) returned inotify_event with 'len' that overruns the buffer.";
-        break;
-      }
-
-      pos += sizeof(struct inotify_event) + event->len;
-
-      DEBUG_INFO << "inotify " << event->wd << ":"
-                 << ((event->mask & IN_CREATE     ) ? " IN_CREATE"      : "")
-                 << ((event->mask & IN_DELETE     ) ? " IN_DELETE"      : "")
-                 << ((event->mask & IN_DELETE_SELF) ? " IN_DELETE_SELF" : "")
-                 << ((event->mask & IN_MODIFY     ) ? " IN_MODIFY"      : "")
-                 << ((event->mask & IN_MOVE_SELF  ) ? " IN_MOVE_SELF"   : "")
-                 << ((event->mask & IN_MOVED_FROM ) ? " IN_MOVED_FROM"  : "")
-                 << ((event->mask & IN_MOVED_TO   ) ? " IN_MOVED_TO"    : "");
-
-      WatchMap::iterator iter = watchMap.find(event->wd);
-      if (iter == watchMap.end()) {
-        DEBUG_ERROR << "inotify event had unknown watch descriptor?";
-      } else {
-        events.push_back(std::make_pair(event, iter->second));
-      }
-    }
-
-    // Some events implicitly remove the watch descriptor (because the watched directory no longer
-    // exists).  Such descriptors are now invalid and may be reused the next time
-    // inotify_add_watch() is called.  But, the corresponding WatchedDirectories still have
-    // WatchOperations pointing at them, so we can't just delete them.  So, invalidate them so
-    // that no future WatchOperations will use them.
-    //
-    // inotify has a special kind of event called IN_IGNORED which is supposed to signal that the
-    // watch descriptor was removed, either implicitly or explicitly.  However, in my testing,
-    // this event does not seem to be generated in the case of IN_MOVE_SELF, even though this
-    // case *does* implicitly remove the watch descriptor (which I know because the next call
-    // to inotify_add_watch() typically reuses it).  This appears to be a bug in Linux (observed
-    // in 2.6.35-22-generic).  Will file a bug report if I get time to write a demo program.
-    for (size_t i = 0; i < events.size(); i++) {
-      struct inotify_event* event = events[i].first;
-      WatchedDirectory* watchedDirectory = events[i].second;
-
-      if (event->mask & (IN_DELETE_SELF | IN_MOVE_SELF)) {
-        DEBUG_INFO << "Watch descriptor implicitly removed: " << event->wd;
-        watchedDirectory->invalidate();
-      }
-    }
-
-    // Calling a callback could delete the WatchedDirectory for a subsequent event.  So, record
-    // what objects we're handling.  The destructor for WatchedDirectory will remove the object
-    // from this set if present.
-    currentlyHandlingWatches.clear();
-    for (size_t i = 0; i < events.size(); i++) {
-      currentlyHandlingWatches.insert(events[i].second);
-    }
-
-    // Finally, let's call the callbacks.
-    for (size_t i = 0; i < events.size(); i++) {
-      struct inotify_event* event = events[i].first;
-      WatchedDirectory* watchedDirectory = events[i].second;
-
-      if (currentlyHandlingWatches.count(watchedDirectory) > 0) {
-        watchedDirectory->handle(event);
-      }
-    }
-  }
+void EpollEventManager::onFileChange(
+    const std::string& filename, FileChangeCallback* callback,
+    OwnedPtr<AsyncOperation>* output) {
+  inotifyHandler.onFileChange(filename, callback, output);
 }
 
 // =======================================================================================
+
+EpollEventManager::EpollEventManager()
+  : signalHandler(&epoller), inotifyHandler(&epoller) {}
+EpollEventManager::~EpollEventManager() {}
 
 void EpollEventManager::loop() {
   while (handleEvent()) {}
@@ -702,128 +766,7 @@ bool EpollEventManager::handleEvent() {
     return true;
   }
 
-  int n = readHandlerMap.size() + writeHandlerMap.size() + (watchMap.empty() ? 0 : 1);
-  if (n == 0) {
-    if (processExitHandlerMap.empty()) {
-      DEBUG_INFO << "No more events.";
-      return false;
-    } else {
-      siginfo_t siginfo;
-      DEBUG_INFO << "Waiting for signals...";
-      if (sigWait(&siginfo)) {
-        handleSignal(siginfo);
-      }
-      return true;
-    }
-  }
-
-  DEBUG_INFO << "Waiting for events...";
-
-  std::vector<PollFd> pollFds(n);
-  std::vector<IoHandler*> handlers(n);
-
-  int pos = 0;
-
-  for (std::tr1::unordered_map<int, IoHandler*>::iterator iter = readHandlerMap.begin();
-       iter != readHandlerMap.end(); ++iter) {
-    pollFds[pos].fd = iter->first;
-    pollFds[pos].events = POLLIN;
-    pollFds[pos].revents = 0;
-    handlers[pos] = iter->second;
-    ++pos;
-  }
-
-  for (std::tr1::unordered_map<int, IoHandler*>::iterator iter = writeHandlerMap.begin();
-       iter != writeHandlerMap.end(); ++iter) {
-    pollFds[pos].fd = iter->first;
-    pollFds[pos].events = POLLOUT;
-    pollFds[pos].revents = 0;
-    handlers[pos] = iter->second;
-    ++pos;
-  }
-
-  if (!watchMap.empty()) {
-    pollFds[pos].fd = inotifyFd;
-    pollFds[pos].events = POLLIN;
-    pollFds[pos].revents = 0;
-    handlers[pos] = NULL;
-    ++pos;
-  }
-
-  assert(pos == n);
-
-  siginfo_t siginfo;
-  int result = sigPoll(&pollFds[0], n, -1, &siginfo);
-
-  if (result == SIGPOLL_ERROR) {
-    DEBUG_ERROR << "poll(): " << strerror(errno);
-  } else if (result == SIGPOLL_SIGNALED) {
-    handleSignal(siginfo);
-  } else {
-    for (int i = 0; i < n; i++) {
-      if (pollFds[i].revents != 0) {
-        if (handlers[i] == NULL) {
-          handleInotify(pollFds[i].revents);
-        } else {
-          handlers[i]->handle(pollFds[i].revents);
-        }
-
-        // We can only handle one event at a time because handling that event may have affected
-        // the others, e.g. they may have been canceled / deleted.  And anyway, handleEvent()
-        // claims to only handle one event at a time.
-        break;
-      }
-    }
-  }
-
-  return true;
-}
-
-void EpollEventManager::handleSignal(const siginfo_t& siginfo) {
-  switch (siginfo.si_signo) {
-    case SIGCHLD: {
-      // If multiple signals with the same signal number are delivered while signals are blocked,
-      // only one of them is actually delivered once un-blocked.  The others are cast into the
-      // void.  Therefore, the contents of the siginfo structure are effectively useless for
-      // SIGCHLD.  We must instead call waitpid() repeatedly until there are no more completed
-      // children.  Signals suck so much.
-      while (true) {
-        int waitStatus;
-        pid_t pid = waitpid(-1, &waitStatus, WNOHANG);
-        if (pid < 0) {
-          // ECHILD indicates there are no child processes.  Anything else is a real error.
-          if (errno != ECHILD) {
-            DEBUG_ERROR << "waitpid: " << strerror(errno);
-          }
-          break;
-        } else if (pid == 0) {
-          // There are child processes, but they are still running.
-          break;
-        }
-
-        // Get the handler associated with this PID.
-        std::tr1::unordered_map<pid_t, ProcessExitHandler*>::iterator iter =
-            processExitHandlerMap.find(pid);
-        if (iter == processExitHandlerMap.end()) {
-          // It is actually important that any code creating a subprocess call onProcessExit()
-          // to receive notification of completion even if it doesn't care about completion,
-          // because otherwise the sub-process may be stuck as a zombie.  This is actually
-          // NOT the case with EpollEventManager because it waits on all sub-processes whether
-          // onProcessExit() was called or not, but we should warn if we encounter a process for
-          // which onProcessExit() was never called so that the code can be fixed.
-          DEBUG_ERROR << "Got SIGCHLD for PID we weren't waiting for: " << pid;
-          return;
-        }
-
-        iter->second->handle(waitStatus);
-      }
-      break;
-    }
-
-    default:
-      DEBUG_ERROR << "Unexpected signal number: " << siginfo.si_signo;
-      break;
-  }
+  return epoller.handleEvent();
 }
 
 // =======================================================================================

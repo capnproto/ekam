@@ -83,8 +83,6 @@ void initSignalHandler(int number) {
   action.sa_flags = SA_SIGINFO;
 
   if (number == SIGCHLD) {
-    // The siginfo_t contains all the info we need, so let the child process be reaped
-    // immediately.
     // We only want to know if the child exits, not if it stops.
     action.sa_flags |= SA_NOCLDSTOP;
 
@@ -216,11 +214,14 @@ public:
     }
   }
   ~ProcessExitHandler() {
-    eventManager->processExitHandlerMap.erase(pid);
+    if (pid != -1) eventManager->processExitHandlerMap.erase(pid);
   }
 
   void handle(int waitStatus) {
     DEBUG_INFO << "Process " << pid << " exited with status: " << waitStatus;
+
+    eventManager->processExitHandlerMap.erase(pid);
+    pid = -1;
 
     if (WIFEXITED(waitStatus)) {
       callback->exited(WEXITSTATUS(waitStatus));

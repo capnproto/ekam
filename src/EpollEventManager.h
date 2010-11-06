@@ -41,6 +41,8 @@
 
 #include "EventManager.h"
 #include "OwnedPtr.h"
+#include "OsHandle.h"
+#include "ByteStream.h"
 
 typedef struct pollfd PollFd;
 
@@ -64,31 +66,102 @@ public:
                     OwnedPtr<AsyncOperation>* output);
 
 private:
-  class IoHandler;
-
   class AsyncCallbackHandler;
-  class ProcessExitHandler;
   class ReadHandler;
   class WriteHandler;
-  class WatchedDirectory;
-  class WatchOperation;
+
+  class IoHandler {
+  public:
+    virtual ~IoHandler() {}
+
+    virtual void handle(uint32_t events) = 0;
+  };
+
+  class Epoller {
+  public:
+    Epoller();
+    ~Epoller();
+
+    bool handleEvent();
+
+    class Watch {
+    public:
+      Watch(Epoller* epoller, OsHandle* handle, uint32_t events, IoHandler* handler);
+      Watch(Epoller* epoller, int fd, uint32_t events, IoHandler* handler);
+      ~Watch();
+
+      void setExpecting(bool expecting);
+
+    private:
+      friend class Epoller;
+
+      Epoller* epoller;
+      bool expecting;
+      int fd;
+      std::string name;
+      IoHandler* handler;
+    };
+
+  private:
+    OsHandle epollHandle;
+    int watchCount;
+  };
+
+  class SignalHandler : public IoHandler {
+  public:
+    SignalHandler(Epoller* epoller);
+    ~SignalHandler();
+
+    void onProcessExit(pid_t pid, ProcessExitCallback* callback,
+                       OwnedPtr<AsyncOperation>* output);
+
+    // implements IoHandler --------------------------------------------------------------
+    void handle(uint32_t events);
+
+  private:
+    class ProcessExitHandler;
+
+    ByteStream signalStream;
+    Epoller::Watch watch;
+    std::tr1::unordered_map<pid_t, ProcessExitHandler*> processExitHandlerMap;
+
+    void handleProcessExit();
+    void maybeStopExpecting();
+  };
+
+  class InotifyHandler : public IoHandler {
+  public:
+    InotifyHandler(Epoller* epoller);
+    ~InotifyHandler();
+
+    void onFileChange(const std::string& filename, FileChangeCallback* callback,
+                      OwnedPtr<AsyncOperation>* output);
+
+    // implements IoHandler --------------------------------------------------------------
+    void handle(uint32_t events);
+
+  private:
+    class WatchedDirectory;
+    class WatchOperation;
+
+    ByteStream inotifyStream;
+    Epoller::Watch watch;
+
+    OwnedPtrMap<WatchedDirectory*, WatchedDirectory> ownedWatchDirectories;
+    typedef std::tr1::unordered_map<int, WatchedDirectory*> WatchMap;
+    WatchMap watchMap;
+    typedef std::tr1::unordered_map<std::string, WatchedDirectory*> WatchByNameMap;
+    WatchByNameMap watchByNameMap;
+    std::set<WatchedDirectory*> currentlyHandlingWatches;
+  };
+
+  Epoller epoller;
+  SignalHandler signalHandler;
+  InotifyHandler inotifyHandler;
 
   std::deque<AsyncCallbackHandler*> asyncCallbacks;
-  std::tr1::unordered_map<pid_t, ProcessExitHandler*> processExitHandlerMap;
-  std::tr1::unordered_map<int, IoHandler*> readHandlerMap;
-  std::tr1::unordered_map<int, IoHandler*> writeHandlerMap;
-
-  int inotifyFd;
-  OwnedPtrMap<WatchedDirectory*, WatchedDirectory> ownedWatchDirectories;
-  typedef std::tr1::unordered_map<int, WatchedDirectory*> WatchMap;
-  WatchMap watchMap;
-  typedef std::tr1::unordered_map<std::string, WatchedDirectory*> WatchByNameMap;
-  WatchByNameMap watchByNameMap;
-  std::set<WatchedDirectory*> currentlyHandlingWatches;
 
   bool handleEvent();
-  void handleSignal(const siginfo_t& siginfo);
-  void handleInotify(short pollFlags);
 };
 
 }  // namespace ekam
