@@ -213,7 +213,7 @@ Hash DiskFile::contentHash() {
       hasher.add(buffer, n);
     }
   } catch (const OsError& e) {
-    if (e.getErrorNumber() == ENOENT) {
+    if (e.getErrorNumber() == ENOENT || e.getErrorNumber() == EACCES) {
       return Hash::NULL_HASH;
     }
     throw;
