@@ -465,6 +465,7 @@ void Driver::ActionDriver::reset() {
     }
 
     driver->actionTriggersTable.erase<ActionTriggersTable::FACTORY>(factory);
+    driver->triggers.erase<TriggerTable::FACTORY>(factory);
   }
 
   // Remove all entries in dependencyTable pointing at this action.
@@ -472,6 +473,7 @@ void Driver::ActionDriver::reset() {
 
   provisions.clear();
   providedTags.clear();
+  providedFactories.clear();
   outputs.clear();
 }
 
