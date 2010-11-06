@@ -97,8 +97,11 @@ public:
 
   virtual const char* what() const throw();
 
+  inline int getErrorNumber() const { return errorNumber; }
+
 private:
   std::string description;
+  int errorNumber;
 };
 
 }  // namespace ekam

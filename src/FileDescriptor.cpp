@@ -220,7 +220,8 @@ void Pipe::closeWriteEnd() {
 
 // =======================================================================================
 
-OsError::OsError(const std::string& path, const char* function, int errorNumber) {
+OsError::OsError(const std::string& path, const char* function, int errorNumber)
+    : errorNumber(errorNumber) {
   if (function != NULL && *function != '\0') {
     description.append(function);
     if (!path.empty()) {

@@ -198,18 +198,25 @@ bool DiskFile::isDirectory() {
 
 // File only.
 Hash DiskFile::contentHash() {
-  Hash::Builder hasher;
-  FileDescriptor fd(path, O_RDONLY);
+  try {
+    Hash::Builder hasher;
+    FileDescriptor fd(path, O_RDONLY);
 
-  char buffer[8192];
+    char buffer[8192];
 
-  while (true) {
-    size_t n = fd.read(buffer, sizeof(buffer));
-    if (n == 0) {
-      return hasher.build();
+    while (true) {
+      size_t n = fd.read(buffer, sizeof(buffer));
+      if (n == 0) {
+        return hasher.build();
+      }
+
+      hasher.add(buffer, n);
     }
-
-    hasher.add(buffer, n);
+  } catch (const OsError& e) {
+    if (e.getErrorNumber() == ENOENT) {
+      return Hash::NULL_HASH;
+    }
+    throw;
   }
 }
 
