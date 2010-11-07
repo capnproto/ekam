@@ -42,9 +42,17 @@ if test "$INTERCEPTOR" = ""; then
   exit 1
 fi
 
+echo findProvider file:google/protobuf/compiler/main
+read PROTOC
+
+if test "$PROTOC" = ""; then
+  echo "error:  couldn't find protoc." >&2
+  exit 1
+fi
+
 # TODO:  Use protoc build from the source tree, if any.
 LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
-protoc -I"$SOURCE_ROOT" -I/ekam-provider/protobuf --cpp_out="$SOURCE_ROOT" "$INPUT" 3>&1 4<&0 >&2
+$PROTOC -I"$SOURCE_ROOT" -I/ekam-provider/protobuf --cpp_out="$SOURCE_ROOT" "$INPUT" 3>&1 4<&0 >&2
 
 echo findInput $INPUT
 read INPUT_DISK_PATH
