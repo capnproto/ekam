@@ -59,12 +59,33 @@ std::string splitToken(std::string* line) {
 
 // =======================================================================================
 
+class PluginDerivedActionFactory : public ActionFactory {
+public:
+  PluginDerivedActionFactory(OwnedPtr<File>* executableToAdopt,
+                             std::string* verbToAdopt,
+                             std::vector<Tag>* triggersToAdopt);
+  ~PluginDerivedActionFactory();
+
+  // implements ActionFactory -----------------------------------------------------------
+  void enumerateTriggerTags(std::back_insert_iterator<std::vector<Tag> > iter);
+  bool tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output);
+
+private:
+  OwnedPtr<File> executable;
+  std::string verb;
+  std::vector<Tag> triggers;
+};
+
+// =======================================================================================
+
 class PluginDerivedAction : public Action {
 public:
   PluginDerivedAction(File* executable, const std::string& verb, File* file)
       : verb(verb) {
     executable->clone(&this->executable);
-    file->clone(&this->file);
+    if (file != NULL) {
+      file->clone(&this->file);
+    }
   }
   ~PluginDerivedAction() {}
 
@@ -78,19 +99,27 @@ private:
 
   OwnedPtr<File> executable;
   std::string verb;
-  OwnedPtr<File> file;
+  OwnedPtr<File> file;  // nullable
 };
 
 class PluginDerivedAction::CommandReader : public LineReader::Callback {
 public:
-  CommandReader(BuildContext* context, OwnedPtr<ByteStream>* responseStreamToAdopt, File* input)
+  CommandReader(BuildContext* context, OwnedPtr<ByteStream>* responseStreamToAdopt,
+                File* executable, File* input)
       : context(context), lineReader(this) {
     responseStream.adopt(responseStreamToAdopt);
-    input->clone(&this->input);
 
-    OwnedPtr<File> inputClone;
-    input->clone(&inputClone);
-    knownFiles.adopt(input->canonicalName(), &inputClone);
+    if (input != NULL) {
+      input->clone(&this->input);
+
+      OwnedPtr<File> inputClone;
+      input->clone(&inputClone);
+      knownFiles.adopt(input->canonicalName(), &inputClone);
+    }
+
+    executable->clone(&this->executable);
+    std::string junk;
+    splitExtension(executable->basename(), &verb, &junk);
   }
   ~CommandReader() {}
 
@@ -105,11 +134,15 @@ public:
     std::string args = line;
     std::string command = splitToken(&args);
 
-    if (command == "findProvider" || command == "findInput") {
+    if (command == "verb") {
+      verb = args;
+    } else if (command == "trigger") {
+      triggers.push_back(Tag::fromName(args));
+    } else if (command == "findProvider" || command == "findInput") {
       File* provider;
       if (command == "findProvider") {
         provider = context->findProvider(Tag::fromName(args));
-      } else if (args == input->canonicalName()) {
+      } else if (input != NULL && args == input->canonicalName()) {
         provider = input.get();
       } else if (findInCache("newOutput " + args)) {
         // File was originally created by this action.  findInCache() already wrote the path,
@@ -188,6 +221,11 @@ public:
     if (!tags.empty()) {
       context->provide(currentFile, tags);
     }
+
+    // Also register new triggers.
+    OwnedPtr<ActionFactory> newFactory;
+    newFactory.allocateSubclass<PluginDerivedActionFactory>(&executable, &verb, &triggers);
+    context->addActionType(&newFactory);
   }
 
   void error(int number) {
@@ -197,9 +235,13 @@ public:
 
 private:
   BuildContext* context;
-  OwnedPtr<File> input;
+  OwnedPtr<File> executable;
+  OwnedPtr<File> input;  // nullable
   OwnedPtr<ByteStream> responseStream;
   LineReader lineReader;
+
+  std::string verb;
+  std::vector<Tag> triggers;
 
   OwnedPtrMap<std::string, File> knownFiles;
 
@@ -229,7 +271,9 @@ public:
   Process(EventManager* eventManager, BuildContext* context, File* executable, File* input)
       : context(context) {
     subprocess.addArgument(executable, File::READ);
-    subprocess.addArgument(input->canonicalName());
+    if (input != NULL) {
+      subprocess.addArgument(input->canonicalName());
+    }
 
     OwnedPtr<ByteStream> responseStream;
     subprocess.captureStdin(&responseStream);
@@ -237,7 +281,7 @@ public:
     subprocess.captureStderr(&logStream);
     subprocess.start(eventManager, this);
 
-    commandReader.allocate(context, &responseStream, input);
+    commandReader.allocate(context, &responseStream, executable, input);
     commandStream->readAll(eventManager, commandReader->asReadAllCallback(), &commandOp);
 
     logger.allocate(context);
@@ -273,147 +317,26 @@ void PluginDerivedAction::start(EventManager* eventManager, BuildContext* contex
   output->allocateSubclass<Process>(eventManager, context, executable.get(), file.get());
 }
 
-class PluginDerivedActionFactory : public ActionFactory {
-public:
-  PluginDerivedActionFactory(OwnedPtr<File>* executableToAdopt,
-                             std::string* verbToAdopt,
-                             std::vector<Tag>* triggersToAdopt) {
-    executable.adopt(executableToAdopt);
-    verb.swap(*verbToAdopt);
-    triggers.swap(*triggersToAdopt);
-  }
-  ~PluginDerivedActionFactory() {}
-
-  // implements ActionFactory -----------------------------------------------------------
-  void enumerateTriggerTags(std::back_insert_iterator<std::vector<Tag> > iter) {
-    for (unsigned int i = 0; i < triggers.size(); i++) {
-      *iter++ = triggers[i];
-    }
-  }
-  bool tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output) {
-    output->allocateSubclass<PluginDerivedAction>(executable.get(), verb, file);
-    return true;
-  }
-
-private:
-  OwnedPtr<File> executable;
-  std::string verb;
-  std::vector<Tag> triggers;
-};
-
 // =======================================================================================
 
-class QueryRuleAction : public Action {
-public:
-  QueryRuleAction(File* file) {
-    file->clone(&this->file);
+PluginDerivedActionFactory::PluginDerivedActionFactory(OwnedPtr<File>* executableToAdopt,
+                                                       std::string* verbToAdopt,
+                                                       std::vector<Tag>* triggersToAdopt) {
+  executable.adopt(executableToAdopt);
+  verb.swap(*verbToAdopt);
+  triggers.swap(*triggersToAdopt);
+}
+PluginDerivedActionFactory::~PluginDerivedActionFactory() {}
+
+void PluginDerivedActionFactory::enumerateTriggerTags(
+    std::back_insert_iterator<std::vector<Tag> > iter) {
+  for (unsigned int i = 0; i < triggers.size(); i++) {
+    *iter++ = triggers[i];
   }
-  ~QueryRuleAction() {}
-
-  // implements Action -------------------------------------------------------------------
-  std::string getVerb() { return "learn"; }
-  void start(EventManager* eventManager, BuildContext* context, OwnedPtr<AsyncOperation>* output);
-
-private:
-  class Process;
-  class CommandReader;
-
-  OwnedPtr<File> file;
-};
-
-class QueryRuleAction::CommandReader : public LineReader::Callback {
-public:
-  CommandReader(BuildContext* context, File* executable)
-      : context(context), lineReader(this) {
-    executable->clone(&this->executable);
-
-    std::string junk;
-    splitExtension(executable->basename(), &verb, &junk);
-  }
-  ~CommandReader() {}
-
-  ByteStream::ReadAllCallback* asReadAllCallback() {
-    return &lineReader;
-  }
-
-  // implements LineReader::Callback -----------------------------------------------------
-  void consume(const std::string& line) {
-    std::string args = line;
-    std::string command = splitToken(&args);
-
-    if (command == "verb") {
-      verb = args;
-    } else if (command == "trigger") {
-      triggers.push_back(Tag::fromName(args));
-    } else {
-      context->log("invalid command: " + command);
-      context->failed();
-    }
-  }
-
-  void eof() {
-    OwnedPtr<ActionFactory> newFactory;
-    newFactory.allocateSubclass<PluginDerivedActionFactory>(&executable, &verb, &triggers);
-    context->addActionType(&newFactory);
-  }
-
-  void error(int number) {
-    context->log("read(command pipe): " + std::string(strerror(number)));
-    context->failed();
-  }
-
-private:
-  BuildContext* context;
-  OwnedPtr<File> executable;
-  LineReader lineReader;
-  std::string verb;
-  std::vector<Tag> triggers;
-};
-
-class QueryRuleAction::Process : public AsyncOperation, public EventManager::ProcessExitCallback {
-public:
-  Process(EventManager* eventManager, BuildContext* context, File* executable)
-      : context(context) {
-    subprocess.addArgument(executable, File::READ);
-
-    subprocess.captureStdout(&commandStream);
-    subprocess.captureStderr(&logStream);
-    subprocess.start(eventManager, this);
-
-    commandReader.allocate(context, executable);
-    commandStream->readAll(eventManager, commandReader->asReadAllCallback(), &commandOp);
-
-    logger.allocate(context);
-    logStream->readAll(eventManager, logger.get(), &logOp);
-  }
-  ~Process() {}
-
-  // implements ProcessExitCallback ------------------------------------------------------
-  void exited(int exitCode) {
-    if (exitCode != 0) {
-      context->failed();
-    }
-  }
-  void signaled(int signalNumber) {
-    context->failed();
-  }
-
-private:
-  BuildContext* context;
-  Subprocess subprocess;
-
-  OwnedPtr<ByteStream> commandStream;
-  OwnedPtr<CommandReader> commandReader;
-  OwnedPtr<AsyncOperation> commandOp;
-
-  OwnedPtr<ByteStream> logStream;
-  OwnedPtr<Logger> logger;
-  OwnedPtr<AsyncOperation> logOp;
-};
-
-void QueryRuleAction::start(EventManager* eventManager, BuildContext* context,
-                            OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<Process>(eventManager, context, file.get());
+}
+bool PluginDerivedActionFactory::tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output) {
+  output->allocateSubclass<PluginDerivedAction>(executable.get(), verb, file);
+  return true;
 }
 
 // =======================================================================================
@@ -430,7 +353,7 @@ void ExecPluginActionFactory::enumerateTriggerTags(
 
 bool ExecPluginActionFactory::tryMakeAction(
     const Tag& id, File* file, OwnedPtr<Action>* output) {
-  output->allocateSubclass<QueryRuleAction>(file);
+  output->allocateSubclass<PluginDerivedAction>(file, "learn", (File*)NULL);
   return true;
 }
 

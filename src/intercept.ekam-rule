@@ -1,20 +1,11 @@
 #! /bin/sh
 
 # This is a one-off rule that builds intercept.so from intercept.c.
-# TODO:  Improve Ekam's support for one-off rules.  Currently this will try to build *any*
-#   file called intercept.c.
 
 set -eu
 
-if test $# = 0; then
-  # Ekam is querying the script.
-  echo verb compile-special
-  echo trigger file:intercept.c
-  exit 0
-fi
-
-INPUT=$1
-echo findInput $INPUT
+INPUT=intercept.c
+echo findProvider file:intercept.c
 read INPUT_DISK_PATH
 
 OUTPUT="${INPUT%.c}.so"
