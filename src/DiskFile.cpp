@@ -351,4 +351,17 @@ void DiskFile::createDirectory() {
   }
 }
 
+void DiskFile::link(File* target) {
+  DiskFile* diskTarget = dynamic_cast<DiskFile*>(target);
+  if (diskTarget == NULL) {
+    throw new std::invalid_argument("Cannot link disk file to non-disk file: " + path);
+  }
+
+  WRAP_SYSCALL(link, diskTarget->path.c_str(), path.c_str());
+}
+
+void DiskFile::unlink() {
+  WRAP_SYSCALL(unlink, path.c_str());
+}
+
 }  // namespace ekam

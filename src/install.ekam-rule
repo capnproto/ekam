@@ -1,0 +1,38 @@
+#! /bin/sh
+
+set -eu
+
+if test $# = 0; then
+  # Ekam is querying the script.  Tell it that we like C++ source files.
+  echo trigger filetype:.ekam-manifest
+  exit 0
+fi
+
+INPUT=$1
+
+echo findProvider file:$INPUT
+read INPUT_DISK_PATH
+
+exec 3<$INPUT_DISK_PATH
+
+DIRNAME=$(dirname $INPUT)
+
+while read FILE TARGET <&3; do
+  FILE=$DIRNAME/$FILE
+  echo findInput $FILE
+  read FILE_DISK_PATH
+  
+  if test "$FILE_DISK_PATH" = ""; then
+    echo "$FILE: not found" >&2
+    exit 1
+  fi
+
+  case $TARGET in
+    */* )
+      echo install $FILE $TARGET
+      ;;
+    * )
+      echo install $FILE $TARGET/$(basename $FILE)
+      ;;
+  esac
+done

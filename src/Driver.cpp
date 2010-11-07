@@ -79,6 +79,7 @@ public:
   File* findInput(const std::string& path);
 
   void provide(File* file, const std::vector<Tag>& tags);
+  void install(File* file, InstallLocation location, const std::string& name);
   void log(const std::string& text);
 
   void newOutput(const std::string& path, OwnedPtr<File>* output);
@@ -156,6 +157,13 @@ private:
 
   OwnedPtrVector<File> outputs;
 
+  struct Installation {
+    File* file;
+    InstallLocation location;
+    std::string name;
+  };
+  std::vector<Installation> installations;
+
   OwnedPtrVector<Provision> provisions;
   OwnedPtrVector<std::vector<Tag> > providedTags;
   OwnedPtrVector<ActionFactory> providedFactories;
@@ -165,6 +173,7 @@ private:
   void returned();
   void reset();
   Provision* choosePreferredProvider(const Tag& tag);
+  File* provideInternal(File* file, const std::vector<Tag>& tags);
 
   friend class Driver;
 };
@@ -189,6 +198,7 @@ void Driver::ActionDriver::start() {
   assert(!driver->dependencyTable.has<DependencyTable::ACTION>(this));
   assert(outputs.empty());
   assert(provisions.empty());
+  assert(installations.empty());
   assert(providedFactories.empty());
   assert(!isRunning);
 
@@ -221,6 +231,10 @@ File* Driver::ActionDriver::findInput(const std::string& path) {
 }
 
 void Driver::ActionDriver::provide(File* file, const std::vector<Tag>& tags) {
+  provideInternal(file, tags);
+}
+
+File* Driver::ActionDriver::provideInternal(File* file, const std::vector<Tag>& tags) {
   ensureRunning();
 
   // Find existing provision for this file, if any.
@@ -246,6 +260,21 @@ void Driver::ActionDriver::provide(File* file, const std::vector<Tag>& tags) {
   }
 
   file->clone(&provision->file);
+  return provision->file.get();
+}
+
+void Driver::ActionDriver::install(File* file, InstallLocation location, const std::string& name) {
+  ensureRunning();
+
+  std::string tagName(INSTALL_LOCATION_NAMES[location]);
+  tagName.push_back(':');
+  tagName.append(name);
+  std::vector<Tag> tags;
+  tags.push_back(Tag::fromName(tagName));
+  File* ownedFile = provideInternal(file, tags);
+
+  Installation installation = { ownedFile, location, name };
+  installations.push_back(installation);
 }
 
 void Driver::ActionDriver::log(const std::string& text) {
@@ -362,6 +391,7 @@ void Driver::ActionDriver::returned() {
   if (state == FAILED) {
     // Failed, possibly due to missing dependencies.
     provisions.clear();
+    installations.clear();
     providedTags.clear();
     providedFactories.clear();
     outputs.clear();
@@ -391,6 +421,27 @@ void Driver::ActionDriver::returned() {
     for (int i = 0; i < providedFactories.size(); i++) {
       driver->addActionFactory(providedFactories.get(i));
       driver->rescanForNewFactory(providedFactories.get(i));
+    }
+
+    // Install files.
+    for (size_t i = 0; i < installations.size(); i++) {
+      OwnedPtr<File> target;
+
+      File* installDir = driver->installDirs[installations[i].location];
+      installDir->relative(installations[i].name, &target);
+      if (target->exists()) {
+        target->unlink();
+      } else {
+        if (!installDir->isDirectory()) {
+          // Can't rely on recursivelyCreateDirectory() for the root directory because it will
+          // call parent() on it which will throw.
+          installDir->createDirectory();
+        }
+        OwnedPtr<File> parent;
+        target->parent(&parent);
+        recursivelyCreateDirectory(parent.get());
+      }
+      target->link(installations[i].file);
     }
   }
 }
@@ -472,6 +523,7 @@ void Driver::ActionDriver::reset() {
   driver->dependencyTable.erase<DependencyTable::ACTION>(this);
 
   provisions.clear();
+  installations.clear();
   providedTags.clear();
   providedFactories.clear();
   outputs.clear();
@@ -535,11 +587,15 @@ Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const Tag& tag)
 // =======================================================================================
 
 Driver::Driver(EventManager* eventManager, Dashboard* dashboard, File* tmp,
-               int maxConcurrentActions)
+               File* installDirs[BuildContext::INSTALL_LOCATION_COUNT], int maxConcurrentActions)
     : eventManager(eventManager), dashboard(dashboard), tmp(tmp),
       maxConcurrentActions(maxConcurrentActions) {
-  if (!tmp->exists()) {
+  if (!tmp->isDirectory()) {
     tmp->createDirectory();
+  }
+
+  for (int i = 0; i < BuildContext::INSTALL_LOCATION_COUNT; i++) {
+    this->installDirs[i] = installDirs[i];
   }
 }
 

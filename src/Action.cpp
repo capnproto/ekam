@@ -37,4 +37,9 @@ BuildContext::~BuildContext() {}
 Action::~Action() {}
 ActionFactory::~ActionFactory() {}
 
+const int BuildContext::INSTALL_LOCATION_COUNT;
+const char* const BuildContext::INSTALL_LOCATION_NAMES[INSTALL_LOCATION_COUNT] = {
+  "bin", "lib"
+};
+
 }  // namespace ekam

@@ -363,6 +363,9 @@ int main(int argc, char* argv[]) {
 
   DiskFile src("src", NULL);
   DiskFile tmp("tmp", NULL);
+  DiskFile bin("bin", NULL);
+  DiskFile lib("lib", NULL);
+  File* installDirs[BuildContext::INSTALL_LOCATION_COUNT] = { &bin, &lib };
 
   OwnedPtr<Dashboard> dashboard;
   if (isatty(STDOUT_FILENO)) {
@@ -374,7 +377,7 @@ int main(int argc, char* argv[]) {
   OwnedPtr<RunnableEventManager> eventManager;
   newPreferredEventManager(&eventManager);
 
-  Driver driver(eventManager.get(), dashboard.get(), &tmp, maxConcurrentActions);
+  Driver driver(eventManager.get(), dashboard.get(), &tmp, installDirs, maxConcurrentActions);
 
   ExtractTypeActionFactory extractTypeActionFactcory;
   driver.addActionFactory(&extractTypeActionFactcory);

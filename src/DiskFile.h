@@ -65,7 +65,11 @@ public:
   // Directory only.
   void list(OwnedPtrVector<File>::Appender output);
   void relative(const std::string& path, OwnedPtr<File>* output);
+
+  // Methods that create or delete objects.
   void createDirectory();
+  void link(File* target);
+  void unlink();
 
 private:
   class DiskRefImpl;

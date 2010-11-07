@@ -93,7 +93,11 @@ public:
   // Directory only.
   virtual void list(OwnedPtrVector<File>::Appender output) = 0;
   virtual void relative(const std::string& path, OwnedPtr<File>* output) = 0;
+
+  // Methods that create or delete objects.
   virtual void createDirectory() = 0;
+  virtual void link(File* target) = 0;
+  virtual void unlink() = 0;
 };
 
 void splitExtension(const std::string& name, std::string* base, std::string* ext);

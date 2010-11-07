@@ -197,6 +197,41 @@ public:
       } else {
         provisions.insert(std::make_pair(file, Tag::fromName(args)));
       }
+    } else if (command == "install") {
+      std::string filename = splitToken(&args);
+      File* file = knownFiles.get(filename);
+
+      if (file == NULL) {
+        context->log("File passed to \"install\" not created with \"newOutput\" nor noted as an "
+                     "input: " + filename + "\n");
+        context->failed();
+      } else {
+        std::string::size_type slashPos = args.find_first_of('/');
+        if (slashPos == std::string::npos || slashPos == args.size() - 1) {
+          context->log("invalid install location: " + args);
+          context->failed();
+        } else {
+          std::string targetDir(args, 0, slashPos);
+          std::string name(args, slashPos + 1);
+
+          bool matched = false;
+          BuildContext::InstallLocation location;
+
+          for (int i = 0; i < BuildContext::INSTALL_LOCATION_COUNT; i++) {
+            if (targetDir == BuildContext::INSTALL_LOCATION_NAMES[i]) {
+              location = static_cast<BuildContext::InstallLocation>(i);
+              matched = true;
+              break;
+            }
+          }
+
+          if (matched) {
+            context->install(file, location, name);
+          } else {
+            context->log("invalid install location: " + args);
+          }
+        }
+      }
     } else if (command == "passed") {
       context->passed();
     } else {

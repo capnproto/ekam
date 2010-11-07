@@ -47,7 +47,7 @@ namespace ekam {
 class Driver {
 public:
   Driver(EventManager* eventManager, Dashboard* dashboard, File* tmp,
-         int maxConcurrentActions);
+         File* installDirs[BuildContext::INSTALL_LOCATION_COUNT], int maxConcurrentActions);
   ~Driver();
 
   void addActionFactory(ActionFactory* factory);
@@ -62,6 +62,7 @@ private:
   Dashboard* dashboard;
 
   File* tmp;
+  File* installDirs[BuildContext::INSTALL_LOCATION_COUNT];
 
   int maxConcurrentActions;
 

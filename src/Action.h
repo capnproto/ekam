@@ -59,7 +59,16 @@ public:
   virtual File* findProvider(Tag id) = 0;
   virtual File* findInput(const std::string& path) = 0;
 
+  enum InstallLocation {
+    BIN,
+    LIB
+  };
+  static const int INSTALL_LOCATION_COUNT = 2;
+
+  static const char* const INSTALL_LOCATION_NAMES[INSTALL_LOCATION_COUNT];
+
   virtual void provide(File* file, const std::vector<Tag>& tags) = 0;
+  virtual void install(File* file, InstallLocation location, const std::string& name) = 0;
   virtual void log(const std::string& text) = 0;
 
   virtual void newOutput(const std::string& path, OwnedPtr<File>* output) = 0;
