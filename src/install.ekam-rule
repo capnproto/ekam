@@ -29,10 +29,10 @@ while read FILE TARGET <&3; do
 
   case $TARGET in
     */* )
-      echo install $FILE $TARGET
+      echo install $FILE_DISK_PATH $TARGET
       ;;
     * )
-      echo install $FILE $TARGET/$(basename $FILE)
+      echo install $FILE_DISK_PATH $TARGET/$(basename $FILE)
       ;;
   esac
 done

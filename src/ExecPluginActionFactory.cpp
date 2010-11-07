@@ -150,12 +150,6 @@ public:
         return;
       } else {
         provider = context->findInput(args);
-
-        if (provider != NULL) {
-          OwnedPtr<File> fileClone;
-          provider->clone(&fileClone);
-          knownFiles.adopt(provider->canonicalName(), &fileClone);
-        }
       }
       if (provider != NULL) {
         OwnedPtr<File::DiskRef> diskRef;
@@ -164,6 +158,10 @@ public:
         cache.insert(std::make_pair(line, diskRef.get()));
         diskRefs.adoptBack(&diskRef);
         responseStream->writeAll(path.data(), path.size());
+
+        OwnedPtr<File> fileClone;
+        provider->clone(&fileClone);
+        knownFiles.adopt(path, &fileClone);
       }
       responseStream->writeAll("\n", 1);
     } else if (command == "newProvider") {
@@ -183,7 +181,7 @@ public:
 
       cache.insert(std::make_pair(line, diskRef.get()));
       diskRefs.adoptBack(&diskRef);
-      knownFiles.adopt(args, &file);
+      knownFiles.adopt(path, &file);
 
       responseStream->writeAll(path.data(), path.size());
       responseStream->writeAll("\n", 1);

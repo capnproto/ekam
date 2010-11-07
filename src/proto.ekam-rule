@@ -46,4 +46,7 @@ fi
 LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
 protoc -I"$SOURCE_ROOT" -I/ekam-provider/protobuf --cpp_out="$SOURCE_ROOT" "$INPUT" 3>&1 4<&0 >&2
 
-echo provide "$INPUT" protobuf:"$PROTO_NAME"
+echo findInput $INPUT
+read INPUT_DISK_PATH
+
+echo provide "$INPUT_DISK_PATH" protobuf:"$PROTO_NAME"

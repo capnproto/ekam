@@ -18,4 +18,4 @@ else
   gcc -g -shared -Wall -fPIC -o "$OUTPUT_DISK_PATH" "$INPUT_DISK_PATH"
 fi
 
-echo provide $OUTPUT special:ekam-interceptor
+echo provide $OUTPUT_DISK_PATH special:ekam-interceptor

@@ -80,7 +80,7 @@ readsyms() {
 readsyms U < $SYMFILE > $DEPFILE
 
 # Tell Ekam about the symbols provided by this file.
-readsyms ABCDGRSTV "provide $OUTPUT c++symbol:" < $SYMFILE
+readsyms ABCDGRSTV "provide $OUTPUT_DISK_PATH c++symbol:" < $SYMFILE
 
 # ========================================================================================
 # Detect gtest-based tests and test support while we're here.
@@ -88,13 +88,13 @@ readsyms ABCDGRSTV "provide $OUTPUT c++symbol:" < $SYMFILE
 
 case $(basename $OUTPUT) in
   gtest_main.o )
-    echo provide "$OUTPUT" gtest:main
+    echo provide "$OUTPUT_DISK_PATH" gtest:main
     ;;
   *_test.o | *_unittest.o | *_regtest.o )
     # Is this a gtest test that needs to link against gtest_main?
     if grep -q 7testing8internal23MakeAndRegisterTestInfo $DEPFILE && \
        ! egrep -q '[^U] _?main$' $SYMFILE; then
-	    echo provide "$OUTPUT" gtest:test
+	    echo provide "$OUTPUT_DISK_PATH" gtest:test
     fi
     ;;
 esac
