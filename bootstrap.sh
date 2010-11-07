@@ -33,7 +33,7 @@
 echo "This script builds a basic Ekam binary using a single massive compiler"
 echo "invocation, then rebuilds Ekam using Ekam itself."
 
-SOURCES=`ls src/*.cpp | grep -v KqueueEventManager | grep -v _test`
+SOURCES=`ls src/*.cpp | grep -v KqueueEventManager | grep -v EpollEventManager | grep -v _test`
 
 set -e
 
@@ -57,9 +57,12 @@ echo \$ ./bootstrap-ekam -j4
 
 echo "*************************************************"
 if test -e tmp/ekam; then
-  echo "SUCCESS: output is at: tmp/ekam"
+  echo "SUCCESS: output is at: bin/ekam"
+  echo "IGNORE ALL ERRORS ABOVE in KqueueEventManager or EpollEventManager."
+  echo "One or both of these is expected to fail depending on your OS."
 	rm bootstrap-ekam
 else
   echo "FAILED"
   exit 1
 fi
+echo "*************************************************"
