@@ -379,15 +379,15 @@ WRAP(FILE*, freopen, (const char* path, const char* mode, FILE* file), (path, mo
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
 
 /* Called by access(), below. */
-static int direct_stat64(const char* path, struct stat64* sb) {
-  static stat64_t* real_stat64 = NULL;
+static int direct_stat(const char* path, struct stat* sb) {
+  static stat_t* real_stat = NULL;
 
-  if (real_stat64 == NULL) {
-    real_stat64 = (stat64_t*) dlsym(RTLD_NEXT, "stat64");
-    assert(real_stat64 != NULL);
+  if (real_stat == NULL) {
+    real_stat = (stat_t*) dlsym(RTLD_NEXT, "stat");
+    assert(real_stat != NULL);
   }
 
-  return real_stat64(path, sb);
+  return real_stat(path, sb);
 }
 
 #elif defined(__linux__)
@@ -408,15 +408,15 @@ WRAP(FILE*, freopen64, (const char* path, const char* mode, FILE* file), (path, 
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
 
 /* Called by access(), below. */
-static int direct_stat64(const char* path, struct stat64* sb) {
-  static __xstat64_t* real_xstat64 = NULL;
+static int direct_stat(const char* path, struct stat* sb) {
+  static __xstat_t* real_xstat = NULL;
 
-  if (real_xstat64 == NULL) {
-    real_xstat64 = (__xstat64_t*) dlsym(RTLD_NEXT, "__xstat64");
-    assert(real_xstat64 != NULL);
+  if (real_xstat == NULL) {
+    real_xstat = (__xstat_t*) dlsym(RTLD_NEXT, "__xstat");
+    assert(real_xstat != NULL);
   }
 
-  return real_xstat64(_STAT_VER, path, sb);
+  return real_xstat(_STAT_VER, path, sb);
 }
 
 #else
@@ -425,15 +425,15 @@ WRAP(int, stat, (const char* path, struct stat* sb), (path, sb), READ, -1)
 WRAP(int, lstat, (const char* path, struct stat* sb), (path, sb), READ, -1)
 
 /* Called by access(), below. */
-static int direct_stat64(const char* path, struct stat64* sb) {
-  static stat64_t* real_stat64 = NULL;
+static int direct_stat(const char* path, struct stat* sb) {
+  static stat_t* real_stat = NULL;
 
-  if (real_stat64 == NULL) {
-    real_stat64 = (stat64_t*) dlsym(RTLD_NEXT, "stat64");
-    assert(real_stat64 != NULL);
+  if (real_stat == NULL) {
+    real_stat = (stat_t*) dlsym(RTLD_NEXT, "stat");
+    assert(real_stat != NULL);
   }
 
-  return real_stat64(path, sb);
+  return real_stat(path, sb);
 }
 
 #endif  /* platform */
@@ -616,13 +616,13 @@ int access(const char* path, int mode) {
     }
 
     strcat(buffer, path);
-    if (direct_stat64(buffer, &stats) == 0 && S_ISDIR(stats.st_mode)) {
+    if (direct_stat(buffer, &stats) == 0 && S_ISDIR(stats.st_mode)) {
       /* Directory exists in src. */
       return 0;
     }
 
     memcpy(buffer, "tmp", 3);
-    if (direct_stat64(buffer, &stats) == 0 && S_ISDIR(stats.st_mode)) {
+    if (direct_stat(buffer, &stats) == 0 && S_ISDIR(stats.st_mode)) {
       /* Directory exists in tmp. */
       return 0;
     }
