@@ -600,7 +600,7 @@ typedef int access_t(const char* path, int mode);
 int access(const char* path, int mode) {
   static access_t* real_access = NULL;
   char buffer[PATH_MAX];
-  struct stat64 stats;
+  struct stat stats;
 
   if (real_access == NULL) {
     real_access = (access_t*) dlsym(RTLD_NEXT, "access");
