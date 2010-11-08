@@ -36,6 +36,7 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "Driver.h"
 #include "Debug.h"
@@ -319,12 +320,15 @@ void scanSourceTree(File* src, Driver* driver) {
 }
 
 int main(int argc, char* argv[]) {
+  signal(SIGPIPE, SIG_IGN);
+
   const char* command = argv[0];
   int maxConcurrentActions = 1;
   bool continuous = false;
+  std::string networkDashboardAddress;
 
   while (true) {
-    int opt = getopt(argc, argv, "chvj:");
+    int opt = getopt(argc, argv, "chvj:n:");
     if (opt == -1) break;
 
     switch (opt) {
@@ -345,6 +349,9 @@ int main(int argc, char* argv[]) {
         return 0;
       case 'c':
         continuous = true;
+        break;
+      case 'n':
+        networkDashboardAddress = optarg;
         break;
       default:
         usage(command, stderr);
@@ -367,15 +374,18 @@ int main(int argc, char* argv[]) {
   DiskFile lib("lib", NULL);
   File* installDirs[BuildContext::INSTALL_LOCATION_COUNT] = { &bin, &lib };
 
+  OwnedPtr<RunnableEventManager> eventManager;
+  newPreferredEventManager(&eventManager);
+
   OwnedPtr<Dashboard> dashboard;
   if (isatty(STDOUT_FILENO)) {
     dashboard.allocateSubclass<ConsoleDashboard>(stdout);
   } else {
     dashboard.allocateSubclass<SimpleDashboard>(stdout);
   }
-
-  OwnedPtr<RunnableEventManager> eventManager;
-  newPreferredEventManager(&eventManager);
+  if (!networkDashboardAddress.empty()) {
+    initNetworkDashboard(eventManager.get(), networkDashboardAddress, &dashboard);
+  }
 
   Driver driver(eventManager.get(), dashboard.get(), &tmp, installDirs, maxConcurrentActions);
 
@@ -429,5 +439,5 @@ int main(int argc, char* argv[]) {
 }  // namespace ekam
 
 int main(int argc, char* argv[]) {
-  ekam::main(argc, argv);
+  return ekam::main(argc, argv);
 }

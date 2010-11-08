@@ -126,6 +126,10 @@ public:
   void allocateSubclass(const P1& p1, const P2& p2, const P3& p3, const P4& p4) {
     reset(new Sub(p1, p2, p3, p4));
   }
+  template <typename Sub, typename P1, typename P2, typename P3, typename P4, typename P5>
+  void allocateSubclass(const P1& p1, const P2& p2, const P3& p3, const P4& p4, const P5& p5) {
+    reset(new Sub(p1, p2, p3, p4, p5));
+  }
 
 private:
   T* ptr;

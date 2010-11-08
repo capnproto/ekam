@@ -33,7 +33,7 @@
 echo "This script builds a basic Ekam binary using a single massive compiler"
 echo "invocation, then rebuilds Ekam using Ekam itself."
 
-SOURCES=`ls src/*.cpp | grep -v KqueueEventManager | grep -v EpollEventManager | grep -v _test`
+SOURCES=$(ls src/*.cpp | grep -v KqueueEventManager | grep -v EpollEventManager | grep -v ProtoDashboard | grep -v _test)
 
 set -e
 

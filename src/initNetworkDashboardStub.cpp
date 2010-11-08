@@ -1,4 +1,4 @@
-// ekam -- http://code.google.com/p/ekam
+// $PROJECT -- http://code.google.com/p/$URL
 // Copyright (c) 2010 Kenton Varda and contributors.  All rights reserved.
 // Portions copyright Google, Inc.
 //
@@ -12,7 +12,7 @@
 // copyright notice, this list of conditions and the following disclaimer
 // in the documentation and/or other materials provided with the
 // distribution.
-//     * Neither the name of the ekam project nor the names of its
+//     * Neither the name of the $PROJECT project nor the names of its
 // contributors may be used to endorse or promote products derived from
 // this software without specific prior written permission.
 //
@@ -28,49 +28,14 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_DASHBOARD_H_
-#define EKAM_DASHBOARD_H_
-
-#include <string>
-#include "OwnedPtr.h"
+#include "Dashboard.h"
+#include <stdexcept>
 
 namespace ekam {
 
-class Dashboard {
-public:
-  virtual ~Dashboard();
-
-  enum TaskState {
-    PENDING,  // Default state.
-    RUNNING,
-    DONE,
-    PASSED,   // Like DONE, but should be displayed prominently (hint: test result).
-    FAILED,
-    BLOCKED
-  };
-
-  class Task {
-  public:
-    virtual ~Task();
-
-    virtual void setState(TaskState state) = 0;
-    virtual void addOutput(const std::string& text) = 0;
-  };
-
-  enum Silence {
-    SILENT,
-    NORMAL
-  };
-
-  virtual void beginTask(const std::string& verb, const std::string& noun,
-                         Silence silence, OwnedPtr<Task>* output) = 0;
-};
-
-class EventManager;
-
 void initNetworkDashboard(EventManager* eventManager, const std::string& address,
-                          OwnedPtr<Dashboard>* dashboardToWrap);
+                          OwnedPtr<Dashboard>* dashboardToWrap) {
+  throw std::logic_error("Network dashboard support not compiled in.");
+}
 
 }  // namespace ekam
-
-#endif  // EKAM_DASHBOARD_H_

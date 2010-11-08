@@ -28,49 +28,24 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_DASHBOARD_H_
-#define EKAM_DASHBOARD_H_
+package ekam.proto;
 
-#include <string>
-#include "OwnedPtr.h"
+message TaskUpdate {
+  optional int32 id = 1;
 
-namespace ekam {
+  optional State state = 2;
+  enum State {
+    DELETED = 0;
+    PENDING = 1;
+    RUNNING = 2;
+    DONE = 3;
+    PASSED = 4;
+    FAILED = 5;
+    BLOCKED = 6;
+  }
 
-class Dashboard {
-public:
-  virtual ~Dashboard();
-
-  enum TaskState {
-    PENDING,  // Default state.
-    RUNNING,
-    DONE,
-    PASSED,   // Like DONE, but should be displayed prominently (hint: test result).
-    FAILED,
-    BLOCKED
-  };
-
-  class Task {
-  public:
-    virtual ~Task();
-
-    virtual void setState(TaskState state) = 0;
-    virtual void addOutput(const std::string& text) = 0;
-  };
-
-  enum Silence {
-    SILENT,
-    NORMAL
-  };
-
-  virtual void beginTask(const std::string& verb, const std::string& noun,
-                         Silence silence, OwnedPtr<Task>* output) = 0;
-};
-
-class EventManager;
-
-void initNetworkDashboard(EventManager* eventManager, const std::string& address,
-                          OwnedPtr<Dashboard>* dashboardToWrap);
-
-}  // namespace ekam
-
-#endif  // EKAM_DASHBOARD_H_
+  optional string verb = 3;
+  optional string noun = 4;
+  optional bool silent = 5;
+  optional string log = 6;
+}

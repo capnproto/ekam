@@ -28,49 +28,36 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_DASHBOARD_H_
-#define EKAM_DASHBOARD_H_
+#ifndef EKAM_SOCKET_H_
+#define EKAM_SOCKET_H_
 
-#include <string>
 #include "OwnedPtr.h"
+#include "OsHandle.h"
+#include "ByteStream.h"
+#include "EventManager.h"
 
 namespace ekam {
 
-class Dashboard {
+class ServerSocket {
 public:
-  virtual ~Dashboard();
+  ServerSocket(const std::string& bindAddress, int backlog = 0);
+  ~ServerSocket();
 
-  enum TaskState {
-    PENDING,  // Default state.
-    RUNNING,
-    DONE,
-    PASSED,   // Like DONE, but should be displayed prominently (hint: test result).
-    FAILED,
-    BLOCKED
-  };
-
-  class Task {
+  class AcceptCallback {
   public:
-    virtual ~Task();
+    virtual ~AcceptCallback();
 
-    virtual void setState(TaskState state) = 0;
-    virtual void addOutput(const std::string& text) = 0;
+    virtual void accepted(OwnedPtr<ByteStream>* streamToAdopt) = 0;
   };
+  void onAccept(EventManager* eventManager, AcceptCallback* callback,
+                OwnedPtr<AsyncOperation>* output);
 
-  enum Silence {
-    SILENT,
-    NORMAL
-  };
+private:
+  class AcceptOp;
 
-  virtual void beginTask(const std::string& verb, const std::string& noun,
-                         Silence silence, OwnedPtr<Task>* output) = 0;
+  OsHandle handle;
 };
-
-class EventManager;
-
-void initNetworkDashboard(EventManager* eventManager, const std::string& address,
-                          OwnedPtr<Dashboard>* dashboardToWrap);
 
 }  // namespace ekam
 
-#endif  // EKAM_DASHBOARD_H_
+#endif  // EKAM_SOCKET_H_

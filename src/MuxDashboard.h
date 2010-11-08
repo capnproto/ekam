@@ -28,49 +28,41 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_DASHBOARD_H_
-#define EKAM_DASHBOARD_H_
+#ifndef EKAM_MUXDASHBOARD_H_
+#define EKAM_MUXDASHBOARD_H_
 
-#include <string>
-#include "OwnedPtr.h"
+#include <tr1/unordered_set>
+
+#include "Dashboard.h"
 
 namespace ekam {
 
-class Dashboard {
+class MuxDashboard : public Dashboard {
 public:
-  virtual ~Dashboard();
+  MuxDashboard();
+  ~MuxDashboard();
 
-  enum TaskState {
-    PENDING,  // Default state.
-    RUNNING,
-    DONE,
-    PASSED,   // Like DONE, but should be displayed prominently (hint: test result).
-    FAILED,
-    BLOCKED
-  };
-
-  class Task {
+  class Connector {
   public:
-    virtual ~Task();
+    Connector(MuxDashboard* mux, Dashboard* dashboard);
+    ~Connector();
 
-    virtual void setState(TaskState state) = 0;
-    virtual void addOutput(const std::string& text) = 0;
+  private:
+    MuxDashboard* mux;
+    Dashboard* dashboard;
   };
 
-  enum Silence {
-    SILENT,
-    NORMAL
-  };
+  // implements Dashboard ----------------------------------------------------------------
+  void beginTask(const std::string& verb, const std::string& noun,
+                 Silence silence, OwnedPtr<Task>* output);
 
-  virtual void beginTask(const std::string& verb, const std::string& noun,
-                         Silence silence, OwnedPtr<Task>* output) = 0;
+private:
+  class TaskImpl;
+
+  std::tr1::unordered_set<TaskImpl*> tasks;
+  std::tr1::unordered_set<Dashboard*> wrappedDashboards;
 };
-
-class EventManager;
-
-void initNetworkDashboard(EventManager* eventManager, const std::string& address,
-                          OwnedPtr<Dashboard>* dashboardToWrap);
 
 }  // namespace ekam
 
-#endif  // EKAM_DASHBOARD_H_
+#endif  // EKAM_MUXDASHBOARD_H_
