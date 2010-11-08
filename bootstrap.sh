@@ -33,7 +33,8 @@
 echo "This script builds a basic Ekam binary using a single massive compiler"
 echo "invocation, then rebuilds Ekam using Ekam itself."
 
-SOURCES=$(ls src/*.cpp | grep -v KqueueEventManager | grep -v EpollEventManager | grep -v ProtoDashboard | grep -v _test)
+SOURCES=$(ls src/*.cpp | grep -v KqueueEventManager | grep -v EpollEventManager |
+                         grep -v ProtoDashboard | grep -v ekam-client | grep -v _test)
 
 set -e
 
@@ -56,10 +57,11 @@ echo \$ ./bootstrap-ekam -j4
 ./bootstrap-ekam -j4
 
 echo "*************************************************"
-if test -e tmp/ekam; then
+if test -e bin/ekam; then
   echo "SUCCESS: output is at: bin/ekam"
-  echo "IGNORE ALL ERRORS ABOVE in KqueueEventManager or EpollEventManager."
-  echo "One or both of these is expected to fail depending on your OS."
+  echo "IGNORE ALL ERRORS ABOVE.  Some errors are expected depending"
+  echo "on your OS and whether or not you have the protobuf source code"
+  echo "in your source tree."
 	rm bootstrap-ekam
 else
   echo "FAILED"
