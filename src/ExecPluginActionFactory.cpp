@@ -63,6 +63,7 @@ class PluginDerivedActionFactory : public ActionFactory {
 public:
   PluginDerivedActionFactory(OwnedPtr<File>* executableToAdopt,
                              std::string* verbToAdopt,
+                             bool silent,
                              std::vector<Tag>* triggersToAdopt);
   ~PluginDerivedActionFactory();
 
@@ -73,6 +74,7 @@ public:
 private:
   OwnedPtr<File> executable;
   std::string verb;
+  bool silent;
   std::vector<Tag> triggers;
 };
 
@@ -80,8 +82,8 @@ private:
 
 class PluginDerivedAction : public Action {
 public:
-  PluginDerivedAction(File* executable, const std::string& verb, File* file)
-      : verb(verb) {
+  PluginDerivedAction(File* executable, const std::string& verb, bool silent, File* file)
+      : verb(verb), silent(silent) {
     executable->clone(&this->executable);
     if (file != NULL) {
       file->clone(&this->file);
@@ -91,6 +93,7 @@ public:
 
   // implements Action -------------------------------------------------------------------
   std::string getVerb() { return verb; }
+  bool isSilent() { return silent; }
   void start(EventManager* eventManager, BuildContext* context, OwnedPtr<AsyncOperation>* output);
 
 private:
@@ -99,6 +102,7 @@ private:
 
   OwnedPtr<File> executable;
   std::string verb;
+  bool silent;
   OwnedPtr<File> file;  // nullable
 };
 
@@ -106,7 +110,7 @@ class PluginDerivedAction::CommandReader : public LineReader::Callback {
 public:
   CommandReader(BuildContext* context, OwnedPtr<ByteStream>* responseStreamToAdopt,
                 File* executable, File* input)
-      : context(context), lineReader(this) {
+      : context(context), lineReader(this), silent(false) {
     responseStream.adopt(responseStreamToAdopt);
 
     if (input != NULL) {
@@ -136,6 +140,8 @@ public:
 
     if (command == "verb") {
       verb = args;
+    } else if (command == "silent") {
+      silent = true;
     } else if (command == "trigger") {
       triggers.push_back(Tag::fromName(args));
     } else if (command == "findProvider" || command == "findInput") {
@@ -257,7 +263,7 @@ public:
 
     // Also register new triggers.
     OwnedPtr<ActionFactory> newFactory;
-    newFactory.allocateSubclass<PluginDerivedActionFactory>(&executable, &verb, &triggers);
+    newFactory.allocateSubclass<PluginDerivedActionFactory>(&executable, &verb, silent, &triggers);
     context->addActionType(&newFactory);
   }
 
@@ -274,6 +280,7 @@ private:
   LineReader lineReader;
 
   std::string verb;
+  bool silent;
   std::vector<Tag> triggers;
 
   OwnedPtrMap<std::string, File> knownFiles;
@@ -354,7 +361,9 @@ void PluginDerivedAction::start(EventManager* eventManager, BuildContext* contex
 
 PluginDerivedActionFactory::PluginDerivedActionFactory(OwnedPtr<File>* executableToAdopt,
                                                        std::string* verbToAdopt,
-                                                       std::vector<Tag>* triggersToAdopt) {
+                                                       bool silent,
+                                                       std::vector<Tag>* triggersToAdopt)
+    : silent(silent) {
   executable.adopt(executableToAdopt);
   verb.swap(*verbToAdopt);
   triggers.swap(*triggersToAdopt);
@@ -368,7 +377,7 @@ void PluginDerivedActionFactory::enumerateTriggerTags(
   }
 }
 bool PluginDerivedActionFactory::tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output) {
-  output->allocateSubclass<PluginDerivedAction>(executable.get(), verb, file);
+  output->allocateSubclass<PluginDerivedAction>(executable.get(), verb, silent, file);
   return true;
 }
 
@@ -386,7 +395,7 @@ void ExecPluginActionFactory::enumerateTriggerTags(
 
 bool ExecPluginActionFactory::tryMakeAction(
     const Tag& id, File* file, OwnedPtr<Action>* output) {
-  output->allocateSubclass<PluginDerivedAction>(file, "learn", (File*)NULL);
+  output->allocateSubclass<PluginDerivedAction>(file, "learn", false, (File*)NULL);
   return true;
 }
 

@@ -5,6 +5,7 @@ set -eu
 if test $# = 0; then
   # Ekam is querying the script.  Tell it that we care about headers.
   echo trigger filetype:.h
+  echo silent
   exit 0
 fi
 
