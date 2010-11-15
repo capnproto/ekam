@@ -29,6 +29,8 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 package ekam.proto;
+option java_package = "com.googlecode.ekam.proto";
+option java_outer_classname = "DashboardProto";
 
 message TaskUpdate {
   optional int32 id = 1;

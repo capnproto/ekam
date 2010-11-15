@@ -1,0 +1,13 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: Ekam Dashboard
+Bundle-SymbolicName: com.googlecode.ekam.eclipse.dashboard;singleton:=true
+Bundle-Version: 1.0.0.qualifier
+Bundle-Activator: com.googlecode.ekam.eclipse.dashboard.Activator
+Require-Bundle: org.eclipse.ui,
+ org.eclipse.core.runtime
+Bundle-ActivationPolicy: lazy
+Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+Bundle-Vendor: Kenton
+Bundle-ClassPath: protobuf-2.3.0.jar,
+ .
