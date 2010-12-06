@@ -407,6 +407,53 @@ WRAP(FILE*, freopen, (const char* path, const char* mode, FILE* file), (path, mo
 WRAP(FILE*, freopen64, (const char* path, const char* mode, FILE* file), (path, mode, file),
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
 
+/* And exec*().  The PATH-checking versions need special handling. */
+WRAP(int, execv, (const char* path, char* const argv[]), (path, argv), READ, -1);
+
+typedef int execvpe_t(const char* path, char* const argv[], char* const envp[]);
+int execvpe(const char* path, char* const argv[], char* const envp[]) {
+  static execvpe_t* real_execvpe = NULL;
+  char buffer[PATH_MAX];
+
+  if (real_execvpe == NULL) {
+    real_execvpe = (execvpe_t*) dlsym(RTLD_NEXT, "execvpe");
+    assert(real_execvpe != NULL);
+  }
+
+  // If the path does not contain a '/', PATH resolution will be done, so we don't want to
+  // remap.
+  if (strchr(path, '/') == NULL) {
+    path = remap_file("execvpe", path, buffer, READ);
+    if (path == NULL) return -1;
+  }
+  return real_execvpe(path, argv, envp);
+}
+int _execvpe (const char* path, char* const argv[], char* const envp[]) {
+  return execvpe(path, argv, envp);
+}
+
+typedef int execvp_t(const char* path, char* const argv[]);
+int execvp(const char* path, char* const argv[]) {
+  static execvp_t* real_execvp = NULL;
+  char buffer[PATH_MAX];
+
+  if (real_execvp == NULL) {
+    real_execvp = (execvp_t*) dlsym(RTLD_NEXT, "execvp");
+    assert(real_execvp != NULL);
+  }
+
+  // If the path does not contain a '/', PATH resolution will be done, so we don't want to
+  // remap.
+  if (strchr(path, '/') != NULL) {
+    path = remap_file("execvp", path, buffer, READ);
+    if (path == NULL) return -1;
+  }
+  return real_execvp(path, argv);
+}
+int _execvp (const char* path, char* const argv[]) {
+  return execvp(path, argv);
+}
+
 /* Called by access(), below. */
 static int direct_stat(const char* path, struct stat* sb) {
   static __xstat_t* real_xstat = NULL;
