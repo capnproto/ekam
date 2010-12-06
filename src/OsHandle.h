@@ -139,6 +139,21 @@ long wrapSyscall(const char* name, const Func& func, const Arg1& arg1,
   return result;
 }
 
+template <typename Func, typename Arg1, typename Arg2, typename Arg3, typename Arg4, typename Arg5>
+long wrapSyscall(const char* name, const Func& func, const Arg1& arg1,
+                 const Arg2& arg2, const Arg3& arg3, const Arg4& arg4,
+                 const Arg5& arg5) {
+  long result;
+  do {
+    result = func(toSyscallArg(arg1), toSyscallArg(arg2), toSyscallArg(arg3), toSyscallArg(arg4),
+                  toSyscallArg(arg5));
+  } while (result < 0 && errno == EINTR);
+  if (result < 0) {
+    throw OsError(toString(arg1), name, errno);
+  }
+  return result;
+}
+
 #define WRAP_SYSCALL(FUNC, ...) (::ekam::wrapSyscall(#FUNC, ::FUNC, __VA_ARGS__))
 
 }  // namespace ekam

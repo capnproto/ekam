@@ -104,6 +104,9 @@ ServerSocket::ServerSocket(const std::string& bindAddress, int backlog)
     : handle(bindAddress, WRAP_SYSCALL(socket, AF_INET, SOCK_STREAM, 0)) {
   WRAP_SYSCALL(fcntl, handle, F_SETFL, O_NONBLOCK);
 
+  int optval = 1;
+  WRAP_SYSCALL(setsockopt, handle,  SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+
   struct sockaddr_in addr;
   if (!parseIpAddr(bindAddress, &addr)) {
     throw std::invalid_argument("Invalid bind address: " + bindAddress);
