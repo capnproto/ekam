@@ -27,6 +27,7 @@ import org.eclipse.swt.widgets.Menu;
 import org.eclipse.ui.IActionBars;
 import org.eclipse.ui.ISharedImages;
 import org.eclipse.ui.IWorkbenchActionConstants;
+import org.eclipse.ui.PartInitException;
 import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.part.DrillDownAdapter;
 import org.eclipse.ui.part.ViewPart;
@@ -65,6 +66,8 @@ public class EkamDashboard extends ViewPart {
   private Action action2;
   private Action doubleClickAction;
   private Thread eventThread;
+
+  private DirectoryNode root;
 
   class ViewContentProvider implements ITreeContentProvider {
     @Override
@@ -109,6 +112,15 @@ public class EkamDashboard extends ViewPart {
         case DIRECTORY:
           image = getSharedImage(ISharedImages.IMG_OBJ_FOLDER);
           break;
+        case DIRECTORY_RUNNING:
+          image = Activator.DIRECTORY_RUNNING_IMG;
+          break;
+        case DIRECTORY_WITH_ERRORS:
+          image = Activator.DIRECTORY_WITH_ERRORS_IMG;
+          break;
+        case DIRECTORY_WITH_ERRORS_IGNORED:
+          image = Activator.DIRECTORY_WITH_ERRORS_IGNORED_IMG;
+          break;
 
         case DELETED:
           image = Activator.DELETED_IMG;
@@ -127,6 +139,9 @@ public class EkamDashboard extends ViewPart {
           break;
         case FAILED:
           image = Activator.FAILED_IMG;
+          break;
+        case FAILED_IGNORED:
+          image = Activator.FAILED_IGNORED_IMG;
           break;
         case BLOCKED:
           image = Activator.BLOCKED_IMG;
@@ -195,6 +210,10 @@ public class EkamDashboard extends ViewPart {
     if (eventThread != null) {
       eventThread.interrupt();
     }
+    if (root != null) {
+      root.dispose();
+      root = null;
+    }
     super.dispose();
   }
 
@@ -210,13 +229,13 @@ public class EkamDashboard extends ViewPart {
     viewer.setLabelProvider(new ViewLabelProvider());
     viewer.setComparator(new NodeComparator());
 
-    DirectoryNode root = new DirectoryNode();
+    root = new DirectoryNode();
     viewer.setInput(root);
 
     connectToEkam(root);
 
     // Create the help context id for the viewer's control
-    PlatformUI.getWorkbench().getHelpSystem().setHelp(viewer.getControl(), "ekam-dashboard.viewer");
+//    PlatformUI.getWorkbench().getHelpSystem().setHelp(viewer.getControl(), "ekam-dashboard.viewer");
     makeActions();
     hookContextMenu();
     hookDoubleClickAction();
@@ -254,29 +273,36 @@ public class EkamDashboard extends ViewPart {
 
   private void contributeToActionBars() {
     IActionBars bars = getViewSite().getActionBars();
-    fillLocalPullDown(bars.getMenuManager());
+//    fillLocalPullDown(bars.getMenuManager());
     fillLocalToolBar(bars.getToolBarManager());
   }
 
-  private void fillLocalPullDown(IMenuManager manager) {
-    manager.add(action1);
-    manager.add(new Separator());
-    manager.add(action2);
-  }
+//  private void fillLocalPullDown(IMenuManager manager) {
+//    manager.add(action1);
+//    manager.add(new Separator());
+//    manager.add(action2);
+//  }
 
   private void fillContextMenu(IMenuManager manager) {
-    manager.add(action1);
-    manager.add(action2);
-    manager.add(new Separator());
+    ISelection selection = viewer.getSelection();
+    Object obj = ((IStructuredSelection)selection).getFirstElement();
+    if (obj instanceof ActionNode || obj instanceof DirectoryNode) {
+      if (((TreeNode) obj).getIgnoreFailure()) {
+        manager.add(action2);
+      } else {
+        manager.add(action1);
+      }
+      manager.add(new Separator());
+    }
     drillDownAdapter.addNavigationActions(manager);
     // Other plug-ins can contribute there actions here
     manager.add(new Separator(IWorkbenchActionConstants.MB_ADDITIONS));
   }
 
   private void fillLocalToolBar(IToolBarManager manager) {
-    manager.add(action1);
-    manager.add(action2);
-    manager.add(new Separator());
+//    manager.add(action1);
+//    manager.add(action2);
+//    manager.add(new Separator());
     drillDownAdapter.addNavigationActions(manager);
   }
 
@@ -284,30 +310,44 @@ public class EkamDashboard extends ViewPart {
     action1 = new Action() {
       @Override
       public void run() {
-        showMessage("Action 1 executed");
+        ISelection selection = viewer.getSelection();
+        Object obj = ((IStructuredSelection)selection).getFirstElement();
+        ((TreeNode) obj).setIgnoreFailure(true);
+        viewer.refresh();
       }
     };
-    action1.setText("Action 1");
-    action1.setToolTipText("Action 1 tooltip");
+    action1.setText("Ignore failures");
+    action1.setToolTipText(
+        "Don't mark the parent folder as containing errors when this action fails.");
     action1.setImageDescriptor(PlatformUI.getWorkbench().getSharedImages().
-      getImageDescriptor(ISharedImages.IMG_OBJS_INFO_TSK));
+      getImageDescriptor(ISharedImages.IMG_OBJS_ERROR_TSK));
 
     action2 = new Action() {
       @Override
       public void run() {
-        showMessage("Action 2 executed");
+        ISelection selection = viewer.getSelection();
+        Object obj = ((IStructuredSelection)selection).getFirstElement();
+        ((TreeNode) obj).setIgnoreFailure(false);
+        viewer.refresh();
       }
     };
-    action2.setText("Action 2");
-    action2.setToolTipText("Action 2 tooltip");
+    action2.setText("Don't ignore failures");
+    action2.setToolTipText("Mark the parent folder as containing errors when this action fails.");
     action2.setImageDescriptor(PlatformUI.getWorkbench().getSharedImages().
-        getImageDescriptor(ISharedImages.IMG_OBJS_INFO_TSK));
+        getImageDescriptor(ISharedImages.IMG_OBJS_ERROR_TSK));
+
     doubleClickAction = new Action() {
       @Override
       public void run() {
         ISelection selection = viewer.getSelection();
         Object obj = ((IStructuredSelection)selection).getFirstElement();
-        showMessage("Double-click detected on "+obj.toString());
+        try {
+          ((TreeNode) obj).openEditor(getSite().getPage());
+        } catch (PartInitException e) {
+          MessageDialog.openError(viewer.getControl().getShell(),
+                                  "Ekam Dashboard", "Couldn't open editor: " + e.getMessage());
+          e.printStackTrace();
+        }
       }
     };
   }
@@ -320,12 +360,13 @@ public class EkamDashboard extends ViewPart {
       }
     });
   }
-  private void showMessage(String message) {
-    MessageDialog.openInformation(
-      viewer.getControl().getShell(),
-      "Ekam Dashboard",
-      message);
-  }
+
+//  private void showMessage(String message) {
+//    MessageDialog.openInformation(
+//      viewer.getControl().getShell(),
+//      "Ekam Dashboard",
+//      message);
+//  }
 
   /**
    * Passing the focus request to the viewer's control.

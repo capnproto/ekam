@@ -4,10 +4,15 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
+import org.eclipse.core.resources.IFile;
+import org.eclipse.ui.IWorkbenchPage;
+import org.eclipse.ui.PartInitException;
+import org.eclipse.ui.ide.IDE;
+
 import com.googlecode.ekam.proto.DashboardProto.TaskUpdate;
 
 public class ActionNode implements TreeNode {
-  private final TreeNode parent;
+  private final DirectoryNode parent;
   private final String name;
 
   private TaskUpdate.State state = TaskUpdate.State.DELETED;
@@ -15,8 +20,13 @@ public class ActionNode implements TreeNode {
   private String verb = null;
   private boolean silent = false;
   private final List<LogLineNode> log = new ArrayList<LogLineNode>();
+  private StringBuilder unparsedLog = new StringBuilder();
 
-  public ActionNode(TreeNode parent, String name, TaskUpdate initialUpdate) {
+  private boolean ignoreFailure = false;
+
+  private IFile file = null;
+
+  public ActionNode(DirectoryNode parent, String name, TaskUpdate initialUpdate) {
     this.parent = parent;
     this.name = name;
     applyUpdate(initialUpdate);
@@ -41,7 +51,7 @@ public class ActionNode implements TreeNode {
   }
 
   public boolean isSilent() {
-    return silent && log.isEmpty();
+    return silent && log.isEmpty() && state != TaskUpdate.State.FAILED;
   }
 
   public boolean applyUpdate(TaskUpdate update) {
@@ -51,15 +61,18 @@ public class ActionNode implements TreeNode {
         case DELETED:
         case PENDING:
         case RUNNING:
-          log.clear();
+          clearLog();
+          unparsedLog = new StringBuilder();
           break;
         default:
           // nothing
           break;
       }
+      parent.refreshState();
     }
     if (update.hasNoun()) {
       noun = update.getNoun();
+      file = new FileFinder().find(noun);
     }
     if (update.hasVerb()) {
       verb = update.getVerb();
@@ -68,12 +81,33 @@ public class ActionNode implements TreeNode {
       silent = update.getSilent();
     }
     if (update.hasLog()) {
-      for (String line : update.getLog().split("\n")) {
-        log.add(new LogLineNode(this, line, log.size()));
+      unparsedLog.append(update.getLog());
+    }
+    if (update.hasState()) {
+      switch (state) {
+        case DONE:
+        case PASSED:
+        case FAILED:
+        case BLOCKED:
+          parseLog();
+          break;
+        default:
+          // nothing
+          break;
       }
     }
 
     return state != TaskUpdate.State.DELETED;
+  }
+
+  private void parseLog() {
+    if (unparsedLog.length() > 0) {
+      FileFinder fileFinder = new FileFinder();
+      for (String line : unparsedLog.toString().split("\n")) {
+        log.add(new LogLineNode(this, line, log.size(), fileFinder));
+      }
+      unparsedLog = new StringBuilder();
+    }
   }
 
   @Override
@@ -90,7 +124,11 @@ public class ActionNode implements TreeNode {
       case PASSED:
         return Type.PASSED;
       case FAILED:
-        return Type.FAILED;
+        if (ignoreFailure) {
+          return Type.FAILED_IGNORED;
+        } else {
+          return Type.FAILED;
+        }
       case BLOCKED:
         return Type.BLOCKED;
     }
@@ -136,5 +174,37 @@ public class ActionNode implements TreeNode {
         };
       }
     };
+  }
+
+  @Override
+  public void openEditor(IWorkbenchPage page) throws PartInitException {
+    if (file != null && file.exists()) {
+      IDE.openEditor(page, file);
+    }
+  }
+
+  @Override
+  public void dispose() {
+    clearLog();
+  }
+
+  private void clearLog() {
+    for (LogLineNode logMessage : log) {
+      logMessage.dispose();
+    }
+    log.clear();
+  }
+
+  @Override
+  public boolean getIgnoreFailure() {
+    return ignoreFailure;
+  }
+
+  @Override
+  public void setIgnoreFailure(boolean enabled) {
+    if (ignoreFailure != enabled) {
+      ignoreFailure = enabled;
+      parent.refreshState();
+    }
   }
 }

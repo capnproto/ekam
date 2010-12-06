@@ -1,13 +1,12 @@
 package com.googlecode.ekam.eclipse.dashboard;
 
-import java.net.URL;
-
-import org.eclipse.core.runtime.FileLocator;
-import org.eclipse.core.runtime.Path;
 import org.eclipse.jface.resource.ImageDescriptor;
+import org.eclipse.jface.viewers.DecorationOverlayIcon;
+import org.eclipse.jface.viewers.IDecoration;
 import org.eclipse.swt.graphics.Image;
+import org.eclipse.ui.ISharedImages;
+import org.eclipse.ui.PlatformUI;
 import org.eclipse.ui.plugin.AbstractUIPlugin;
-import org.osgi.framework.Bundle;
 import org.osgi.framework.BundleContext;
 
 /**
@@ -22,12 +21,17 @@ public class Activator extends AbstractUIPlugin {
   private static Activator plugin;
 
   // Images
+  static Image DIRECTORY_IMG;
+  static Image DIRECTORY_RUNNING_IMG;
+  static Image DIRECTORY_WITH_ERRORS_IMG;
+  static Image DIRECTORY_WITH_ERRORS_IGNORED_IMG;
   static Image DELETED_IMG;
   static Image PENDING_IMG;
   static Image RUNNING_IMG;
   static Image DONE_IMG;
   static Image PASSED_IMG;
   static Image FAILED_IMG;
+  static Image FAILED_IGNORED_IMG;
   static Image BLOCKED_IMG;
 
   /**
@@ -45,20 +49,32 @@ public class Activator extends AbstractUIPlugin {
     super.start(context);
     plugin = this;
 
-    Bundle bundle = context.getBundle();
+    DIRECTORY_IMG = getSharedImage(ISharedImages.IMG_OBJ_FOLDER);
+    DIRECTORY_RUNNING_IMG = overlay(DIRECTORY_IMG, "icons/running_overlay.gif");
+    DIRECTORY_WITH_ERRORS_IMG = overlay(DIRECTORY_IMG, "icons/error_overlay.gif");
+    DIRECTORY_WITH_ERRORS_IGNORED_IMG = overlay(DIRECTORY_IMG, "icons/error_ignored_overlay.gif");
 
-    DELETED_IMG = getImage(bundle, "icons/deleted.gif");
-    PENDING_IMG = getImage(bundle, "icons/pending.gif");
-    RUNNING_IMG = getImage(bundle, "icons/running.gif");
-    DONE_IMG    = getImage(bundle, "icons/done.gif");
-    PASSED_IMG  = getImage(bundle, "icons/passed.gif");
-    FAILED_IMG  = getImage(bundle, "icons/failed.gif");
-    BLOCKED_IMG = getImage(bundle, "icons/blocked.gif");
+    DELETED_IMG = getImage("icons/deleted.gif");
+    PENDING_IMG = getImage("icons/pending.gif");
+    RUNNING_IMG = overlay(PENDING_IMG, "icons/running_overlay.gif");
+    DONE_IMG = getImage("icons/done.gif");
+    PASSED_IMG = getImage("icons/passed.gif");
+    FAILED_IMG = getImage("icons/failed.gif");
+    FAILED_IGNORED_IMG = overlay(PENDING_IMG, "icons/error_ignored_overlay.gif");
+    BLOCKED_IMG = getImage("icons/blocked.gif");
   }
 
-  private Image getImage(Bundle bundle, String path) {
-    URL url = FileLocator.find(bundle, new Path(path), null);
-    return ImageDescriptor.createFromURL(url).createImage();
+  private Image getImage(String path) {
+    return getImageDescriptor(path).createImage();
+  }
+
+  private Image overlay(Image base, String overlayPath) {
+    return new DecorationOverlayIcon(
+        base, getImageDescriptor(overlayPath), IDecoration.BOTTOM_RIGHT).createImage();
+  }
+
+  private Image getSharedImage(String imageKey) {
+    return PlatformUI.getWorkbench().getSharedImages().getImage(imageKey);
   }
 
   /*
@@ -67,12 +83,17 @@ public class Activator extends AbstractUIPlugin {
    */
   @Override
   public void stop(BundleContext context) throws Exception {
+    // DIRECTORY_IMG is a shared image; don't dispose.
+    DIRECTORY_RUNNING_IMG.dispose();
+    DIRECTORY_WITH_ERRORS_IMG.dispose();
+    DIRECTORY_WITH_ERRORS_IGNORED_IMG.dispose();
     DELETED_IMG.dispose();
     PENDING_IMG.dispose();
     RUNNING_IMG.dispose();
     DONE_IMG.dispose();
     PASSED_IMG.dispose();
     FAILED_IMG.dispose();
+    FAILED_IGNORED_IMG.dispose();
     BLOCKED_IMG.dispose();
 
     plugin = null;

@@ -22,5 +22,16 @@
             file="contexts.xml">
       </contexts>
    </extension>
+   <extension
+         id="ekamProblem"
+         name="Ekam Problem"
+         point="org.eclipse.core.resources.markers">
+      <super
+            type="org.eclipse.core.resources.problemmarker">
+      </super>
+      <persistent
+            value="true">
+      </persistent>
+   </extension>
 
 </plugin>
