@@ -217,9 +217,7 @@ public class DirectoryNode implements TreeNode {
   public void setIgnoreFailure(boolean enabled) {
     if (ignoreFailure != enabled) {
       ignoreFailure = enabled;
-      if (parent != null) {
-        parent.refreshState();
-      }
+      refreshState();
     }
   }
 }

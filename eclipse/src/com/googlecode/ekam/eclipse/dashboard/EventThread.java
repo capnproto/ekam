@@ -80,11 +80,20 @@ public class EventThread implements Runnable {
 
   @Override
   public void run() {
-    while (true) {
+    while (!Thread.interrupted()) {
       try {
         reconnect();
         while (true) {
           TaskUpdate update = TaskUpdate.parseDelimitedFrom(input);
+          if (update == null) {
+            break;
+          }
+
+          if (Thread.interrupted()) {
+            // For some reason, InterruptedIOException doesn't seem to be
+            // thrown when interrupted during read().
+            return;
+          }
 
           boolean needEvent;
           synchronized (updateQueue) {

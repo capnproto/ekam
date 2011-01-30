@@ -3,6 +3,11 @@ package com.googlecode.ekam.eclipse.dashboard;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.eclipse.core.resources.IMarker;
+import org.eclipse.core.resources.IProject;
+import org.eclipse.core.resources.IResource;
+import org.eclipse.core.resources.ResourcesPlugin;
+import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jface.action.Action;
 import org.eclipse.jface.action.IMenuListener;
 import org.eclipse.jface.action.IMenuManager;
@@ -21,6 +26,7 @@ import org.eclipse.jface.viewers.TreeViewer;
 import org.eclipse.jface.viewers.Viewer;
 import org.eclipse.jface.viewers.ViewerComparator;
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.SWTException;
 import org.eclipse.swt.graphics.Image;
 import org.eclipse.swt.widgets.Composite;
 import org.eclipse.swt.widgets.Menu;
@@ -223,6 +229,8 @@ public class EkamDashboard extends ViewPart {
    */
   @Override
   public void createPartControl(Composite parent) {
+    deleteOldMarkers();
+
     viewer = new TreeViewer(parent, SWT.MULTI | SWT.H_SCROLL | SWT.V_SCROLL);
     drillDownAdapter = new DrillDownAdapter(viewer);
     viewer.setContentProvider(new ViewContentProvider());
@@ -242,6 +250,23 @@ public class EkamDashboard extends ViewPart {
     contributeToActionBars();
   }
 
+  private void deleteOldMarkers() {
+    // TODO Auto-generated method stub
+    for (IProject project : ResourcesPlugin.getWorkspace().getRoot().getProjects()) {
+      try {
+        IMarker[] markers =
+            project.findMarkers("com.googlecode.ekam.eclipse.dashboard.ekamProblem",
+                                true, IResource.DEPTH_INFINITE);
+        for (IMarker marker : markers) {
+          marker.delete();
+        }
+      } catch (CoreException e) {
+        // TODO Auto-generated catch block
+        e.printStackTrace();
+      }
+    }
+  }
+
   private void connectToEkam(DirectoryNode root) {
     if (eventThread != null) {
       eventThread.interrupt();
@@ -250,7 +275,11 @@ public class EkamDashboard extends ViewPart {
     Runnable onChange = new Runnable() {
       @Override
       public void run() {
-        viewer.refresh();
+        try {
+          viewer.refresh();
+        } catch (SWTException e) {
+          // The viewer was probably disposed already.
+        }
       }
     };
     eventThread = new Thread(new EventThread(root, onChange));
