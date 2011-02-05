@@ -26,9 +26,11 @@ class FileFinder {
   }
 
   private final IPath SRC = new Path("src");
+  private final IPath TMP = new Path("tmp");
 
   private IFile findUncached(IPath path) {
     IPath srcPath = SRC.append(path);
+    IPath tmpPath = TMP.append(path);
 
     if (path.segmentCount() > 1) {
       IFile file = root.getFile(path);
@@ -44,6 +46,13 @@ class FileFinder {
       }
     }
 
+    {
+      IFile file = root.getFile(tmpPath);
+      if (file.exists()) {
+        return file;
+      }
+    }
+
     for (IProject project : root.getProjects()) {
       IFile file = project.getFile(path);
       if (file.exists()) {
@@ -53,6 +62,13 @@ class FileFinder {
 
     for (IProject project : root.getProjects()) {
       IFile file = project.getFile(srcPath);
+      if (file.exists()) {
+        return file;
+      }
+    }
+
+    for (IProject project : root.getProjects()) {
+      IFile file = project.getFile(tmpPath);
       if (file.exists()) {
         return file;
       }
