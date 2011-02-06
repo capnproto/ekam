@@ -49,10 +49,10 @@ public:
   void addArgument(const std::string& arg);
   File::DiskRef* addArgument(File* file, File::Usage usage);
 
-  void captureStdin(OwnedPtr<ByteStream>* output);
-  void captureStdout(OwnedPtr<ByteStream>* output);
-  void captureStderr(OwnedPtr<ByteStream>* output);
-  void captureStdoutAndStderr(OwnedPtr<ByteStream>* output);
+  OwnedPtr<ByteStream> captureStdin();
+  OwnedPtr<ByteStream> captureStdout();
+  OwnedPtr<ByteStream> captureStderr();
+  OwnedPtr<ByteStream> captureStdoutAndStderr();
 
   void start(EventManager* eventManager,
              EventManager::ProcessExitCallback* callback);

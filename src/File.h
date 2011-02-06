@@ -46,9 +46,9 @@ public:
 
   virtual std::string basename() = 0;
   virtual std::string canonicalName() = 0;
-  virtual void clone(OwnedPtr<File>* output) = 0;
+  virtual OwnedPtr<File> clone() = 0;
   virtual bool hasParent() = 0;
-  virtual void parent(OwnedPtr<File>* output) = 0;
+  virtual OwnedPtr<File> parent() = 0;
 
   virtual bool equals(File* other) = 0;
   virtual size_t identityHash() = 0;
@@ -78,7 +78,7 @@ public:
     UPDATE
   };
 
-  virtual void getOnDisk(Usage usage, OwnedPtr<DiskRef>* output) = 0;
+  virtual OwnedPtr<DiskRef> getOnDisk(Usage usage) = 0;
 
   virtual bool exists() = 0;
   virtual bool isFile() = 0;
@@ -92,7 +92,7 @@ public:
 
   // Directory only.
   virtual void list(OwnedPtrVector<File>::Appender output) = 0;
-  virtual void relative(const std::string& path, OwnedPtr<File>* output) = 0;
+  virtual OwnedPtr<File> relative(const std::string& path) = 0;
 
   // Methods that create or delete objects.
   virtual void createDirectory() = 0;

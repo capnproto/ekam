@@ -342,9 +342,9 @@ ConsoleDashboard::ConsoleDashboard(FILE* output)
       lastDebugMessageCount(DebugMessage::getMessageCount()) {}
 ConsoleDashboard::~ConsoleDashboard() {}
 
-void ConsoleDashboard::beginTask(const std::string& verb, const std::string& noun,
-                                 Silence silence, OwnedPtr<Task>* output) {
-  output->allocateSubclass<TaskImpl>(this, verb, noun, silence);
+OwnedPtr<Dashboard::Task> ConsoleDashboard::beginTask(
+    const std::string& verb, const std::string& noun, Silence silence) {
+  return newOwned<TaskImpl>(this, verb, noun, silence);
 }
 
 void ConsoleDashboard::clearRunning() {

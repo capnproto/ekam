@@ -67,8 +67,7 @@ public:
     virtual void error(int number) = 0;
   };
 
-  void readAll(EventManager* eventManager, ReadAllCallback* callback,
-               OwnedPtr<AsyncOperation>* output);
+  OwnedPtr<AsyncOperation> readAll(EventManager* eventManager, ReadAllCallback* callback);
 
 private:
   class ReadEventCallback;
@@ -81,8 +80,8 @@ public:
   Pipe();
   ~Pipe();
 
-  void releaseReadEnd(OwnedPtr<ByteStream>* output);
-  void releaseWriteEnd(OwnedPtr<ByteStream>* output);
+  OwnedPtr<ByteStream> releaseReadEnd();
+  OwnedPtr<ByteStream> releaseWriteEnd();
   void attachReadEndForExec(int target);
   void attachWriteEndForExec(int target);
 

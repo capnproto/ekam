@@ -60,7 +60,7 @@ public:
   };
 
   // Queue the callback to run in the event loop.
-  virtual void runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output) = 0;
+  virtual OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback) = 0;
 
   class ProcessExitCallback {
   public:
@@ -71,8 +71,7 @@ public:
   };
 
   // Call the callback when the process exits.
-  virtual void onProcessExit(pid_t pid, ProcessExitCallback* callback,
-                             OwnedPtr<AsyncOperation>* output) = 0;
+  virtual OwnedPtr<AsyncOperation> onProcessExit(pid_t pid, ProcessExitCallback* callback) = 0;
 
   class IoCallback {
   public:
@@ -83,10 +82,10 @@ public:
   };
 
   // Call the callback whenever the file descriptor is readable.
-  virtual void onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) = 0;
+  virtual OwnedPtr<AsyncOperation> onReadable(int fd, IoCallback* callback) = 0;
 
   // Call the callback whenever the file descriptor is writable.
-  virtual void onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) = 0;
+  virtual OwnedPtr<AsyncOperation> onWritable(int fd, IoCallback* callback) = 0;
 
   class FileChangeCallback {
   public:
@@ -96,8 +95,8 @@ public:
     virtual void deleted() = 0;
   };
 
-  virtual void onFileChange(const std::string& filename, FileChangeCallback* callback,
-                            OwnedPtr<AsyncOperation>* output) = 0;
+  virtual OwnedPtr<AsyncOperation> onFileChange(const std::string& filename,
+                                                FileChangeCallback* callback) = 0;
 };
 
 class RunnableEventManager : public EventManager {
@@ -107,7 +106,7 @@ public:
   virtual void loop() = 0;
 };
 
-void newPreferredEventManager(OwnedPtr<RunnableEventManager>* output);
+OwnedPtr<RunnableEventManager> newPreferredEventManager();
 
 }  // namespace ekam
 

@@ -43,14 +43,14 @@ public:
   // implements File ---------------------------------------------------------------------
   std::string basename();
   std::string canonicalName();
-  void clone(OwnedPtr<File>* output);
+  OwnedPtr<File> clone();
   bool hasParent();
-  void parent(OwnedPtr<File>* output);
+  OwnedPtr<File> parent();
 
   bool equals(File* other);
   size_t identityHash();
 
-  void getOnDisk(Usage usage, OwnedPtr<DiskRef>* output);
+  OwnedPtr<DiskRef> getOnDisk(Usage usage);
 
   bool exists();
   bool isFile();
@@ -64,7 +64,7 @@ public:
 
   // Directory only.
   void list(OwnedPtrVector<File>::Appender output);
-  void relative(const std::string& path, OwnedPtr<File>* output);
+  OwnedPtr<File> relative(const std::string& path);
 
   // Methods that create or delete objects.
   void createDirectory();

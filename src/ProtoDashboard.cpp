@@ -101,23 +101,21 @@ void ProtoDashboard::TaskImpl::addOutput(const std::string& text) {
 
 // =======================================================================================
 
-ProtoDashboard::ProtoDashboard(EventManager* eventManager, OwnedPtr<ByteStream>* streamToAdopt)
+ProtoDashboard::ProtoDashboard(EventManager* eventManager, OwnedPtr<ByteStream> stream)
     : idCounter(0),
-      writeBuffer(eventManager, streamToAdopt) {}
+      writeBuffer(eventManager, stream.release()) {}
 ProtoDashboard::~ProtoDashboard() {}
 
-void ProtoDashboard::beginTask(const std::string& verb, const std::string& noun,
-                               Silence silence, OwnedPtr<Task>* output) {
-  output->allocateSubclass<TaskImpl>(++idCounter, verb, noun, silence, &writeBuffer);
+OwnedPtr<Dashboard::Task> ProtoDashboard::beginTask(
+    const std::string& verb, const std::string& noun, Silence silence) {
+  return newOwned<TaskImpl>(++idCounter, verb, noun, silence, &writeBuffer);
 }
 
 // =======================================================================================
 
 ProtoDashboard::WriteBuffer::WriteBuffer(EventManager* eventManager,
-                                         OwnedPtr<ByteStream>* streamToAdopt)
-    : eventManager(eventManager), offset(0), disconnectOp(NULL) {
-  stream.adopt(streamToAdopt);
-}
+                                         OwnedPtr<ByteStream> stream)
+    : eventManager(eventManager), stream(stream.release()), offset(0), disconnectOp(NULL) {}
 ProtoDashboard::WriteBuffer::~WriteBuffer() {}
 
 void ProtoDashboard::WriteBuffer::write(const google::protobuf::MessageLite& message) {
@@ -162,7 +160,7 @@ void ProtoDashboard::WriteBuffer::ready() {
     if (error.getErrorNumber() == EAGAIN) {
       // Ran out of kernel buffer space.  Wait until writable again.
       if (waitWritableOp == NULL) {
-        eventManager->onWritable(stream->getHandle()->get(), this, &waitWritableOp);
+        waitWritableOp = eventManager->onWritable(stream->getHandle()->get(), this);
       }
     } else if (disconnectOp != NULL) {
       waitWritableOp.clear();
@@ -189,14 +187,12 @@ ProtoDashboard::WriteBuffer::DisconnectOp::~DisconnectOp() {
   writeBuffer->disconnectOp = NULL;
 }
 
-void ProtoDashboard::onDisconnect(DisconnectedCallback* callback,
-                                  OwnedPtr<AsyncOperation>* output) {
-  writeBuffer.onDisconnect(callback, output);
+OwnedPtr<AsyncOperation> ProtoDashboard::onDisconnect(DisconnectedCallback* callback) {
+  return writeBuffer.onDisconnect(callback);
 }
 
-void ProtoDashboard::WriteBuffer::onDisconnect(DisconnectedCallback* callback,
-                                               OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<DisconnectOp>(this, callback);
+OwnedPtr<AsyncOperation> ProtoDashboard::WriteBuffer::onDisconnect(DisconnectedCallback* callback) {
+  return newOwned<DisconnectOp>(this, callback);
 }
 
 // =======================================================================================
@@ -204,23 +200,21 @@ void ProtoDashboard::WriteBuffer::onDisconnect(DisconnectedCallback* callback,
 class NetworkAcceptingDashboard : public Dashboard, public ServerSocket::AcceptCallback {
 public:
   NetworkAcceptingDashboard(EventManager* eventManager, const std::string& address,
-                            OwnedPtr<Dashboard>* baseDashboardToAdopt)
-      : eventManager(eventManager) {
-    base.adopt(baseDashboardToAdopt);
-    baseConnector.allocate(&mux, base.get());
-    socket.allocate(address);
-    socket->onAccept(eventManager, this, &acceptOp);
-  }
+                            OwnedPtr<Dashboard> baseDashboard)
+      : eventManager(eventManager),
+        base(baseDashboard.release()),
+        baseConnector(newOwned<MuxDashboard::Connector>(&mux, base.get())),
+        socket(newOwned<ServerSocket>(address)),
+        acceptOp(socket->onAccept(eventManager, this)) {}
   ~NetworkAcceptingDashboard() {}
 
   // implements Dashboard ----------------------------------------------------------------
-  void beginTask(const std::string& verb, const std::string& noun,
-                 Silence silence, OwnedPtr<Task>* output) {
-    mux.beginTask(verb, noun, silence, output);
+  OwnedPtr<Task> beginTask(const std::string& verb, const std::string& noun, Silence silence) {
+    return mux.beginTask(verb, noun, silence);
   }
 
   // implements AcceptCallback -----------------------------------------------------------
-  void accepted(OwnedPtr<ByteStream>* streamToAdopt);
+  void accepted(OwnedPtr<ByteStream> stream);
 
 private:
   EventManager* eventManager;
@@ -233,10 +227,9 @@ private:
   class ConnectedProtoDashboard : public ProtoDashboard::DisconnectedCallback {
   public:
     ConnectedProtoDashboard(NetworkAcceptingDashboard* owner, EventManager* eventManager,
-                            OwnedPtr<ByteStream>* streamToAdopt)
-        : owner(owner), protoDashboard(eventManager, streamToAdopt) {
-      connector.allocate(&owner->mux, &protoDashboard);
-    }
+                            OwnedPtr<ByteStream> stream)
+        : owner(owner), protoDashboard(eventManager, stream.release()),
+          connector(newOwned<MuxDashboard::Connector>(&owner->mux, &protoDashboard)) {}
     ~ConnectedProtoDashboard() {}
 
     // implements DisconnectedCallback -----------------------------------------------------
@@ -253,16 +246,15 @@ private:
   OwnedPtrMap<ConnectedProtoDashboard*, ConnectedProtoDashboard> connectedDashboards;
 };
 
-void NetworkAcceptingDashboard::accepted(OwnedPtr<ByteStream>* streamToAdopt) {
-  OwnedPtr<ConnectedProtoDashboard> connectedDashboard;
-  connectedDashboard.allocate(this, eventManager, streamToAdopt);
-  connectedDashboards.adopt(connectedDashboard.get(), &connectedDashboard);
+void NetworkAcceptingDashboard::accepted(OwnedPtr<ByteStream> stream) {
+  auto connectedDashboard = newOwned<ConnectedProtoDashboard>(this, eventManager, stream.release());
+  auto key = connectedDashboard.get();  // cannot inline due to undefined evaluation order
+  connectedDashboards.add(key, connectedDashboard.release());
 }
 
-void initNetworkDashboard(EventManager* eventManager, const std::string& address,
-                          OwnedPtr<Dashboard>* dashboardToWrap) {
-  dashboardToWrap->allocateSubclass<NetworkAcceptingDashboard>(
-      eventManager, address, dashboardToWrap);
+OwnedPtr<Dashboard> initNetworkDashboard(EventManager* eventManager, const std::string& address,
+                                         OwnedPtr<Dashboard> dashboardToWrap) {
+  return newOwned<NetworkAcceptingDashboard>(eventManager, address, dashboardToWrap.release());
 }
 
 }  // namespace ekam

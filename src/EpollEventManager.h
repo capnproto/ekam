@@ -57,13 +57,11 @@ public:
   void loop();
 
   // implements EventManager -------------------------------------------------------------
-  void runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output);
-  void onProcessExit(pid_t pid, ProcessExitCallback* callback,
-                     OwnedPtr<AsyncOperation>* output);
-  void onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
-  void onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output);
-  void onFileChange(const std::string& filename, FileChangeCallback* callback,
-                    OwnedPtr<AsyncOperation>* output);
+  OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
+  OwnedPtr<AsyncOperation> onProcessExit(pid_t pid, ProcessExitCallback* callback);
+  OwnedPtr<AsyncOperation> onReadable(int fd, IoCallback* callback);
+  OwnedPtr<AsyncOperation> onWritable(int fd, IoCallback* callback);
+  OwnedPtr<AsyncOperation> onFileChange(const std::string& filename, FileChangeCallback* callback);
 
 private:
   class AsyncCallbackHandler;
@@ -112,8 +110,7 @@ private:
     SignalHandler(Epoller* epoller);
     ~SignalHandler();
 
-    void onProcessExit(pid_t pid, ProcessExitCallback* callback,
-                       OwnedPtr<AsyncOperation>* output);
+    OwnedPtr<AsyncOperation> onProcessExit(pid_t pid, ProcessExitCallback* callback);
 
     // implements IoHandler --------------------------------------------------------------
     void handle(uint32_t events);
@@ -134,8 +131,8 @@ private:
     InotifyHandler(Epoller* epoller);
     ~InotifyHandler();
 
-    void onFileChange(const std::string& filename, FileChangeCallback* callback,
-                      OwnedPtr<AsyncOperation>* output);
+    OwnedPtr<AsyncOperation> onFileChange(const std::string& filename,
+                                          FileChangeCallback* callback);
 
     // implements IoHandler --------------------------------------------------------------
     void handle(uint32_t events);

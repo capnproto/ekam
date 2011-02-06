@@ -101,9 +101,9 @@ void SimpleDashboard::TaskImpl::addOutput(const std::string& text) {
 SimpleDashboard::SimpleDashboard(FILE* outputStream) : outputStream(outputStream) {}
 SimpleDashboard::~SimpleDashboard() {}
 
-void SimpleDashboard::beginTask(const std::string& verb, const std::string& noun,
-                                Silence silence, OwnedPtr<Task>* output) {
-  output->allocateSubclass<TaskImpl>(verb, noun, silence, outputStream);
+OwnedPtr<Dashboard::Task> SimpleDashboard::beginTask(
+    const std::string& verb, const std::string& noun, Silence silence) {
+  return newOwned<TaskImpl>(verb, noun, silence, outputStream);
 }
 
 }  // namespace ekam

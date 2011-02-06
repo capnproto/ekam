@@ -116,7 +116,7 @@ private:
 
   void rescanForNewFactory(ActionFactory* factory);
 
-  void queueNewAction(ActionFactory* factory, OwnedPtr<Action>* actionToAdopt,
+  void queueNewAction(ActionFactory* factory, OwnedPtr<Action> action,
                       Provision* provision);
 
   void registerProvider(Provision* provision, const std::vector<Tag>& tags);

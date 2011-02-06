@@ -46,10 +46,8 @@ namespace ekam {
 
 namespace {
 
-void getDepsFile(File* objectFile, OwnedPtr<File>* output) {
-  OwnedPtr<File> dir;
-  objectFile->parent(&dir);
-  dir->relative(objectFile->basename() + ".deps", output);
+OwnedPtr<File> getDepsFile(File* objectFile) {
+  return objectFile->parent()->relative(objectFile->basename() + ".deps");
 }
 
 bool isTestName(const std::string& name) {
@@ -76,7 +74,7 @@ public:
 
   // implements Action -------------------------------------------------------------------
   std::string getVerb();
-  void start(EventManager* eventManager, BuildContext* context, OwnedPtr<AsyncOperation>* output);
+  OwnedPtr<AsyncOperation> start(EventManager* eventManager, BuildContext* context);
 
 private:
   class LinkProcess;
@@ -105,9 +103,7 @@ private:
 const Tag LinkAction::GTEST_MAIN = Tag::fromName("gtest:main");
 const Tag LinkAction::TEST_EXECUTABLE = Tag::fromName("test:executable");
 
-LinkAction::LinkAction(File* file, Mode mode) : mode(mode) {
-  file->clone(&this->file);
-}
+LinkAction::LinkAction(File* file, Mode mode) : file(file->clone()), mode(mode) {}
 
 LinkAction::~LinkAction() {}
 
@@ -120,12 +116,11 @@ void LinkAction::DepsSet::addObject(BuildContext* context, File* objectFile) {
     return;
   }
 
-  OwnedPtr<File> ptr;
-  objectFile->clone(&ptr);
-  deps.adopt(ptr.get(), &ptr);
+  OwnedPtr<File> ptr = objectFile->clone();
+  File* rawptr = ptr.get();  // cannot inline due to undefined evaluation order
+  deps.add(rawptr, ptr.release());
 
-  OwnedPtr<File> depsFile;
-  getDepsFile(objectFile, &depsFile);
+  OwnedPtr<File> depsFile = getDepsFile(objectFile);
   if (depsFile->exists()) {
     std::string data = depsFile->readAll();
 
@@ -151,10 +146,8 @@ void LinkAction::DepsSet::addObject(BuildContext* context, File* objectFile) {
 class LinkAction::LinkProcess : public AsyncOperation, public EventManager::ProcessExitCallback {
 public:
   LinkProcess(LinkAction* action, EventManager* eventManager, BuildContext* context,
-              OwnedPtrVector<File>* depsToAdopt)
+              const OwnedPtrVector<File>& deps)
       : action(action), context(context) {
-    deps.swap(depsToAdopt);
-
     std::string base, ext;
     splitExtension(action->file->canonicalName(), &base, &ext);
 
@@ -163,7 +156,7 @@ public:
     subprocess.addArgument(cxx == NULL ? "c++" : cxx);
     subprocess.addArgument("-o");
 
-    context->newOutput(base, &executableFile);
+    executableFile = context->newOutput(base);
     subprocess.addArgument(executableFile.get(), File::WRITE);
 
     if (isTestName(base)) {
@@ -185,12 +178,12 @@ public:
       subprocess.addArgument(libs);
     }
 
-    subprocess.captureStdoutAndStderr(&logStream);
+    logStream = subprocess.captureStdoutAndStderr();
 
     subprocess.start(eventManager, this);
 
-    logger.allocate(context);
-    logStream->readAll(eventManager, logger.get(), &logOp);
+    logger = newOwned<Logger>(context);
+    logOp = logStream->readAll(eventManager, logger.get());
   }
   ~LinkProcess() {}
 
@@ -208,7 +201,6 @@ private:
   LinkAction* action;
   BuildContext* context;
 
-  OwnedPtrVector<File> deps;
   OwnedPtr<File> executableFile;
 
   Subprocess subprocess;
@@ -217,8 +209,7 @@ private:
   OwnedPtr<AsyncOperation> logOp;
 };
 
-void LinkAction::start(EventManager* eventManager, BuildContext* context,
-                       OwnedPtr<AsyncOperation>* output) {
+OwnedPtr<AsyncOperation> LinkAction::start(EventManager* eventManager, BuildContext* context) {
   DepsSet deps;
 
   if (mode == GTEST) {
@@ -226,7 +217,7 @@ void LinkAction::start(EventManager* eventManager, BuildContext* context,
     if (gtestMain == NULL) {
       context->log("Cannot find gtest_main.o.");
       context->failed();
-      return;
+      return NULL_PTR;
     }
 
     deps.addObject(context, gtestMain);
@@ -237,7 +228,7 @@ void LinkAction::start(EventManager* eventManager, BuildContext* context,
   OwnedPtrVector<File> flatDeps;
   deps.enumerate(flatDeps.appender());
 
-  output->allocateSubclass<LinkProcess>(this, eventManager, context, &flatDeps);
+  return newOwned<LinkProcess>(this, eventManager, context, flatDeps);
 }
 
 // =======================================================================================
@@ -260,18 +251,17 @@ void CppActionFactory::enumerateTriggerTags(
   *iter++ = GTEST_TEST;
 }
 
-bool CppActionFactory::tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output) {
+OwnedPtr<Action> CppActionFactory::tryMakeAction(const Tag& id, File* file) {
+  OwnedPtr<Action> result;
   for (unsigned int i = 0; i < (sizeof(MAIN_SYMBOLS) / sizeof(MAIN_SYMBOLS[0])); i++) {
     if (id == MAIN_SYMBOLS[i]) {
-      output->allocateSubclass<LinkAction>(file, LinkAction::NORMAL);
-      return true;
+      return newOwned<LinkAction>(file, LinkAction::NORMAL);
     }
   }
   if (id == GTEST_TEST) {
-    output->allocateSubclass<LinkAction>(file, LinkAction::GTEST);
-    return true;
+    return newOwned<LinkAction>(file, LinkAction::GTEST);
   }
-  return false;
+  return NULL_PTR;
 }
 
 }  // namespace ekam

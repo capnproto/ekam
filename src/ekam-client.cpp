@@ -133,17 +133,16 @@ int main(int argc, char* argv[]) {
         task->setState(toDashboardState(message.state()));
       }
     } else {
-      OwnedPtr<Dashboard::Task> newTask;
-      dashboard.beginTask(message.verb(), message.noun(),
-                          message.silent() ? Dashboard::SILENT : Dashboard::NORMAL,
-                          &newTask);
+      OwnedPtr<Dashboard::Task> newTask = dashboard.beginTask(
+          message.verb(), message.noun(),
+          message.silent() ? Dashboard::SILENT : Dashboard::NORMAL);
       if (message.has_log()) {
         newTask->addOutput(message.log());
       }
       if (message.has_state() && message.state() != proto::TaskUpdate::PENDING) {
         newTask->setState(toDashboardState(message.state()));
       }
-      tasks.adopt(message.id(), &newTask);
+      tasks.add(message.id(), newTask.release());
     }
   }
 }

@@ -90,8 +90,7 @@ void Subprocess::addArgument(const std::string& arg) {
 }
 
 File::DiskRef* Subprocess::addArgument(File* file, File::Usage usage) {
-  OwnedPtr<File::DiskRef> diskRef;
-  file->getOnDisk(usage, &diskRef);
+  OwnedPtr<File::DiskRef> diskRef = file->getOnDisk(usage);
 
   if (args.empty()) {
     executableName = diskRef->path();
@@ -100,32 +99,32 @@ File::DiskRef* Subprocess::addArgument(File* file, File::Usage usage) {
   args.push_back(diskRef->path());
 
   File::DiskRef* result = diskRef.get();
-  diskRefs.adoptBack(&diskRef);
+  diskRefs.add(diskRef.release());
   return result;
 }
 
-void Subprocess::captureStdin(OwnedPtr<ByteStream>* output) {
-  stdinPipe.allocate();
-  stdinPipe->releaseWriteEnd(output);
+OwnedPtr<ByteStream> Subprocess::captureStdin() {
+  stdinPipe = newOwned<Pipe>();
+  return stdinPipe->releaseWriteEnd();
 }
 
-void Subprocess::captureStdout(OwnedPtr<ByteStream>* output) {
-  stdoutPipe.allocate();
-  stdoutPipe->releaseReadEnd(output);
+OwnedPtr<ByteStream> Subprocess::captureStdout() {
+  stdoutPipe = newOwned<Pipe>();
   stdoutAndStderrPipe.clear();
+  return stdoutPipe->releaseReadEnd();
 }
 
-void Subprocess::captureStderr(OwnedPtr<ByteStream>* output) {
-  stderrPipe.allocate();
-  stderrPipe->releaseReadEnd(output);
+OwnedPtr<ByteStream> Subprocess::captureStderr() {
+  stderrPipe = newOwned<Pipe>();
   stdoutAndStderrPipe.clear();
+  return stderrPipe->releaseReadEnd();
 }
 
-void Subprocess::captureStdoutAndStderr(OwnedPtr<ByteStream>* output) {
-  stdoutAndStderrPipe.allocate();
-  stdoutAndStderrPipe->releaseReadEnd(output);
+OwnedPtr<ByteStream> Subprocess::captureStdoutAndStderr() {
+  stdoutAndStderrPipe = newOwned<Pipe>();
   stdoutPipe.clear();
   stderrPipe.clear();
+  return stdoutAndStderrPipe->releaseReadEnd();
 }
 
 void Subprocess::start(EventManager* eventManager, EventManager::ProcessExitCallback* callback) {
@@ -186,8 +185,8 @@ void Subprocess::start(EventManager* eventManager, EventManager::ProcessExitCall
       stdoutAndStderrPipe.clear();
     }
 
-    callbackWrapper.allocate(this, callback);
-    eventManager->onProcessExit(pid, callbackWrapper.get(), &waitOperation);
+    callbackWrapper = newOwned<CallbackWrapper>(this, callback);
+    waitOperation = eventManager->onProcessExit(pid, callbackWrapper.get());
   }
 }
 

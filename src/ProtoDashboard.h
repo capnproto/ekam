@@ -48,7 +48,7 @@ namespace ekam {
 
 class ProtoDashboard : public Dashboard {
 public:
-  ProtoDashboard(EventManager* eventManager, OwnedPtr<ByteStream>* streamToAdopt);
+  ProtoDashboard(EventManager* eventManager, OwnedPtr<ByteStream> stream);
   ~ProtoDashboard();
 
   class DisconnectedCallback {
@@ -57,22 +57,21 @@ public:
 
     virtual void disconnected() = 0;
   };
-  void onDisconnect(DisconnectedCallback* callback, OwnedPtr<AsyncOperation>* output);
+  OwnedPtr<AsyncOperation> onDisconnect(DisconnectedCallback* callback);
 
   // implements Dashboard ----------------------------------------------------------------
-  void beginTask(const std::string& verb, const std::string& noun,
-                 Silence silence, OwnedPtr<Task>* output);
+  OwnedPtr<Task> beginTask(const std::string& verb, const std::string& noun, Silence silence);
 
 private:
   class TaskImpl;
 
   class WriteBuffer : public EventManager::IoCallback {
   public:
-    WriteBuffer(EventManager* eventManager, OwnedPtr<ByteStream>* streamToAdopt);
+    WriteBuffer(EventManager* eventManager, OwnedPtr<ByteStream> stream);
     ~WriteBuffer();
 
     void write(const google::protobuf::MessageLite& data);
-    void onDisconnect(DisconnectedCallback* callback, OwnedPtr<AsyncOperation>* output);
+    OwnedPtr<AsyncOperation> onDisconnect(DisconnectedCallback* callback);
 
     // implements IoCallback -------------------------------------------------------------
     void ready();

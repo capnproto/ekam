@@ -249,8 +249,8 @@ private:
   Callback* callback;
 };
 
-void EpollEventManager::runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<AsyncCallbackHandler>(this, callback);
+OwnedPtr<AsyncOperation> EpollEventManager::runAsynchronously(Callback* callback) {
+  return newOwned<AsyncCallbackHandler>(this, callback);
 }
 
 // =======================================================================================
@@ -334,16 +334,14 @@ void EpollEventManager::SignalHandler::handleProcessExit() {
   }
 }
 
-void EpollEventManager::SignalHandler::onProcessExit(pid_t pid,
-                                                     ProcessExitCallback* callback,
-                                                     OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<ProcessExitHandler>(this, pid, callback);
+OwnedPtr<AsyncOperation> EpollEventManager::SignalHandler::onProcessExit(
+    pid_t pid, ProcessExitCallback* callback) {
+  return newOwned<ProcessExitHandler>(this, pid, callback);
 }
 
-void EpollEventManager::onProcessExit(pid_t pid,
-                                      ProcessExitCallback* callback,
-                                      OwnedPtr<AsyncOperation>* output) {
-  signalHandler.onProcessExit(pid, callback, output);
+OwnedPtr<AsyncOperation> EpollEventManager::onProcessExit(
+    pid_t pid, ProcessExitCallback* callback) {
+  return signalHandler.onProcessExit(pid, callback);
 }
 
 // =======================================================================================
@@ -364,8 +362,8 @@ private:
   IoCallback* callback;
 };
 
-void EpollEventManager::onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<ReadHandler>(&epoller, fd, callback);
+OwnedPtr<AsyncOperation> EpollEventManager::onReadable(int fd, IoCallback* callback) {
+  return newOwned<ReadHandler>(&epoller, fd, callback);
 }
 
 // =======================================================================================
@@ -386,8 +384,8 @@ private:
   IoCallback* callback;
 };
 
-void EpollEventManager::onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<WriteHandler>(&epoller, fd, callback);
+OwnedPtr<AsyncOperation> EpollEventManager::onWritable(int fd, IoCallback* callback) {
+  return newOwned<WriteHandler>(&epoller, fd, callback);
 }
 
 // =======================================================================================
@@ -514,10 +512,9 @@ public:
     // Find or create WatchedDirectory object.
     WatchByNameMap::iterator iter = inotifyHandler->watchByNameMap.find(directory);
     if (iter == inotifyHandler->watchByNameMap.end()) {
-      OwnedPtr<WatchedDirectory> newWatchedDirectory;
-      newWatchedDirectory.allocate(inotifyHandler, directory);
+      auto newWatchedDirectory = newOwned<WatchedDirectory>(inotifyHandler, directory);
       watchedDirectory = newWatchedDirectory.get();
-      inotifyHandler->ownedWatchDirectories.adopt(watchedDirectory, &newWatchedDirectory);
+      inotifyHandler->ownedWatchDirectories.add(watchedDirectory, newWatchedDirectory.release());
     } else {
       watchedDirectory = iter->second;
     }
@@ -734,16 +731,14 @@ void EpollEventManager::InotifyHandler::handle(uint32_t epollEvents) {
   }
 }
 
-void EpollEventManager::InotifyHandler::onFileChange(
-    const std::string& filename, FileChangeCallback* callback,
-    OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<WatchOperation>(this, filename, callback);
+OwnedPtr<AsyncOperation> EpollEventManager::InotifyHandler::onFileChange(
+    const std::string& filename, FileChangeCallback* callback) {
+  return newOwned<WatchOperation>(this, filename, callback);
 }
 
-void EpollEventManager::onFileChange(
-    const std::string& filename, FileChangeCallback* callback,
-    OwnedPtr<AsyncOperation>* output) {
-  inotifyHandler.onFileChange(filename, callback, output);
+OwnedPtr<AsyncOperation> EpollEventManager::onFileChange(
+    const std::string& filename, FileChangeCallback* callback) {
+  return inotifyHandler.onFileChange(filename, callback);
 }
 
 // =======================================================================================
@@ -771,8 +766,8 @@ bool EpollEventManager::handleEvent() {
 
 // =======================================================================================
 
-void newPreferredEventManager(OwnedPtr<RunnableEventManager>* output) {
-  output->allocateSubclass<EpollEventManager>();
+OwnedPtr<RunnableEventManager> newPreferredEventManager() {
+  return newOwned<EpollEventManager>();
 }
 
 }  // namespace ekam

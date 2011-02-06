@@ -47,21 +47,41 @@ inline void deleteEnsuringCompleteType(T* ptr) {
   delete ptr;
 }
 
+// TODO:  Remove when compiler supports C++0x nullptr.
+struct NullPtrType {};
+static const NullPtrType NULL_PTR = NullPtrType();
+
 template <typename T>
 class OwnedPtr {
 public:
   OwnedPtr() : ptr(NULL) {}
+  OwnedPtr(const OwnedPtr&) = delete;
+  OwnedPtr(OwnedPtr&& other) : ptr(other.releaseRaw()) {}
+  template <typename U>
+  OwnedPtr(OwnedPtr<U>&& other) : ptr(other.releaseRaw()) {}
+  OwnedPtr(NullPtrType) : ptr(NULL) {}
   ~OwnedPtr() {
     deleteEnsuringCompleteType(ptr);
+  }
+
+  OwnedPtr& operator=(const OwnedPtr&) = delete;
+  OwnedPtr& operator=(OwnedPtr&& other) {
+    reset(other.releaseRaw());
+    return *this;
+  }
+
+  template <typename U>
+  OwnedPtr& operator=(OwnedPtr<U>&& other) {
+    reset(other.releaseRaw());
+    return *this;
   }
 
   T* get() const { return ptr; }
   T* operator->() const { assert(ptr != NULL); return ptr; }
   T& operator*() const { assert(ptr != NULL); return *ptr; }
 
-  template <typename U>
-  void adopt(OwnedPtr<U>* other) {
-    reset(other->release());
+  OwnedPtr release() {
+    return OwnedPtr(releaseRaw());
   }
 
   void clear() {
@@ -71,71 +91,10 @@ public:
   bool operator==(const T* other) { return ptr == other; }
   bool operator!=(const T* other) { return ptr != other; }
 
-  void allocate() {
-    reset(new T());
-  }
-  template <typename P1>
-  void allocate(const P1& p1) {
-    reset(new T(p1));
-  }
-  template <typename P1, typename P2>
-  void allocate(const P1& p1, const P2& p2) {
-    reset(new T(p1, p2));
-  }
-  template <typename P1, typename P2, typename P3>
-  void allocate(const P1& p1, const P2& p2, const P3& p3) {
-    reset(new T(p1, p2, p3));
-  }
-  template <typename P1, typename P2, typename P3, typename P4>
-  void allocate(const P1& p1, const P2& p2, const P3& p3, const P4& p4) {
-    reset(new T(p1, p2, p3, p4));
-  }
-  template <typename P1, typename P2, typename P3, typename P4, typename P5>
-  void allocate(const P1& p1, const P2& p2, const P3& p3, const P4& p4, const P5& p5) {
-    reset(new T(p1, p2, p3, p4, p5));
-  }
-  template <typename P1, typename P2, typename P3, typename P4, typename P5, typename P6>
-  void allocate(const P1& p1, const P2& p2, const P3& p3, const P4& p4, const P5& p5,
-                const P6& p6) {
-    reset(new T(p1, p2, p3, p4, p5, p6));
-  }
-  template <typename P1, typename P2, typename P3, typename P4, typename P5, typename P6,
-            typename P7>
-  void allocate(const P1& p1, const P2& p2, const P3& p3, const P4& p4, const P5& p5,
-                const P6& p6, const P7& p7) {
-    reset(new T(p1, p2, p3, p4, p5, p6, p7));
-  }
-
-  template <typename Sub>
-  void allocateSubclass() {
-    reset(new Sub());
-  }
-  template <typename Sub, typename P1>
-  void allocateSubclass(const P1& p1) {
-    reset(new Sub(p1));
-  }
-  template <typename Sub, typename P1, typename P2>
-  void allocateSubclass(const P1& p1, const P2& p2) {
-    reset(new Sub(p1, p2));
-  }
-  template <typename Sub, typename P1, typename P2, typename P3>
-  void allocateSubclass(const P1& p1, const P2& p2, const P3& p3) {
-    reset(new Sub(p1, p2, p3));
-  }
-  template <typename Sub, typename P1, typename P2, typename P3, typename P4>
-  void allocateSubclass(const P1& p1, const P2& p2, const P3& p3, const P4& p4) {
-    reset(new Sub(p1, p2, p3, p4));
-  }
-  template <typename Sub, typename P1, typename P2, typename P3, typename P4, typename P5>
-  void allocateSubclass(const P1& p1, const P2& p2, const P3& p3, const P4& p4, const P5& p5) {
-    reset(new Sub(p1, p2, p3, p4, p5));
-  }
-
 private:
   T* ptr;
 
-  OwnedPtr(OwnedPtr&);
-  OwnedPtr& operator=(OwnedPtr&);
+  explicit OwnedPtr(T* ptr) : ptr(ptr) {}
 
   void reset(T* newValue) {
     T* oldValue = ptr;
@@ -143,7 +102,7 @@ private:
     deleteEnsuringCompleteType(oldValue);
   }
 
-  T* release() {
+  T* releaseRaw() {
     T* result = ptr;
     ptr = NULL;
     return result;
@@ -151,6 +110,8 @@ private:
 
   template <typename U>
   friend class OwnedPtr;
+  template <typename U, typename... Params>
+  friend OwnedPtr<U> newOwned(Params&&... params);
   template <typename U>
   friend class SmartPtr;
   template <typename U>
@@ -162,6 +123,11 @@ private:
   template <typename Key, typename U, typename HashFunc, typename EqualsFunc>
   friend class OwnedPtrMap;
 };
+
+template <typename T, typename... Params>
+OwnedPtr<T> newOwned(Params&&... params) {
+  return OwnedPtr<T>(new T(std::forward<Params>(params)...));
+}
 
 template <typename T>
 class SmartPtr {
@@ -181,14 +147,19 @@ public:
     return this;
   }
 
+  template <typename U>
+  SmartPtr(OwnedPtr<U>&& other)
+      : ptr(other->releaseRaw()),
+        refcount(ptr == NULL ? NULL : new int(1)) {}
+  template <typename U>
+  SmartPtr& operator=(OwnedPtr<U>&& other) {
+    reset(other->releaseRaw());
+    return this;
+  }
+
   T* get() const { return ptr; }
   T* operator->() const { assert(ptr != NULL); return ptr; }
   T& operator*() const { assert(ptr != NULL); return *ptr; }
-
-  template <typename U>
-  void adopt(OwnedPtr<U>* other) {
-    reset(other->release());
-  }
 
   template <typename U>
   bool release(OwnedPtr<U>* other) {
@@ -287,38 +258,44 @@ template <typename T>
 class OwnedPtrVector {
 public:
   OwnedPtrVector() {}
+  OwnedPtrVector(const OwnedPtrVector&) = delete;
   ~OwnedPtrVector() {
     for (typename std::vector<T*>::const_iterator iter = vec.begin(); iter != vec.end(); ++iter) {
       deleteEnsuringCompleteType(*iter);
     }
   }
 
+  OwnedPtrVector& operator=(const OwnedPtrVector&) = delete;
+
   int size() const { return vec.size(); }
   T* get(int index) const { return vec[index]; }
   bool empty() const { return vec.empty(); }
 
-  void adopt(int index, OwnedPtr<T>* ptr) {
+  void add(OwnedPtr<T> ptr) {
+    vec.push_back(ptr.releaseRaw());
+  }
+
+  void set(int index, OwnedPtr<T> ptr) {
     deleteEnsuringCompleteType(vec[index]);
-    vec[index] = ptr->release();
+    vec[index] = ptr->releaseRaw();
   }
 
-  void release(int index, OwnedPtr<T>* output) {
-    output->reset(vec[index]);
+  OwnedPtr<T> release(int index) {
+    T* result = vec[index];
     vec[index] = NULL;
+    return OwnedPtr<T>(result);
   }
 
-  void adoptBack(OwnedPtr<T>* ptr) {
-    vec.push_back(ptr->release());
-  }
-
-  void releaseBack(OwnedPtr<T>* output) {
-    output->reset(vec.back());
+  OwnedPtr<T> releaseBack() {
+    T* result = vec.back();
     vec.pop_back();
+    return OwnedPtr<T>(result);
   }
 
-  void releaseAndShift(int index, OwnedPtr<T>* output) {
-    output->reset(vec[index]);
+  OwnedPtr<T> releaseAndShift(int index) {
+    T* result = vec[index];
     vec.erase(vec.begin() + index);
+    return OwnedPtr<T>(result);
   }
 
   void clear() {
@@ -336,8 +313,8 @@ public:
   public:
     explicit Appender(OwnedPtrVector* vec) : vec(vec) {}
 
-    void adopt(OwnedPtr<T>* ptr) {
-      vec->adoptBack(ptr);
+    void add(OwnedPtr<T> ptr) {
+      vec->add(ptr.release());
     }
 
   private:
@@ -366,27 +343,30 @@ public:
   T* get(int index) const { return q[index]; }
   bool empty() const { return q.empty(); }
 
-  void adoptFront(OwnedPtr<T>* ptr) {
-    q.push_front(ptr->release());
+  void pushFront(OwnedPtr<T> ptr) {
+    q.push_front(ptr.releaseRaw());
   }
 
-  void releaseFront(OwnedPtr<T>* output) {
-    output->reset(q.front());
+  OwnedPtr<T> popFront() {
+    T* ptr = q.front();
     q.pop_front();
+    return OwnedPtr<T>(ptr);
   }
 
-  void adoptBack(OwnedPtr<T>* ptr) {
-    q.push_back(ptr->release());
+  void pushBack(OwnedPtr<T> ptr) {
+    q.push_back(ptr.releaseRaw());
   }
 
-  void releaseBack(OwnedPtr<T>* output) {
-    output->reset(q.back());
+  OwnedPtr<T> popBack() {
+    T* ptr = q.back();
     q.pop_back();
+    return OwnedPtr<T>(ptr);
   }
 
-  void releaseAndShift(int index, OwnedPtr<T>* output) {
-    output->reset(q[index]);
+  OwnedPtr<T> releaseAndShift(int index) {
+    T* ptr = q[index];
     q.erase(q.begin() + index);
+    return OwnedPtr<T>(ptr);
   }
 
   void clear() {
@@ -415,13 +395,14 @@ public:
   int size() const { return q.size(); }
   bool empty() const { return q.empty(); }
 
-  void adopt(OwnedPtr<T>* ptr) {
-    q.push(ptr->release());
+  void push(OwnedPtr<T> ptr) {
+    q.push(ptr.releaseRaw());
   }
 
-  void release(OwnedPtr<T>* ptr) {
-    ptr->reset(q.front());
+  OwnedPtr<T> pop() {
+    T* ptr = q.front();
     q.pop();
+    return OwnedPtr<T>(ptr);
   }
 
   void clear() {
@@ -435,8 +416,8 @@ public:
   public:
     Appender(OwnedPtrQueue* q) : q(q) {}
 
-    void adopt(OwnedPtr<T>* ptr) {
-      q->adopt(ptr);
+    void add(OwnedPtr<T> ptr) {
+      q->push(ptr);
     }
 
   private:
@@ -487,8 +468,8 @@ public:
     }
   }
 
-  void adopt(const Key& key, OwnedPtr<T>* ptr) {
-    T* value = ptr->release();
+  void add(const Key& key, OwnedPtr<T> ptr) {
+    T* value = ptr.releaseRaw();
     std::pair<typename InnerMap::iterator, bool> insertResult =
         map.insert(std::make_pair(key, value));
     if (!insertResult.second) {
@@ -497,14 +478,14 @@ public:
     }
   }
 
-  bool adoptIfNew(const Key& key, OwnedPtr<T>* ptr) {
-    T* value = ptr->release();
+  bool addIfNew(const Key& key, OwnedPtr<T> ptr) {
+    T* value = ptr.releaseRaw();
     std::pair<typename InnerMap::iterator, bool> insertResult =
         map.insert(std::make_pair(key, value));
     if (insertResult.second) {
       return true;
     } else {
-      ptr->reset(value);
+      deleteEnsuringCompleteType(value);
       return false;
     }
   }
@@ -524,9 +505,7 @@ public:
   void releaseAll(typename OwnedPtrVector<T>::Appender output) {
     for (typename InnerMap::const_iterator iter = map.begin();
          iter != map.end(); ++iter) {
-      OwnedPtr<T> ptr;
-      ptr.reset(iter->second);
-      output.adopt(&ptr);
+      output.add(OwnedPtr<T>(iter->second));
     }
     map.clear();
   }

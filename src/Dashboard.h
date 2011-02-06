@@ -62,14 +62,14 @@ public:
     NORMAL
   };
 
-  virtual void beginTask(const std::string& verb, const std::string& noun,
-                         Silence silence, OwnedPtr<Task>* output) = 0;
+  virtual OwnedPtr<Task> beginTask(const std::string& verb, const std::string& noun,
+                                   Silence silence) = 0;
 };
 
 class EventManager;
 
-void initNetworkDashboard(EventManager* eventManager, const std::string& address,
-                          OwnedPtr<Dashboard>* dashboardToWrap);
+OwnedPtr<Dashboard> initNetworkDashboard(EventManager* eventManager, const std::string& address,
+                                         OwnedPtr<Dashboard> dashboardToWrap);
 
 }  // namespace ekam
 

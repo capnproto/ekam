@@ -187,8 +187,8 @@ void KqueueEventManager::updateKqueue(uintptr_t ident, short filter, u_short fla
 
 // =======================================================================================
 
-void KqueueEventManager::runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<AsyncCallbackHandler>(this, callback);
+OwnedPtr<AsyncOperation> KqueueEventManager::runAsynchronously(Callback* callback) {
+  return newOwned<AsyncCallbackHandler>(this, callback);
 }
 
 // =======================================================================================
@@ -257,10 +257,9 @@ private:
   ProcessExitCallback* callback;
 };
 
-void KqueueEventManager::onProcessExit(pid_t pid,
-                                       ProcessExitCallback* callback,
-                                       OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<ProcessExitHandler>(this, pid, callback);
+OwnedPtr<AsyncOperation> KqueueEventManager::onProcessExit(
+    pid_t pid, ProcessExitCallback* callback) {
+  return newOwned<ProcessExitHandler>(this, pid, callback);
 }
 
 // =======================================================================================
@@ -302,9 +301,8 @@ private:
   SmartPtr<bool> deleted;
 };
 
-void KqueueEventManager::onReadable(int fd, IoCallback* callback,
-                                    OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<ReadHandler>(this, fd, callback);
+OwnedPtr<AsyncOperation> KqueueEventManager::onReadable(int fd, IoCallback* callback) {
+  return newOwned<ReadHandler>(this, fd, callback);
 }
 
 // =======================================================================================
@@ -333,9 +331,8 @@ private:
   IoCallback* callback;
 };
 
-void KqueueEventManager::onWritable(int fd, IoCallback* callback,
-                                    OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<WriteHandler>(this, fd, callback);
+OwnedPtr<AsyncOperation> KqueueEventManager::onWritable(int fd, IoCallback* callback) {
+  return newOwned<WriteHandler>(this, fd, callback);
 }
 
 // =======================================================================================
@@ -399,15 +396,15 @@ private:
   }
 };
 
-void KqueueEventManager::onFileChange(const std::string& filename, FileChangeCallback* callback,
-                                      OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<FileChangeHandler>(this, filename, callback);
+OwnedPtr<AsyncOperation> KqueueEventManager::onFileChange(const std::string& filename,
+                                                          FileChangeCallback* callback) {
+  return newOwned<FileChangeHandler>(this, filename, callback);
 }
 
 // =======================================================================================
 
-void newPreferredEventManager(OwnedPtr<RunnableEventManager>* output) {
-  output->allocateSubclass<KqueueEventManager>();
+OwnedPtr<RunnableEventManager> newPreferredEventManager() {
+  return newOwned<KqueueEventManager>();
 }
 
 }  // namespace ekam

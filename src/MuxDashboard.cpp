@@ -71,9 +71,7 @@ MuxDashboard::TaskImpl::TaskImpl(MuxDashboard* mux, const std::string& verb,
 
   for (std::tr1::unordered_set<Dashboard*>::iterator iter = mux->wrappedDashboards.begin();
        iter != mux->wrappedDashboards.end(); ++iter) {
-    OwnedPtr<Task> wrappedTask;
-    (*iter)->beginTask(verb, noun, silence, &wrappedTask);
-    wrappedTasks.adopt(*iter, &wrappedTask);
+    wrappedTasks.add(*iter, (*iter)->beginTask(verb, noun, silence));
   }
 }
 MuxDashboard::TaskImpl::~TaskImpl() {
@@ -81,8 +79,7 @@ MuxDashboard::TaskImpl::~TaskImpl() {
 }
 
 void MuxDashboard::TaskImpl::attach(Dashboard* dashboard) {
-  OwnedPtr<Task> wrappedTask;
-  dashboard->beginTask(verb, noun, silence, &wrappedTask);
+  OwnedPtr<Task> wrappedTask = dashboard->beginTask(verb, noun, silence);
   if (!outputText.empty()) {
     wrappedTask->addOutput(outputText);
   }
@@ -90,7 +87,7 @@ void MuxDashboard::TaskImpl::attach(Dashboard* dashboard) {
     wrappedTask->setState(state);
   }
 
-  if (!wrappedTasks.adoptIfNew(dashboard, &wrappedTask)) {
+  if (!wrappedTasks.addIfNew(dashboard, wrappedTask.release())) {
     DEBUG_ERROR << "Tried to attach task to a dashboard to which the task was already attached.";
   }
 }
@@ -132,9 +129,9 @@ void MuxDashboard::TaskImpl::addOutput(const std::string& text) {
 MuxDashboard::MuxDashboard() {}
 MuxDashboard::~MuxDashboard() {}
 
-void MuxDashboard::beginTask(const std::string& verb, const std::string& noun,
-                              Silence silence, OwnedPtr<Task>* output) {
-  output->allocateSubclass<TaskImpl>(this, verb, noun, silence);
+OwnedPtr<Dashboard::Task> MuxDashboard::beginTask(const std::string& verb, const std::string& noun,
+                                                  Silence silence) {
+  return newOwned<TaskImpl>(this, verb, noun, silence);
 }
 
 MuxDashboard::Connector::Connector(MuxDashboard* mux, Dashboard* dashboard)

@@ -43,8 +43,7 @@ public:
   ~ConsoleDashboard();
 
   // implements Dashboard ----------------------------------------------------------------
-  void beginTask(const std::string& verb, const std::string& noun,
-                 Silence silence, OwnedPtr<Task>* output);
+  OwnedPtr<Task> beginTask(const std::string& verb, const std::string& noun, Silence silence);
 
 private:
   class TaskImpl;

@@ -71,9 +71,9 @@ public:
   virtual void install(File* file, InstallLocation location, const std::string& name) = 0;
   virtual void log(const std::string& text) = 0;
 
-  virtual void newOutput(const std::string& path, OwnedPtr<File>* output) = 0;
+  virtual OwnedPtr<File> newOutput(const std::string& path) = 0;
 
-  virtual void addActionType(OwnedPtr<ActionFactory>* factoryToAdopt) = 0;
+  virtual void addActionType(OwnedPtr<ActionFactory> factory) = 0;
 
   virtual void passed() = 0;
   virtual void failed() = 0;
@@ -85,8 +85,7 @@ public:
 
   virtual bool isSilent() { return false; }
   virtual std::string getVerb() = 0;
-  virtual void start(EventManager* eventManager, BuildContext* context,
-                     OwnedPtr<AsyncOperation>* output) = 0;
+  virtual OwnedPtr<AsyncOperation> start(EventManager* eventManager, BuildContext* context) = 0;
 };
 
 class ActionFactory {
@@ -94,7 +93,7 @@ public:
   virtual ~ActionFactory();
 
   virtual void enumerateTriggerTags(std::back_insert_iterator<std::vector<Tag> > iter) = 0;
-  virtual bool tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output) = 0;
+  virtual OwnedPtr<Action> tryMakeAction(const Tag& id, File* file) = 0;
 };
 
 }  // namespace ekam

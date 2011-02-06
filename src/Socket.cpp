@@ -123,9 +123,8 @@ ServerSocket::AcceptCallback::~AcceptCallback() {}
 class ServerSocket::AcceptOp : public EventManager::IoCallback, public AsyncOperation {
 public:
   AcceptOp(EventManager* eventManager, OsHandle* handle, AcceptCallback* callback)
-      : handle(handle), callback(callback) {
-    eventManager->onReadable(handle->get(), this, &waitReadableOp);
-  }
+      : handle(handle), callback(callback),
+        waitReadableOp(eventManager->onReadable(handle->get(), this)) {}
   ~AcceptOp() {}
 
   // implements IoCallback ---------------------------------------------------------------
@@ -147,10 +146,8 @@ public:
           break;
       }
     } else {
-      OwnedPtr<ByteStream> stream;
       // TODO:  Use peer address as name.
-      stream.allocate(fd, "accepted connection");
-      callback->accepted(&stream);
+      callback->accepted(newOwned<ByteStream>(fd, "accepted connection"));
     }
   }
 
@@ -160,9 +157,9 @@ private:
   OwnedPtr<AsyncOperation> waitReadableOp;
 };
 
-void ServerSocket::onAccept(EventManager* eventManager, AcceptCallback* callback,
-                            OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<AcceptOp>(eventManager, &handle, callback);
+OwnedPtr<AsyncOperation> ServerSocket::onAccept(EventManager* eventManager,
+                                                AcceptCallback* callback) {
+  return newOwned<AcceptOp>(eventManager, &handle, callback);
 }
 
 

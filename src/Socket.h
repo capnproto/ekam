@@ -47,10 +47,9 @@ public:
   public:
     virtual ~AcceptCallback();
 
-    virtual void accepted(OwnedPtr<ByteStream>* streamToAdopt) = 0;
+    virtual void accepted(OwnedPtr<ByteStream> stream) = 0;
   };
-  void onAccept(EventManager* eventManager, AcceptCallback* callback,
-                OwnedPtr<AsyncOperation>* output);
+  OwnedPtr<AsyncOperation> onAccept(EventManager* eventManager, AcceptCallback* callback);
 
 private:
   class AcceptOp;

@@ -52,17 +52,14 @@ namespace ekam {
 
 class ExtractTypeAction : public Action {
 public:
-  ExtractTypeAction(File* file) {
-    file->clone(&this->file);
-  }
+  ExtractTypeAction(File* file) : file(file->clone()) {}
   ~ExtractTypeAction() {}
 
   // implements Action -------------------------------------------------------------------
   bool isSilent() { return true; }
   std::string getVerb() { return "scan"; }
 
-  void start(EventManager* eventManager, BuildContext* context,
-             OwnedPtr<AsyncOperation>* output) {
+  OwnedPtr<AsyncOperation> start(EventManager* eventManager, BuildContext* context) {
     std::vector<Tag> tags;
 
     std::string name = file->canonicalName();
@@ -84,6 +81,8 @@ public:
     if (!ext.empty()) tags.push_back(Tag::fromName("filetype:" + ext));
 
     context->provide(file.get(), tags);
+
+    return NULL_PTR;
   }
 
 private:
@@ -99,9 +98,8 @@ public:
   void enumerateTriggerTags(std::back_insert_iterator<std::vector<Tag> > iter) {
     *iter++ = Tag::DEFAULT_TAG;
   }
-  bool tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output) {
-    output->allocateSubclass<ExtractTypeAction>(file);
-    return true;
+  OwnedPtr<Action> tryMakeAction(const Tag& id, File* file) {
+    return newOwned<ExtractTypeAction>(file);
   }
 };
 
@@ -115,10 +113,9 @@ void usage(const char* command, FILE* out) {
 
 class Watcher : public EventManager::FileChangeCallback {
 public:
-  Watcher(OwnedPtr<File>* fileToAdopt, EventManager* eventManager, Driver* driver,
+  Watcher(OwnedPtr<File> file, EventManager* eventManager, Driver* driver,
           bool isDirectory)
-      : eventManager(eventManager), driver(driver), isDirectory(isDirectory) {
-    file.adopt(fileToAdopt);
+      : eventManager(eventManager), driver(driver), isDirectory(isDirectory), file(file.release()) {
     resetWatch();
   }
 
@@ -129,9 +126,8 @@ public:
 
   void resetWatch() {
     asyncOp.clear();
-    OwnedPtr<File::DiskRef> diskRef;
-    file->getOnDisk(File::READ, &diskRef);
-    eventManager->onFileChange(diskRef->path(), this, &asyncOp);
+    diskRef = file->getOnDisk(File::READ);
+    asyncOp = eventManager->onFileChange(diskRef->path(), this);
   }
 
   void clearWatch() {
@@ -145,13 +141,14 @@ public:
   virtual void reallyDeleted() = 0;
 
 private:
+  OwnedPtr<File::DiskRef> diskRef;
   OwnedPtr<AsyncOperation> asyncOp;
 };
 
 class FileWatcher : public Watcher {
 public:
-  FileWatcher(OwnedPtr<File>* fileToAdopt, EventManager* eventManager, Driver* driver)
-      : Watcher(fileToAdopt, eventManager, driver, false) {}
+  FileWatcher(OwnedPtr<File> file, EventManager* eventManager, Driver* driver)
+      : Watcher(file.release(), eventManager, driver, false) {}
   ~FileWatcher() {}
 
   // implements FileChangeCallback -------------------------------------------------------
@@ -186,8 +183,8 @@ private:
 class DirectoryWatcher : public Watcher {
   typedef OwnedPtrMap<File*, Watcher, File::HashFunc, File::EqualFunc> ChildMap;
 public:
-  DirectoryWatcher(OwnedPtr<File>* fileToAdopt, EventManager* eventManager, Driver* driver)
-      : Watcher(fileToAdopt, eventManager, driver, true) {}
+  DirectoryWatcher(OwnedPtr<File> file, EventManager* eventManager, Driver* driver)
+      : Watcher(file.release(), eventManager, driver, true) {}
   ~DirectoryWatcher() {}
 
   // implements FileChangeCallback -------------------------------------------------------
@@ -207,8 +204,7 @@ public:
 
     // Build new child list, copying over child watchers where possible.
     for (int i = 0; i < list.size(); i++) {
-      OwnedPtr<File> childFile;
-      list.release(i, &childFile);
+      OwnedPtr<File> childFile = list.release(i);
 
       OwnedPtr<Watcher> child;
       bool childIsDirectory = childFile->isDirectory();
@@ -239,14 +235,15 @@ public:
       if (!children.release(childFile.get(), &child) ||
           child->isDeleted() || child->isDirectory != childIsDirectory) {
         if (childIsDirectory) {
-          child.allocateSubclass<DirectoryWatcher>(&childFile, eventManager, driver);
+          child = newOwned<DirectoryWatcher>(childFile.release(), eventManager, driver);
         } else {
-          child.allocateSubclass<FileWatcher>(&childFile, eventManager, driver);
+          child = newOwned<FileWatcher>(childFile.release(), eventManager, driver);
         }
         child->modified();
       }
 
-      newChildren.adopt(child->file.get(), &child);
+      File* key = child->file.get();  // cannot inline due to undefined evaluation order
+      newChildren.add(key, child.release());
     }
 
     // Make sure remaining children have been notified of deletion before we destroy the objects.
@@ -296,22 +293,17 @@ void scanSourceTree(File* src, Driver* driver) {
   OwnedPtrVector<File> fileQueue;
 
   {
-    OwnedPtr<File> root;
-    src->clone(&root);
-    fileQueue.adoptBack(&root);
+    fileQueue.add(src->clone());
   }
 
   while (!fileQueue.empty()) {
-    OwnedPtr<File> current;
-    fileQueue.releaseBack(&current);
+    OwnedPtr<File> current = fileQueue.releaseBack();
 
     if (current->isDirectory()) {
       OwnedPtrVector<File> list;
       current->list(list.appender());
       for (int i = 0; i < list.size(); i++) {
-        OwnedPtr<File> child;
-        list.release(i, &child);
-        fileQueue.adoptBack(&child);
+        fileQueue.add(list.release(i));
       }
     } else {
       driver->addSourceFile(current.get());
@@ -374,17 +366,17 @@ int main(int argc, char* argv[]) {
   DiskFile lib("lib", NULL);
   File* installDirs[BuildContext::INSTALL_LOCATION_COUNT] = { &bin, &lib };
 
-  OwnedPtr<RunnableEventManager> eventManager;
-  newPreferredEventManager(&eventManager);
+  OwnedPtr<RunnableEventManager> eventManager = newPreferredEventManager();
 
   OwnedPtr<Dashboard> dashboard;
   if (isatty(STDOUT_FILENO)) {
-    dashboard.allocateSubclass<ConsoleDashboard>(stdout);
+    dashboard = newOwned<ConsoleDashboard>(stdout);
   } else {
-    dashboard.allocateSubclass<SimpleDashboard>(stdout);
+    dashboard = newOwned<SimpleDashboard>(stdout);
   }
   if (!networkDashboardAddress.empty()) {
-    initNetworkDashboard(eventManager.get(), networkDashboardAddress, &dashboard);
+    dashboard = initNetworkDashboard(eventManager.get(), networkDashboardAddress,
+                                     dashboard.release());
   }
 
   Driver driver(eventManager.get(), dashboard.get(), &tmp, installDirs, maxConcurrentActions);
@@ -400,9 +392,7 @@ int main(int argc, char* argv[]) {
 
   OwnedPtr<DirectoryWatcher> rootWatcher;
   if (continuous) {
-    OwnedPtr<File> srcCopy;
-    src.clone(&srcCopy);
-    rootWatcher.allocate(&srcCopy, eventManager.get(), &driver);
+    rootWatcher = newOwned<DirectoryWatcher>(src.clone(), eventManager.get(), &driver);
     rootWatcher->modified();
   } else {
     scanSourceTree(&src, &driver);

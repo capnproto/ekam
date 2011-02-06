@@ -108,7 +108,7 @@ bool statIfExists(const std::string& path, struct stat* output) {
 
 DiskFile::DiskFile(const std::string& path, File* parent) : path(path) {
   if (parent != NULL) {
-    parent->clone(&this->parentRef);
+    this->parentRef = parent->clone();
   }
 }
 DiskFile::~DiskFile() {}
@@ -142,19 +142,19 @@ std::string DiskFile::canonicalName() {
   return result;
 }
 
-void DiskFile::clone(OwnedPtr<File>* output) {
-  output->allocateSubclass<DiskFile>(path, parentRef.get());
+OwnedPtr<File> DiskFile::clone() {
+  return newOwned<DiskFile>(path, parentRef.get());
 }
 
 bool DiskFile::hasParent() {
   return parentRef != NULL;
 }
 
-void DiskFile::parent(OwnedPtr<File>* output) {
+OwnedPtr<File> DiskFile::parent() {
   if (parentRef == NULL) {
     throw std::runtime_error("Tried to get parent of top-level directory: " + canonicalName());
   }
-  parentRef->clone(output);
+  return parentRef->clone();
 }
 
 bool DiskFile::equals(File* other) {
@@ -178,8 +178,8 @@ private:
   std::string pathName;
 };
 
-void DiskFile::getOnDisk(Usage usage, OwnedPtr<DiskRef>* output) {
-  output->allocateSubclass<DiskRefImpl>(path);
+OwnedPtr<File::DiskRef> DiskFile::getOnDisk(Usage usage) {
+  return newOwned<DiskRefImpl>(path);
 }
 
 bool DiskFile::exists() {
@@ -281,14 +281,12 @@ void DiskFile::list(OwnedPtrVector<File>::Appender output) {
     if (filename.empty()) {
       DEBUG_ERROR << "DirectoryReader returned empty file name.";
     } else if (filename[0] != '.') {  // skip hidden files
-      OwnedPtr<File> file;
-      file.allocateSubclass<DiskFile>(prefix + filename, this);
-      output.adopt(&file);
+      output.add(newOwned<DiskFile>(prefix + filename, this));
     }
   }
 }
 
-void DiskFile::relative(const std::string& path, OwnedPtr<File>* output) {
+OwnedPtr<File> DiskFile::relative(const std::string& path) {
   if (path.empty()) {
     throw std::invalid_argument("File::relative(): path cannot be empty.");
   } else if (path[0] == '/') {
@@ -300,13 +298,13 @@ void DiskFile::relative(const std::string& path, OwnedPtr<File>* output) {
   std::string rest;
   if (slash_pos == std::string::npos) {
     if (path == ".") {
-      clone(output);
+      return clone();
     } else if (path == "..") {
-      parent(output);
+      return parent();
     } else if (this->path.empty()) {
-      output->allocateSubclass<DiskFile>(path, this);
+      return newOwned<DiskFile>(path, this);
     } else {
-      output->allocateSubclass<DiskFile>(this->path + "/" + path, this);
+      return newOwned<DiskFile>(this->path + "/" + path, this);
     }
 
   } else {
@@ -316,26 +314,26 @@ void DiskFile::relative(const std::string& path, OwnedPtr<File>* output) {
 
     if (after_slash_pos == std::string::npos) {
       // Trailing slash.  Bah.
-      relative(first_part, output);
+      return relative(first_part);
     } else {
       rest.assign(path, after_slash_pos, std::string::npos);
 
       if (first_part == ".") {
-        relative(rest, output);
+        return relative(rest);
       } else if (first_part == "..") {
         if (parentRef == NULL) {
           throw std::runtime_error(
               "Tried to get parent of top-level directory: " + canonicalName());
         }
-        parentRef->relative(rest, output);
+        return parentRef->relative(rest);
       } else {
         OwnedPtr<File> temp;
         if (this->path.empty()) {
-          temp.allocateSubclass<DiskFile>(first_part, this);
+          temp = newOwned<DiskFile>(first_part, this);
         } else {
-          temp.allocateSubclass<DiskFile>(this->path + "/" + first_part, this);
+          temp = newOwned<DiskFile>(this->path + "/" + first_part, this);
         }
-        temp->relative(rest, output);
+        return temp->relative(rest);
       }
     }
   }

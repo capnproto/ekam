@@ -42,7 +42,7 @@ public:
 
   // implements ActionFactory ------------------------------------------------------------
   void enumerateTriggerTags(std::back_insert_iterator<std::vector<Tag> > iter);
-  bool tryMakeAction(const Tag& id, File* file, OwnedPtr<Action>* output);
+  OwnedPtr<Action> tryMakeAction(const Tag& id, File* file);
 };
 
 }  // namespace ekam

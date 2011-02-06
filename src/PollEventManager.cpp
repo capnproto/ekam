@@ -198,8 +198,8 @@ private:
   Callback* callback;
 };
 
-void PollEventManager::runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<AsyncCallbackHandler>(this, callback);
+OwnedPtr<AsyncOperation> PollEventManager::runAsynchronously(Callback* callback) {
+  return newOwned<AsyncCallbackHandler>(this, callback);
 }
 
 // =======================================================================================
@@ -239,10 +239,8 @@ private:
   ProcessExitCallback* callback;
 };
 
-void PollEventManager::onProcessExit(pid_t pid,
-                                     ProcessExitCallback* callback,
-                                     OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<ProcessExitHandler>(this, pid, callback);
+OwnedPtr<AsyncOperation> PollEventManager::onProcessExit(pid_t pid, ProcessExitCallback* callback) {
+  return newOwned<ProcessExitHandler>(this, pid, callback);
 }
 
 // =======================================================================================
@@ -280,8 +278,8 @@ private:
   IoCallback* callback;
 };
 
-void PollEventManager::onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<ReadHandler>(this, fd, callback);
+OwnedPtr<AsyncOperation> PollEventManager::onReadable(int fd, IoCallback* callback) {
+  return newOwned<ReadHandler>(this, fd, callback);
 }
 
 // =======================================================================================
@@ -317,14 +315,14 @@ private:
   IoCallback* callback;
 };
 
-void PollEventManager::onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
-  output->allocateSubclass<WriteHandler>(this, fd, callback);
+OwnedPtr<AsyncOperation> PollEventManager::onWritable(int fd, IoCallback* callback) {
+  return newOwned<WriteHandler>(this, fd, callback);
 }
 
 // =======================================================================================
 
-void PollEventManager::onFileChange(const std::string& filename, FileChangeCallback* callback,
-                                    OwnedPtr<AsyncOperation>* output) {
+OwnedPtr<AsyncOperation> PollEventManager::onFileChange(const std::string& filename,
+                                                        FileChangeCallback* callback) {
   throw std::logic_error("PollEventManager::onFileChange not implemented.");
 }
 
@@ -458,8 +456,8 @@ void PollEventManager::handleSignal(const siginfo_t& siginfo) {
 
 // =======================================================================================
 
-void newPreferredEventManager(OwnedPtr<RunnableEventManager>* output) {
-  output->allocateSubclass<PollEventManager>();
+OwnedPtr<RunnableEventManager> newPreferredEventManager() {
+  return newOwned<PollEventManager>();
 }
 
 }  // namespace ekam

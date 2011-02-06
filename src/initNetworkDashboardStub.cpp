@@ -33,8 +33,8 @@
 
 namespace ekam {
 
-void initNetworkDashboard(EventManager* eventManager, const std::string& address,
-                          OwnedPtr<Dashboard>* dashboardToWrap) {
+OwnedPtr<Dashboard> initNetworkDashboard(EventManager* eventManager, const std::string& address,
+                                         OwnedPtr<Dashboard> dashboardToWrap) {
   throw std::logic_error("Network dashboard support not compiled in.");
 }
 

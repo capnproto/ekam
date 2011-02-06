@@ -149,41 +149,35 @@ EventGroup::EventGroup(EventManager* inner, ExceptionHandler* exceptionHandler)
 
 EventGroup::~EventGroup() {}
 
-void EventGroup::runAsynchronously(Callback* callback, OwnedPtr<AsyncOperation>* output) {
-  OwnedPtr<CallbackWrapper> wrappedCallback;
-  wrappedCallback.allocate(this, callback);
-  inner->runAsynchronously(wrappedCallback.get(), &wrappedCallback->inner);
-  output->adopt(&wrappedCallback);
+OwnedPtr<AsyncOperation> EventGroup::runAsynchronously(Callback* callback) {
+  auto wrappedCallback = newOwned<CallbackWrapper>(this, callback);
+  wrappedCallback->inner = inner->runAsynchronously(wrappedCallback.get());
+  return wrappedCallback.release();
 }
 
-void EventGroup::onProcessExit(pid_t pid, ProcessExitCallback* callback,
-                               OwnedPtr<AsyncOperation>* output) {
-  OwnedPtr<ProcessExitCallbackWrapper> wrappedCallback;
-  wrappedCallback.allocate(this, callback);
-  inner->onProcessExit(pid, wrappedCallback.get(), &wrappedCallback->inner);
-  output->adopt(&wrappedCallback);
+OwnedPtr<AsyncOperation> EventGroup::onProcessExit(pid_t pid, ProcessExitCallback* callback) {
+  auto wrappedCallback = newOwned<ProcessExitCallbackWrapper>(this, callback);
+  wrappedCallback->inner = inner->onProcessExit(pid, wrappedCallback.get());
+  return wrappedCallback.release();
 }
 
-void EventGroup::onReadable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
-  OwnedPtr<IoCallbackWrapper> wrappedCallback;
-  wrappedCallback.allocate(this, callback);
-  inner->onReadable(fd, wrappedCallback.get(), &wrappedCallback->inner);
-  output->adopt(&wrappedCallback);
+OwnedPtr<AsyncOperation> EventGroup::onReadable(int fd, IoCallback* callback) {
+  auto wrappedCallback = newOwned<IoCallbackWrapper>(this, callback);
+  wrappedCallback->inner = inner->onReadable(fd, wrappedCallback.get());
+  return wrappedCallback.release();
 }
 
-void EventGroup::onWritable(int fd, IoCallback* callback, OwnedPtr<AsyncOperation>* output) {
-  OwnedPtr<IoCallbackWrapper> wrappedCallback;
-  wrappedCallback.allocate(this, callback);
-  inner->onWritable(fd, wrappedCallback.get(), &wrappedCallback->inner);
-  output->adopt(&wrappedCallback);
+OwnedPtr<AsyncOperation> EventGroup::onWritable(int fd, IoCallback* callback) {
+  auto wrappedCallback = newOwned<IoCallbackWrapper>(this, callback);
+  wrappedCallback->inner = inner->onWritable(fd, wrappedCallback.get());
+  return wrappedCallback.release();
 }
 
-void EventGroup::onFileChange(const std::string& filename, FileChangeCallback* callback,
-                              OwnedPtr<AsyncOperation>* output) {
-  OwnedPtr<FileChangeCallbackWrapper> wrappedCallback;
-  wrappedCallback.allocate(this, callback);
-  inner->onFileChange(filename, wrappedCallback.get(), &wrappedCallback->inner);
-  output->adopt(&wrappedCallback);
+OwnedPtr<AsyncOperation> EventGroup::onFileChange(const std::string& filename,
+                                                  FileChangeCallback* callback) {
+  auto wrappedCallback = newOwned<FileChangeCallbackWrapper>(this, callback);
+  wrappedCallback->inner = inner->onFileChange(filename, wrappedCallback.get());
+  return wrappedCallback.release();
 }
 
 }  // namespace ekam

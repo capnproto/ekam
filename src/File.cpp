@@ -49,9 +49,7 @@ void splitExtension(const std::string& name, std::string* base, std::string* ext
 
 void recursivelyCreateDirectory(File* location) {
   if (!location->isDirectory()) {
-    OwnedPtr<File> parent;
-    location->parent(&parent);
-    recursivelyCreateDirectory(parent.get());
+    recursivelyCreateDirectory(location->parent().get());
     location->createDirectory();
   }
 }

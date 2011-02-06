@@ -108,13 +108,11 @@ private:
   ReadAllCallback* callback;
 };
 
-void ByteStream::readAll(EventManager* eventManager,
-                             ReadAllCallback* callback,
-                             OwnedPtr<AsyncOperation>* output) {
-  OwnedPtr<ReadEventCallback> eventCallback;
-  eventCallback.allocate(handle.get(), callback);
-  eventManager->onReadable(handle.get(), eventCallback.get(), &eventCallback->inner);
-  output->adopt(&eventCallback);
+OwnedPtr<AsyncOperation> ByteStream::readAll(EventManager* eventManager,
+                                             ReadAllCallback* callback) {
+  OwnedPtr<ReadEventCallback> eventCallback = newOwned<ReadEventCallback>(handle.get(), callback);
+  eventCallback->inner = eventManager->onReadable(handle.get(), eventCallback.get());
+  return eventCallback.release();
 }
 
 // =======================================================================================
@@ -133,14 +131,16 @@ Pipe::~Pipe() {
   closeWriteEnd();
 }
 
-void Pipe::releaseReadEnd(OwnedPtr<ByteStream>* output) {
-  output->allocate(fds[0], "pipe.readEnd");
+OwnedPtr<ByteStream> Pipe::releaseReadEnd() {
+  auto result = newOwned<ByteStream>(fds[0], "pipe.readEnd");
   fds[0] = -1;
+  return result.release();
 }
 
-void Pipe::releaseWriteEnd(OwnedPtr<ByteStream>* output) {
-  output->allocate(fds[1], "pipe.writeEnd");
+OwnedPtr<ByteStream> Pipe::releaseWriteEnd() {
+  auto result = newOwned<ByteStream>(fds[1], "pipe.writeEnd");
   fds[1] = -1;
+  return result.release();
 }
 
 void Pipe::attachReadEndForExec(int target) {

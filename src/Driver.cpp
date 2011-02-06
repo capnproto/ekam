@@ -68,8 +68,8 @@ int commonPrefixLength(const std::string& srcName, const std::string& bestMatchN
 
 class Driver::ActionDriver : public BuildContext, public EventGroup::ExceptionHandler {
 public:
-  ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
-               File* srcfile, Hash srcHash, OwnedPtr<Dashboard::Task>* taskToAdopt);
+  ActionDriver(Driver* driver, OwnedPtr<Action> action,
+               File* srcfile, Hash srcHash, OwnedPtr<Dashboard::Task> task);
   ~ActionDriver();
 
   void start();
@@ -82,9 +82,9 @@ public:
   void install(File* file, InstallLocation location, const std::string& name);
   void log(const std::string& text);
 
-  void newOutput(const std::string& path, OwnedPtr<File>* output);
+  OwnedPtr<File> newOutput(const std::string& path);
 
-  void addActionType(OwnedPtr<ActionFactory>* factoryToAdopt);
+  void addActionType(OwnedPtr<ActionFactory> factory);
 
   void passed();
   void failed();
@@ -103,8 +103,8 @@ private:
     // implements Callback ---------------------------------------------------------------
     void run() {
       actionDriver->asyncCallbackOp.clear();
-      actionDriver->action->start(&actionDriver->eventGroup, actionDriver,
-                                  &actionDriver->runningAction);
+      actionDriver->runningAction = actionDriver->action->start(
+          &actionDriver->eventGroup, actionDriver);
     }
 
   private:
@@ -178,17 +178,12 @@ private:
   friend class Driver;
 };
 
-Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action>* actionToAdopt,
+Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action> action,
                                    File* srcfile, Hash srcHash,
-                                   OwnedPtr<Dashboard::Task>* taskToAdopt)
-    : driver(driver), srcHash(srcHash), state(PENDING),
-      eventGroup(driver->eventManager, this), startCallback(this), doneCallback(this),
-      isRunning(false) {
-  action.adopt(actionToAdopt);
-  srcfile->clone(&this->srcfile);
-
-  dashboardTask.adopt(taskToAdopt);
-}
+                                   OwnedPtr<Dashboard::Task> task)
+    : driver(driver), action(action.release()), srcfile(srcfile->clone()), srcHash(srcHash),
+      dashboardTask(task.release()), state(PENDING), eventGroup(driver->eventManager, this),
+      startCallback(this), doneCallback(this), isRunning(false) {}
 Driver::ActionDriver::~ActionDriver() {}
 
 void Driver::ActionDriver::start() {
@@ -206,8 +201,7 @@ void Driver::ActionDriver::start() {
   isRunning = true;
   dashboardTask->setState(Dashboard::RUNNING);
 
-  OwnedPtr<EventManager::Callback> callback;
-  eventGroup.runAsynchronously(&startCallback, &asyncCallbackOp);
+  asyncCallbackOp = eventGroup.runAsynchronously(&startCallback);
 }
 
 File* Driver::ActionDriver::findProvider(Tag tag) {
@@ -249,17 +243,13 @@ File* Driver::ActionDriver::provideInternal(File* file, const std::vector<Tag>& 
   }
 
   if (provision == NULL) {
-    OwnedPtr<Provision> ownedProvision;
-    ownedProvision.allocate();
+    auto ownedProvision = newOwned<Provision>();
     provision = ownedProvision.get();
-    provisions.adoptBack(&ownedProvision);
-
-    OwnedPtr<std::vector<Tag> > tagsCopy;
-    tagsCopy.allocate(tags);
-    providedTags.adoptBack(&tagsCopy);
+    provisions.add(ownedProvision.release());
+    providedTags.add(newOwned<std::vector<Tag>>(tags));
   }
 
-  file->clone(&provision->file);
+  provision->file = file->clone();
   return provision->file.get();
 }
 
@@ -282,27 +272,26 @@ void Driver::ActionDriver::log(const std::string& text) {
   dashboardTask->addOutput(text);
 }
 
-void Driver::ActionDriver::newOutput(const std::string& path, OwnedPtr<File>* output) {
+OwnedPtr<File> Driver::ActionDriver::newOutput(const std::string& path) {
   ensureRunning();
-  OwnedPtr<File> file;
-  driver->tmp->relative(path, &file);
+  OwnedPtr<File> file = driver->tmp->relative(path);
 
-  OwnedPtr<File> parent;
-  file->parent(&parent);
-  recursivelyCreateDirectory(parent.get());
+  recursivelyCreateDirectory(file->parent().get());
 
-  file->clone(output);
+  OwnedPtr<File> result = file->clone();
 
   std::vector<Tag> tags;
   tags.push_back(Tag::DEFAULT_TAG);
   provide(file.get(), tags);
 
-  outputs.adoptBack(&file);
+  outputs.add(file.release());
+
+  return result;
 }
 
-void Driver::ActionDriver::addActionType(OwnedPtr<ActionFactory>* factoryToAdopt) {
+void Driver::ActionDriver::addActionType(OwnedPtr<ActionFactory> factory) {
   ensureRunning();
-  providedFactories.adoptBack(factoryToAdopt);
+  providedFactories.add(factory.release());
 }
 
 void Driver::ActionDriver::noMoreEvents() {
@@ -351,7 +340,7 @@ void Driver::ActionDriver::ensureRunning() {
 }
 
 void Driver::ActionDriver::queueDoneCallback() {
-  driver->eventManager->runAsynchronously(&doneCallback, &asyncCallbackOp);
+  asyncCallbackOp = driver->eventManager->runAsynchronously(&doneCallback);
 }
 
 void Driver::ActionDriver::threwException(const std::exception& e) {
@@ -381,12 +370,12 @@ void Driver::ActionDriver::returned() {
   OwnedPtr<ActionDriver> self;
   for (int i = 0; i < driver->activeActions.size(); i++) {
     if (driver->activeActions.get(i) == this) {
-      driver->activeActions.releaseAndShift(i, &self);
+      self = driver->activeActions.releaseAndShift(i);
       break;
     }
   }
 
-  driver->completedActionPtrs.adopt(this, &self);
+  driver->completedActionPtrs.add(this, self.release());
 
   if (state == FAILED) {
     // Failed, possibly due to missing dependencies.
@@ -405,9 +394,7 @@ void Driver::ActionDriver::returned() {
     provisions.swap(&provisionsToFilter);
     for (int i = 0; i < provisionsToFilter.size(); i++) {
       if (provisionsToFilter.get(i)->file->exists()) {
-        OwnedPtr<Provision> temp;
-        provisionsToFilter.release(i, &temp);
-        provisions.adoptBack(&temp);
+        provisions.add(provisionsToFilter.release(i));
       }
     }
 
@@ -425,10 +412,8 @@ void Driver::ActionDriver::returned() {
 
     // Install files.
     for (size_t i = 0; i < installations.size(); i++) {
-      OwnedPtr<File> target;
-
       File* installDir = driver->installDirs[installations[i].location];
-      installDir->relative(installations[i].name, &target);
+      OwnedPtr<File> target = installDir->relative(installations[i].name);
       if (target->exists()) {
         target->unlink();
       } else {
@@ -437,9 +422,7 @@ void Driver::ActionDriver::returned() {
           // call parent() on it which will throw.
           installDir->createDirectory();
         }
-        OwnedPtr<File> parent;
-        target->parent(&parent);
-        recursivelyCreateDirectory(parent.get());
+        recursivelyCreateDirectory(target->parent().get());
       }
       target->link(installations[i].file);
     }
@@ -461,7 +444,7 @@ void Driver::ActionDriver::reset() {
 
     for (int i = 0; i < driver->activeActions.size(); i++) {
       if (driver->activeActions.get(i) == this) {
-        driver->activeActions.releaseAndShift(i, &self);
+        self = driver->activeActions.releaseAndShift(i);
         break;
       }
     }
@@ -482,7 +465,7 @@ void Driver::ActionDriver::reset() {
   //   action queue should really be a graph that remembers what depended on what the last
   //   time we ran them, and avoids re-running any action before re-running actions on which it
   //   depended last time.
-  driver->pendingActions.adoptBack(&self);
+  driver->pendingActions.pushBack(self.release());
 
   // Reset dependents.
   for (int i = 0; i < provisions.size(); i++) {
@@ -506,10 +489,9 @@ void Driver::ActionDriver::reset() {
       // TODO:  Use better data structure for pendingActions.  For now we have to iterate
       //   through the whole thing to find the action we're deleting.  We iterate from the back
       //   since it's likely the action was just added there.
-      OwnedPtr<ActionDriver> ownedAction;
       for (int k = driver->pendingActions.size() - 1; k >= 0; k--) {
         if (driver->pendingActions.get(k) == actionsToDelete[j]) {
-          driver->pendingActions.releaseAndShift(k, &ownedAction);
+          driver->pendingActions.releaseAndShift(k);
           break;
         }
       }
@@ -620,10 +602,11 @@ void Driver::addSourceFile(File* file) {
   std::vector<Tag> tags;
   tags.push_back(Tag::DEFAULT_TAG);
 
-  provision.allocate();
-  file->clone(&provision->file);
+  provision = newOwned<Provision>();
+  provision->file = file->clone();
   registerProvider(provision.get(), tags);
-  rootProvisions.adopt(provision->file.get(), &provision);
+  File* key = provision->file.get();  // cannot inline due to undefined evaluation order
+  rootProvisions.add(key, provision.release());
 
   startSomeActions();
 }
@@ -642,10 +625,9 @@ void Driver::removeSourceFile(File* file) {
 
 void Driver::startSomeActions() {
   while (activeActions.size() < maxConcurrentActions && !pendingActions.empty()) {
-    OwnedPtr<ActionDriver> actionDriver;
-    pendingActions.releaseFront(&actionDriver);
+    OwnedPtr<ActionDriver> actionDriver = pendingActions.popFront();
     ActionDriver* ptr = actionDriver.get();
-    activeActions.adoptBack(&actionDriver);
+    activeActions.add(actionDriver.release());
     try {
       ptr->start();
     } catch (const std::exception& e) {
@@ -667,28 +649,28 @@ void Driver::rescanForNewFactory(ActionFactory* factory) {
   for (unsigned int i = 0; i < triggerTags.size(); i++) {
     for (TagTable::SearchIterator<TagTable::TAG> iter(tagTable, triggerTags[i]); iter.next();) {
       Provision* provision = iter.cell<TagTable::PROVISION>();
-      OwnedPtr<Action> action;
-      if (factory->tryMakeAction(triggerTags[i], provision->file.get(), &action)) {
-        queueNewAction(factory, &action, provision);
+      OwnedPtr<Action> action = factory->tryMakeAction(triggerTags[i], provision->file.get());
+      if (action != NULL) {
+        queueNewAction(factory, action.release(), provision);
       }
     }
   }
 }
 
-void Driver::queueNewAction(ActionFactory* factory, OwnedPtr<Action>* actionToAdopt,
+void Driver::queueNewAction(ActionFactory* factory, OwnedPtr<Action> action,
                             Provision* provision) {
-  OwnedPtr<Dashboard::Task> task;
-  dashboard->beginTask((*actionToAdopt)->getVerb(), provision->file->canonicalName(),
-                       (*actionToAdopt)->isSilent() ? Dashboard::SILENT : Dashboard::NORMAL,
-                       &task);
+  OwnedPtr<Dashboard::Task> task = dashboard->beginTask(
+      action->getVerb(), provision->file->canonicalName(),
+      action->isSilent() ? Dashboard::SILENT : Dashboard::NORMAL);
 
-  OwnedPtr<ActionDriver> actionDriver;
-  actionDriver.allocate(this, actionToAdopt, provision->file.get(), provision->contentHash, &task);
+  OwnedPtr<ActionDriver> actionDriver =
+      newOwned<ActionDriver>(this, action.release(), provision->file.get(), provision->contentHash,
+                             task.release());
   actionTriggersTable.add(factory, provision, actionDriver.get());
 
   // Put new action on front of queue because it was probably triggered by another action that
   // just completed, and it's good to run related actions together to improve cache locality.
-  pendingActions.adoptFront(&actionDriver);
+  pendingActions.pushFront(actionDriver.release());
 }
 
 void Driver::registerProvider(Provision* provision, const std::vector<Tag>& tags) {
@@ -759,10 +741,9 @@ void Driver::resetDependentActions(Provision* provision) {
       // TODO:  Use better data structure for pendingActions.  For now we have to iterate
       //   through the whole thing to find the action we're deleting.  We iterate from the back
       //   since it's likely the action was just added there.
-      OwnedPtr<ActionDriver> ownedAction;
       for (int k = pendingActions.size() - 1; k >= 0; k--) {
         if (pendingActions.get(k) == actionsToDelete[j]) {
-          pendingActions.releaseAndShift(k, &ownedAction);
+          pendingActions.releaseAndShift(k);
           break;
         }
       }
@@ -777,9 +758,9 @@ void Driver::resetDependentActions(Provision* provision) {
 void Driver::fireTriggers(const Tag& tag, Provision* provision) {
   for (TriggerTable::SearchIterator<TriggerTable::TAG> iter(triggers, tag); iter.next();) {
     ActionFactory* factory = iter.cell<TriggerTable::FACTORY>();
-    OwnedPtr<Action> triggeredAction;
-    if (factory->tryMakeAction(tag, provision->file.get(), &triggeredAction)) {
-      queueNewAction(factory, &triggeredAction, provision);
+    OwnedPtr<Action> triggeredAction = factory->tryMakeAction(tag, provision->file.get());
+    if (triggeredAction != NULL) {
+      queueNewAction(factory, triggeredAction.release(), provision);
     }
   }
 }
