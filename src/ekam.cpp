@@ -82,7 +82,7 @@ public:
 
     context->provide(file.get(), tags);
 
-    return NULL_PTR;
+    return nullptr;
   }
 
 private:

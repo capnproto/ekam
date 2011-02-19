@@ -217,7 +217,7 @@ OwnedPtr<AsyncOperation> LinkAction::start(EventManager* eventManager, BuildCont
     if (gtestMain == NULL) {
       context->log("Cannot find gtest_main.o.");
       context->failed();
-      return NULL_PTR;
+      return nullptr;
     }
 
     deps.addObject(context, gtestMain);
@@ -261,7 +261,7 @@ OwnedPtr<Action> CppActionFactory::tryMakeAction(const Tag& id, File* file) {
   if (id == GTEST_TEST) {
     return newOwned<LinkAction>(file, LinkAction::GTEST);
   }
-  return NULL_PTR;
+  return nullptr;
 }
 
 }  // namespace ekam

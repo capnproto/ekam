@@ -39,6 +39,11 @@
 #include <tr1/unordered_map>
 #include <assert.h>
 
+#ifdef __CDT_PARSER__
+#define nullptr 0
+namespace std { struct nullptr_t; }
+#endif
+
 namespace ekam {
 
 template <typename T>
@@ -46,10 +51,6 @@ inline void deleteEnsuringCompleteType(T* ptr) {
   enum { type_must_be_complete = sizeof(T) };
   delete ptr;
 }
-
-// TODO:  Remove when compiler supports C++0x nullptr.
-struct NullPtrType {};
-static const NullPtrType NULL_PTR = NullPtrType();
 
 template <typename T>
 class OwnedPtr {
@@ -59,7 +60,7 @@ public:
   OwnedPtr(OwnedPtr&& other) : ptr(other.releaseRaw()) {}
   template <typename U>
   OwnedPtr(OwnedPtr<U>&& other) : ptr(other.releaseRaw()) {}
-  OwnedPtr(NullPtrType) : ptr(NULL) {}
+  OwnedPtr(std::nullptr_t) : ptr(NULL) {}
   ~OwnedPtr() {
     deleteEnsuringCompleteType(ptr);
   }
@@ -129,32 +130,133 @@ OwnedPtr<T> newOwned(Params&&... params) {
   return OwnedPtr<T>(new T(std::forward<Params>(params)...));
 }
 
+// TODO:  Hide this somewhere private?
+class Refcount {
+public:
+  Refcount(): strong(1), weak(0) {}
+  Refcount(const Refcount& other) = delete;
+  Refcount& operator=(const Refcount& other) = delete;
+
+  void inc() {
+    if (this != NULL) ++strong;
+  }
+  bool dec() {
+    if (this == NULL) {
+      return false;
+    } else if (--strong == 0) {
+      if (weak == 0) {
+        delete this;
+      }
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  void incWeak() {
+    if (this != NULL) ++weak;
+  }
+  void decWeak() {
+    if (this != NULL && --weak == 0 && strong == 0) {
+      delete this;
+    }
+  }
+
+  bool release() {
+    if (this != NULL && strong == 1) {
+      dec();
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  bool isLive() {
+    return this != NULL && strong > 0;
+  }
+
+  bool isOnlyReference() {
+    return strong == 1;
+  }
+
+private:
+  int strong;
+  int weak;
+};
+
 template <typename T>
 class SmartPtr {
 public:
   SmartPtr() : ptr(NULL), refcount(NULL) {}
+  SmartPtr(std::nullptr_t) : ptr(NULL), refcount(NULL) {}
   ~SmartPtr() {
-    if (refcount != NULL && --*refcount == 0) {
+    if (refcount->dec()) {
       deleteEnsuringCompleteType(ptr);
     }
   }
 
   SmartPtr(const SmartPtr& other) : ptr(other.ptr), refcount(other.refcount) {
-    if (refcount != NULL) ++*refcount;
+    refcount->inc();
+  }
+  template <typename U>
+  SmartPtr(const SmartPtr<U>& other) : ptr(other.ptr), refcount(other.refcount) {
+    refcount->inc();
   }
   SmartPtr& operator=(const SmartPtr& other) {
     reset(other.ptr, other.refcount);
-    return this;
+    return *this;
+  }
+  template <typename U>
+  SmartPtr& operator=(const SmartPtr<U>& other) {
+    reset(other.ptr, other.refcount);
+    return *this;
+  }
+
+  SmartPtr(SmartPtr&& other) : ptr(other.ptr), refcount(other.refcount) {
+    other.ptr = NULL;
+    other.refcount = NULL;
+  }
+  template <typename U>
+  SmartPtr(SmartPtr<U>&& other) : ptr(other.ptr), refcount(other.refcount) {
+    other.ptr = NULL;
+    other.refcount = NULL;
+  }
+  SmartPtr& operator=(SmartPtr&& other) {
+    // Move pointers to locals before reset() in case &other == this.
+    T* tempPtr = other.ptr;
+    Refcount* tempRefcount = other.refcount;
+    other.ptr = NULL;
+    other.refcount = NULL;
+
+    reset(NULL, NULL);
+
+    ptr = tempPtr;
+    refcount = tempRefcount;
+    return *this;
+  }
+  template <typename U>
+  SmartPtr& operator=(SmartPtr<U>&& other) {
+    // Move pointers to locals before reset() in case &other == this.
+    T* tempPtr = other.ptr;
+    Refcount* tempRefcount = other.refcount;
+    other.ptr = NULL;
+    other.refcount = NULL;
+
+    reset(NULL, NULL);
+
+    ptr = tempPtr;
+    refcount = tempRefcount;
+    return *this;
   }
 
   template <typename U>
   SmartPtr(OwnedPtr<U>&& other)
-      : ptr(other->releaseRaw()),
-        refcount(ptr == NULL ? NULL : new int(1)) {}
+      : ptr(other.releaseRaw()),
+        refcount(ptr == NULL ? NULL : new Refcount()) {}
   template <typename U>
   SmartPtr& operator=(OwnedPtr<U>&& other) {
-    reset(other->releaseRaw());
-    return this;
+    reset(other.releaseRaw());
+    return *this;
   }
 
   T* get() const { return ptr; }
@@ -163,15 +265,17 @@ public:
 
   template <typename U>
   bool release(OwnedPtr<U>* other) {
-    if (*refcount != 1) {
+    if (refcount->release()) {
+      other->reset(ptr);
+      ptr = NULL;
+      return true;
+    } else {
       return false;
     }
+  }
 
-    T* result = ptr;
-    ptr = NULL;
-    deleteEnsuringCompleteType(refcount);
-    other->reset(result);
-    return true;
+  bool isOnlyReference() {
+    return refcount->isOnlyReference();
   }
 
   void clear() {
@@ -226,24 +330,28 @@ public:
 
 private:
   T* ptr;
-  int* refcount;
+  Refcount* refcount;
 
   inline void reset(T* newValue) {
-    reset(newValue, newValue == NULL ? NULL : new int(0));
+    reset(newValue, newValue == NULL ? NULL : new Refcount());
+    refcount->dec();
   }
 
-  void reset(T* newValue, int* newRefcount) {
+  void reset(T* newValue, Refcount* newRefcount) {
     T* oldValue = ptr;
-    int* oldRefcount = refcount;
+    Refcount* oldRefcount = refcount;
     ptr = newValue;
     refcount = newRefcount;
-    if (refcount != NULL) ++*refcount;
-    if (oldRefcount != NULL && --*oldRefcount == 0) {
-      delete oldRefcount;
+    refcount->inc();
+    if (oldRefcount->dec()) {
       deleteEnsuringCompleteType(oldValue);
     }
   }
 
+  template <typename U>
+  friend class SmartPtr;
+  template <typename U>
+  friend class WeakPtr;
   template <typename U>
   friend class OwnedPtr;
   template <typename U>
@@ -252,6 +360,68 @@ private:
   friend class OwnedPtrQueue;
   template <typename Key, typename U, typename HashFunc, typename EqualsFunc>
   friend class OwnedPtrMap;
+};
+
+template <typename T>
+class WeakPtr {
+public:
+  WeakPtr(): ptr(NULL), refcount(NULL) {}
+  WeakPtr(const WeakPtr& other): ptr(other.ptr), refcount(other.refcount) {
+    refcount->incWeak();
+  }
+  WeakPtr(const SmartPtr<T>& other): ptr(other.ptr), refcount(other.refcount) {
+    refcount->incWeak();
+  }
+  WeakPtr(std::nullptr_t): ptr(nullptr), refcount(nullptr) {}
+  ~WeakPtr() {
+    refcount->decWeak();
+  }
+
+  WeakPtr& operator=(const WeakPtr& other) {
+    Refcount* oldRefcount = refcount;
+    ptr = other.ptr;
+    refcount = other.refcount;
+    refcount->incWeak();
+    oldRefcount->decWeak();
+    return *this;
+  }
+  template <typename U>
+  WeakPtr& operator=(const WeakPtr<U>& other) {
+    Refcount* oldRefcount = refcount;
+    ptr = other.ptr;
+    refcount = other.refcount;
+    refcount->incWeak();
+    oldRefcount->decWeak();
+    return *this;
+  }
+  template <typename U>
+  WeakPtr& operator=(const SmartPtr<U>& other) {
+    Refcount* oldRefcount = refcount;
+    ptr = other.ptr;
+    refcount = other.refcount;
+    refcount->incWeak();
+    oldRefcount->decWeak();
+    return *this;
+  }
+  WeakPtr& operator=(std::nullptr_t) {
+    refcount->decWeak();
+    ptr = nullptr;
+    refcount = nullptr;
+    return *this;
+  }
+
+  template <typename U>
+  operator SmartPtr<U>() const {
+    SmartPtr<U> result;
+    if (refcount->isLive()) {
+      result.reset(ptr, refcount);
+    }
+    return result;
+  }
+
+private:
+  T* ptr;
+  Refcount* refcount;
 };
 
 template <typename T>
