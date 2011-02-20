@@ -289,10 +289,11 @@ OwnedPtr<PendingRunnable> EpollEventManager::runLater(OwnedPtr<Runnable> runnabl
 
 // =======================================================================================
 
-class EpollEventManager::SignalHandler::ProcessExitHandler: public FulfillerAgent {
+class EpollEventManager::SignalHandler::ProcessExitHandler
+    : public PromiseFulfiller<ProcessExitCode> {
 public:
-  ProcessExitHandler(SignalHandler* signalHandler, pid_t pid)
-      : signalHandler(signalHandler), pid(pid) {
+  ProcessExitHandler(Callback* callback, SignalHandler* signalHandler, pid_t pid)
+      : callback(callback), signalHandler(signalHandler), pid(pid) {
     if (!signalHandler->processExitHandlerMap.insert(
         std::make_pair(pid, this)).second) {
       throw std::runtime_error("Already waiting on this process.");
@@ -306,10 +307,6 @@ public:
     }
   }
 
-  Promise<ProcessExitCode> makePromise(OwnedPtr<ProcessExitHandler> self) {
-    return fulfiller.makePromise(self.release());
-  }
-
   void handle(int waitStatus) {
     DEBUG_INFO << "Process " << pid << " exited with status: " << waitStatus;
 
@@ -318,19 +315,19 @@ public:
     pid = -1;
 
     if (WIFEXITED(waitStatus)) {
-      fulfiller.fulfill(ProcessExitCode(WEXITSTATUS(waitStatus)));
+      callback->fulfill(ProcessExitCode(WEXITSTATUS(waitStatus)));
     } else if (WIFSIGNALED(waitStatus)) {
-      fulfiller.fulfill(ProcessExitCode(ProcessExitCode::SIGNALED, WTERMSIG(waitStatus)));
+      callback->fulfill(ProcessExitCode(ProcessExitCode::SIGNALED, WTERMSIG(waitStatus)));
     } else {
       DEBUG_ERROR << "Didn't understand process exit status.";
-      fulfiller.fulfill(ProcessExitCode(-1));
+      callback->fulfill(ProcessExitCode(-1));
     }
   }
 
 private:
+  Callback* callback;
   SignalHandler* signalHandler;
   pid_t pid;
-  Fulfiller<ProcessExitCode> fulfiller;
 };
 
 void EpollEventManager::SignalHandler::handleProcessExit() {
@@ -372,9 +369,7 @@ void EpollEventManager::SignalHandler::handleProcessExit() {
 }
 
 Promise<ProcessExitCode> EpollEventManager::SignalHandler::onProcessExit(pid_t pid) {
-  auto handler = newOwned<ProcessExitHandler>(this, pid);
-  auto handlerPtr = handler.get();
-  return handlerPtr->makePromise(handler.release());
+  return newPromise<ProcessExitHandler>(this, pid);
 }
 
 Promise<ProcessExitCode> EpollEventManager::onProcessExit(pid_t pid) {
