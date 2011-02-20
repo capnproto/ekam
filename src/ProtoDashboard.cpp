@@ -35,7 +35,7 @@
 #include <google/protobuf/io/coded_stream.h>
 
 #include "dashboard.pb.h"
-#include "Socket.h"
+#include "os/Socket.h"
 #include "MuxDashboard.h"
 
 namespace ekam {

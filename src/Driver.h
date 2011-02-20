@@ -35,12 +35,12 @@
 #include <tr1/memory>
 #include <set>
 
-#include "OwnedPtr.h"
+#include "base/OwnedPtr.h"
 #include "File.h"
 #include "Action.h"
 #include "Tag.h"
 #include "Dashboard.h"
-#include "Table.h"
+#include "base/Table.h"
 
 namespace ekam {
 

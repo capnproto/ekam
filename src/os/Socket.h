@@ -28,63 +28,35 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_KQUEUEEVENTMANAGER_H_
-#define EKAM_KQUEUEEVENTMANAGER_H_
+#ifndef EKAM_OS_SOCKET_H_
+#define EKAM_OS_SOCKET_H_
 
-#include <sys/types.h>
-#include <tr1/unordered_set>
-#include <deque>
-
+#include "base/OwnedPtr.h"
+#include "OsHandle.h"
+#include "ByteStream.h"
 #include "EventManager.h"
-#include "OwnedPtr.h"
-
-typedef struct kevent KEvent;
 
 namespace ekam {
 
-class KqueueEventManager: public RunnableEventManager {
+class ServerSocket {
 public:
-  KqueueEventManager();
-  ~KqueueEventManager();
+  ServerSocket(const std::string& bindAddress, int backlog = 0);
+  ~ServerSocket();
 
-  // implements RunnableEventManager -----------------------------------------------------
-  void loop();
+  class AcceptCallback {
+  public:
+    virtual ~AcceptCallback();
 
-  // implements EventManager -------------------------------------------------------------
-  OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
-  OwnedPtr<AsyncOperation> onProcessExit(pid_t pid, ProcessExitCallback* callback);
-  OwnedPtr<AsyncOperation> onReadable(int fd, IoCallback* callback);
-  OwnedPtr<AsyncOperation> onWritable(int fd, IoCallback* callback);
-  OwnedPtr<AsyncOperation> onFileChange(const std::string& filename, FileChangeCallback* callback);
+    virtual void accepted(OwnedPtr<ByteStream> stream) = 0;
+  };
+  OwnedPtr<AsyncOperation> onAccept(EventManager* eventManager, AcceptCallback* callback);
 
 private:
-  class KEventHandler;
+  class AcceptOp;
 
-  class AsyncCallbackHandler;
-  class ProcessExitHandler;
-  class ReadHandler;
-  class WriteHandler;
-  class FileChangeHandler;
-
-  struct IntptrShortPairHash {
-    inline bool operator()(const std::pair<intptr_t, short>& p) const {
-      return p.first * 65537 + p.second;
-    }
-  };
-
-  int kqueueFd;
-
-  std::deque<AsyncCallbackHandler*> asyncCallbacks;
-  std::deque<KEvent> fakeEvents;
-  int handlerCount;
-
-  bool handleEvent();
-
-  void updateKqueue(const KEvent& event);
-  void updateKqueue(uintptr_t ident, short filter, u_short flags,
-                    KEventHandler* handler = NULL, u_int fflags = 0, intptr_t data = 0);
+  OsHandle handle;
 };
 
 }  // namespace ekam
 
-#endif  // EKAM_KQUEUEEVENTMANAGER_H_
+#endif  // EKAM_OS_SOCKET_H_

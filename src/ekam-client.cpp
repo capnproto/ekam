@@ -37,7 +37,7 @@
 #include <iostream>
 #include <stdexcept>
 #include "ConsoleDashboard.h"
-#include "OwnedPtr.h"
+#include "base/OwnedPtr.h"
 
 namespace ekam {
 

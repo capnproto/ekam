@@ -28,54 +28,76 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_POLLEVENTMANAGER_H_
-#define EKAM_POLLEVENTMANAGER_H_
+#include "OsHandle.h"
 
+#include <string.h>
+#include <errno.h>
 #include <sys/types.h>
-#include <stdint.h>
-#include <signal.h>
-#include <deque>
-#include <tr1/unordered_map>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sstream>
 
-#include "EventManager.h"
-#include "OwnedPtr.h"
-
-typedef struct pollfd PollFd;
+#include "base/Debug.h"
 
 namespace ekam {
 
-class PollEventManager : public RunnableEventManager {
-public:
-  PollEventManager();
-  ~PollEventManager();
+OsHandle::OsHandle(const std::string& name, int fd)
+    : name(name), fd(fd) {
+  if (fd < 0) {
+    throw std::invalid_argument("Negative file descriptor given for: " + name);
+  }
+  fcntl(fd, F_SETFD, FD_CLOEXEC);
+}
 
-  // implements RunnableEventManager -----------------------------------------------------
-  void loop();
+OsHandle::~OsHandle() {
+  if (close(fd) < 0) {
+    DEBUG_ERROR << "close(" << name << "): " << strerror(errno);
+  }
+}
 
-  // implements EventManager -------------------------------------------------------------
-  OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
-  OwnedPtr<AsyncOperation> onProcessExit(pid_t pid, ProcessExitCallback* callback);
-  OwnedPtr<AsyncOperation> onReadable(int fd, IoCallback* callback);
-  OwnedPtr<AsyncOperation> onWritable(int fd, IoCallback* callback);
-  OwnedPtr<AsyncOperation> onFileChange(const std::string& filename, FileChangeCallback* callback);
+std::string toString(const char* arg) {
+  return arg;
+}
+std::string toString(int arg) {
+  std::stringstream sout(std::stringstream::out);
+  sout << arg;
+  return sout.str();
+}
+std::string toString(const OsHandle& arg) {
+  return arg.getName();
+}
 
-private:
-  class IoHandler;
+OsError::OsError(const std::string& path, const char* function, int errorNumber)
+    : errorNumber(errorNumber) {
+  if (function != NULL && *function != '\0') {
+    description.append(function);
+    if (!path.empty()) {
+      description.append("(");
+      description.append(path);
+      description.append(")");
+    }
+    description.append(": ");
+  } else if (!path.empty()) {
+    description.append(path);
+    description.append(": ");
+  }
+  description.append(strerror(errorNumber));
+}
 
-  class AsyncCallbackHandler;
-  class ProcessExitHandler;
-  class ReadHandler;
-  class WriteHandler;
+OsError::OsError(const char* function, int errorNumber)
+    : errorNumber(errorNumber) {
+  if (function != NULL && *function != '\0') {
+    description.append(function);
+    description.append(": ");
+  }
+  description.append(strerror(errorNumber));
+}
 
-  std::deque<AsyncCallbackHandler*> asyncCallbacks;
-  std::tr1::unordered_map<pid_t, ProcessExitHandler*> processExitHandlerMap;
-  std::tr1::unordered_map<int, IoHandler*> readHandlerMap;
-  std::tr1::unordered_map<int, IoHandler*> writeHandlerMap;
+OsError::~OsError() throw() {}
 
-  bool handleEvent();
-  void handleSignal(const siginfo_t& siginfo);
-};
+const char* OsError::what() const throw() {
+  return description.c_str();
+}
 
 }  // namespace ekam
-
-#endif  // EKAM_POLLEVENTMANAGER_H_

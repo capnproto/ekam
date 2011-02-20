@@ -28,70 +28,54 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_BYTESTREAM_H_
-#define EKAM_BYTESTREAM_H_
+#ifndef EKAM_OS_POLLEVENTMANAGER_H_
+#define EKAM_OS_POLLEVENTMANAGER_H_
 
 #include <sys/types.h>
-#include <sys/stat.h>
-#include <stdexcept>
+#include <stdint.h>
+#include <signal.h>
+#include <deque>
+#include <tr1/unordered_map>
 
-#include "OwnedPtr.h"
-#include "OsHandle.h"
 #include "EventManager.h"
+#include "base/OwnedPtr.h"
+
+typedef struct pollfd PollFd;
 
 namespace ekam {
 
-class EventManager;
-
-class ByteStream {
+class PollEventManager : public RunnableEventManager {
 public:
-  // TODO(kenton):  Make class abstract.
-  ByteStream(const std::string& path, int flags);
-  ByteStream(const std::string& path, int flags, int mode);
-  ByteStream(int fd, const std::string& name);
-  ~ByteStream();
+  PollEventManager();
+  ~PollEventManager();
 
-  inline OsHandle* getHandle() { return &handle; }
+  // implements RunnableEventManager -----------------------------------------------------
+  void loop();
 
-  size_t read(void* buffer, size_t size);
-  size_t write(const void* buffer, size_t size);
-  void writeAll(const void* buffer, size_t size);
-  void stat(struct stat* stats);
-
-  class ReadAllCallback {
-  public:
-    virtual ~ReadAllCallback();
-
-    virtual void consume(const void* buffer, size_t size) = 0;
-    virtual void eof() = 0;
-    virtual void error(int number) = 0;
-  };
-
-  OwnedPtr<AsyncOperation> readAll(EventManager* eventManager, ReadAllCallback* callback);
+  // implements EventManager -------------------------------------------------------------
+  OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
+  OwnedPtr<AsyncOperation> onProcessExit(pid_t pid, ProcessExitCallback* callback);
+  OwnedPtr<AsyncOperation> onReadable(int fd, IoCallback* callback);
+  OwnedPtr<AsyncOperation> onWritable(int fd, IoCallback* callback);
+  OwnedPtr<AsyncOperation> onFileChange(const std::string& filename, FileChangeCallback* callback);
 
 private:
-  class ReadEventCallback;
+  class IoHandler;
 
-  OsHandle handle;
-};
+  class AsyncCallbackHandler;
+  class ProcessExitHandler;
+  class ReadHandler;
+  class WriteHandler;
 
-class Pipe {
-public:
-  Pipe();
-  ~Pipe();
+  std::deque<AsyncCallbackHandler*> asyncCallbacks;
+  std::tr1::unordered_map<pid_t, ProcessExitHandler*> processExitHandlerMap;
+  std::tr1::unordered_map<int, IoHandler*> readHandlerMap;
+  std::tr1::unordered_map<int, IoHandler*> writeHandlerMap;
 
-  OwnedPtr<ByteStream> releaseReadEnd();
-  OwnedPtr<ByteStream> releaseWriteEnd();
-  void attachReadEndForExec(int target);
-  void attachWriteEndForExec(int target);
-
-private:
-  int fds[2];
-
-  void closeReadEnd();
-  void closeWriteEnd();
+  bool handleEvent();
+  void handleSignal(const siginfo_t& siginfo);
 };
 
 }  // namespace ekam
 
-#endif  // EKAM_BYTESTREAM_H_
+#endif  // EKAM_OS_POLLEVENTMANAGER_H_

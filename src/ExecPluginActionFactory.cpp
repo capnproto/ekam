@@ -34,9 +34,9 @@
 #include <errno.h>
 #include <map>
 
-#include "Subprocess.h"
+#include "os/Subprocess.h"
 #include "ActionUtil.h"
-#include "Debug.h"
+#include "base/Debug.h"
 
 namespace ekam {
 

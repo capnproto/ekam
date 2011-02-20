@@ -28,8 +28,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_OWNEDPTR_H_
-#define EKAM_OWNEDPTR_H_
+#ifndef EKAM_BASE_OWNEDPTR_H_
+#define EKAM_BASE_OWNEDPTR_H_
 
 #include <stddef.h>
 #include <tr1/type_traits>
@@ -739,4 +739,4 @@ private:
 
 }  // namespace ekam
 
-#endif  // EKAM_OWNEDPTR_H_
+#endif  // EKAM_BASE_OWNEDPTR_H_

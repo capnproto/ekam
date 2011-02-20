@@ -29,8 +29,8 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-#ifndef EKAM_EPOLLEVENTMANAGER_H_
-#define EKAM_EPOLLEVENTMANAGER_H_
+#ifndef EKAM_OS_EPOLLEVENTMANAGER_H_
+#define EKAM_OS_EPOLLEVENTMANAGER_H_
 
 #include <sys/types.h>
 #include <stdint.h>
@@ -40,7 +40,7 @@
 #include <tr1/unordered_map>
 
 #include "EventManager.h"
-#include "OwnedPtr.h"
+#include "base/OwnedPtr.h"
 #include "OsHandle.h"
 #include "ByteStream.h"
 
@@ -163,4 +163,4 @@ private:
 
 }  // namespace ekam
 
-#endif  // EKAM_EPOLLEVENTMANAGER_H_
+#endif  // EKAM_OS_EPOLLEVENTMANAGER_H_

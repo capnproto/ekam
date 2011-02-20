@@ -28,13 +28,13 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_EVENTMANAGER_H_
-#define EKAM_EVENTMANAGER_H_
+#ifndef EKAM_OS_EVENTMANAGER_H_
+#define EKAM_OS_EVENTMANAGER_H_
 
 #include <stddef.h>
 #include <sys/types.h>
 #include <string>
-#include "OwnedPtr.h"
+#include "base/OwnedPtr.h"
 
 namespace ekam {
 
@@ -110,4 +110,4 @@ OwnedPtr<RunnableEventManager> newPreferredEventManager();
 
 }  // namespace ekam
 
-#endif  // EKAM_EVENTMANAGER_H_
+#endif  // EKAM_OS_EVENTMANAGER_H_

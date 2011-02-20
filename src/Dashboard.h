@@ -32,7 +32,7 @@
 #define EKAM_DASHBOARD_H_
 
 #include <string>
-#include "OwnedPtr.h"
+#include "base/OwnedPtr.h"
 
 namespace ekam {
 

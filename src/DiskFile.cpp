@@ -41,9 +41,9 @@
 #include <sys/stat.h>
 #include <tr1/unordered_map>
 
-#include "Debug.h"
-#include "OsHandle.h"
-#include "ByteStream.h"
+#include "base/Debug.h"
+#include "os/OsHandle.h"
+#include "os/ByteStream.h"
 #include "Hash.h"
 
 namespace ekam {

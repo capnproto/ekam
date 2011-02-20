@@ -37,8 +37,8 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "Debug.h"
-#include "EventGroup.h"
+#include "base/Debug.h"
+#include "os/EventGroup.h"
 
 namespace ekam {
 

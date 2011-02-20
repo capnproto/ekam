@@ -33,9 +33,9 @@
 #include <tr1/unordered_set>
 #include <stdlib.h>
 
-#include "Debug.h"
-#include "ByteStream.h"
-#include "Subprocess.h"
+#include "base/Debug.h"
+#include "os/ByteStream.h"
+#include "os/Subprocess.h"
 #include "ActionUtil.h"
 
 namespace ekam {

@@ -28,8 +28,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_TABLE_H_
-#define EKAM_TABLE_H_
+#ifndef EKAM_BASE_TABLE_H_
+#define EKAM_BASE_TABLE_H_
 
 #include <tr1/unordered_map>
 #include <vector>
@@ -352,4 +352,4 @@ private:
 
 }  // namespace ekam
 
-#endif  // EKAM_TABLE_H_
+#endif  // EKAM_BASE_TABLE_H_

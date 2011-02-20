@@ -28,76 +28,63 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "OsHandle.h"
+#ifndef EKAM_OS_KQUEUEEVENTMANAGER_H_
+#define EKAM_OS_KQUEUEEVENTMANAGER_H_
 
-#include <string.h>
-#include <errno.h>
 #include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sstream>
+#include <tr1/unordered_set>
+#include <deque>
 
-#include "Debug.h"
+#include "EventManager.h"
+#include "base/OwnedPtr.h"
+
+typedef struct kevent KEvent;
 
 namespace ekam {
 
-OsHandle::OsHandle(const std::string& name, int fd)
-    : name(name), fd(fd) {
-  if (fd < 0) {
-    throw std::invalid_argument("Negative file descriptor given for: " + name);
-  }
-  fcntl(fd, F_SETFD, FD_CLOEXEC);
-}
+class KqueueEventManager: public RunnableEventManager {
+public:
+  KqueueEventManager();
+  ~KqueueEventManager();
 
-OsHandle::~OsHandle() {
-  if (close(fd) < 0) {
-    DEBUG_ERROR << "close(" << name << "): " << strerror(errno);
-  }
-}
+  // implements RunnableEventManager -----------------------------------------------------
+  void loop();
 
-std::string toString(const char* arg) {
-  return arg;
-}
-std::string toString(int arg) {
-  std::stringstream sout(std::stringstream::out);
-  sout << arg;
-  return sout.str();
-}
-std::string toString(const OsHandle& arg) {
-  return arg.getName();
-}
+  // implements EventManager -------------------------------------------------------------
+  OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
+  OwnedPtr<AsyncOperation> onProcessExit(pid_t pid, ProcessExitCallback* callback);
+  OwnedPtr<AsyncOperation> onReadable(int fd, IoCallback* callback);
+  OwnedPtr<AsyncOperation> onWritable(int fd, IoCallback* callback);
+  OwnedPtr<AsyncOperation> onFileChange(const std::string& filename, FileChangeCallback* callback);
 
-OsError::OsError(const std::string& path, const char* function, int errorNumber)
-    : errorNumber(errorNumber) {
-  if (function != NULL && *function != '\0') {
-    description.append(function);
-    if (!path.empty()) {
-      description.append("(");
-      description.append(path);
-      description.append(")");
+private:
+  class KEventHandler;
+
+  class AsyncCallbackHandler;
+  class ProcessExitHandler;
+  class ReadHandler;
+  class WriteHandler;
+  class FileChangeHandler;
+
+  struct IntptrShortPairHash {
+    inline bool operator()(const std::pair<intptr_t, short>& p) const {
+      return p.first * 65537 + p.second;
     }
-    description.append(": ");
-  } else if (!path.empty()) {
-    description.append(path);
-    description.append(": ");
-  }
-  description.append(strerror(errorNumber));
-}
+  };
 
-OsError::OsError(const char* function, int errorNumber)
-    : errorNumber(errorNumber) {
-  if (function != NULL && *function != '\0') {
-    description.append(function);
-    description.append(": ");
-  }
-  description.append(strerror(errorNumber));
-}
+  int kqueueFd;
 
-OsError::~OsError() throw() {}
+  std::deque<AsyncCallbackHandler*> asyncCallbacks;
+  std::deque<KEvent> fakeEvents;
+  int handlerCount;
 
-const char* OsError::what() const throw() {
-  return description.c_str();
-}
+  bool handleEvent();
+
+  void updateKqueue(const KEvent& event);
+  void updateKqueue(uintptr_t ident, short filter, u_short flags,
+                    KEventHandler* handler = NULL, u_int fflags = 0, intptr_t data = 0);
+};
 
 }  // namespace ekam
+
+#endif  // EKAM_OS_KQUEUEEVENTMANAGER_H_

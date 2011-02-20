@@ -39,14 +39,14 @@
 #include <signal.h>
 
 #include "Driver.h"
-#include "Debug.h"
+#include "base/Debug.h"
 #include "DiskFile.h"
 #include "Action.h"
 #include "SimpleDashboard.h"
 #include "ConsoleDashboard.h"
 #include "CppActionFactory.h"
 #include "ExecPluginActionFactory.h"
-#include "OsHandle.h"
+#include "os/OsHandle.h"
 
 namespace ekam {
 

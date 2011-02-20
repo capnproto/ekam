@@ -28,13 +28,13 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_OSHANDLE_H_
-#define EKAM_OSHANDLE_H_
+#ifndef EKAM_OS_OSHANDLE_H_
+#define EKAM_OS_OSHANDLE_H_
 
 #include <stdexcept>
 #include <errno.h>
 
-#include "OwnedPtr.h"
+#include "base/OwnedPtr.h"
 
 namespace ekam {
 
@@ -158,4 +158,4 @@ long wrapSyscall(const char* name, const Func& func, const Arg1& arg1,
 
 }  // namespace ekam
 
-#endif  // EKAM_OSHANDLE_H_
+#endif  // EKAM_OS_OSHANDLE_H_

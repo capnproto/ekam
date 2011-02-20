@@ -28,35 +28,54 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_SOCKET_H_
-#define EKAM_SOCKET_H_
+#ifndef EKAM_OS_SUBPROCESS_H_
+#define EKAM_OS_SUBPROCESS_H_
 
-#include "OwnedPtr.h"
-#include "OsHandle.h"
-#include "ByteStream.h"
+#include <string>
+#include <vector>
+
+#include "base/OwnedPtr.h"
 #include "EventManager.h"
+#include "ByteStream.h"
+#include "File.h"
 
 namespace ekam {
 
-class ServerSocket {
+class Subprocess {
 public:
-  ServerSocket(const std::string& bindAddress, int backlog = 0);
-  ~ServerSocket();
+  Subprocess();
+  ~Subprocess();
 
-  class AcceptCallback {
-  public:
-    virtual ~AcceptCallback();
+  void addArgument(const std::string& arg);
+  File::DiskRef* addArgument(File* file, File::Usage usage);
 
-    virtual void accepted(OwnedPtr<ByteStream> stream) = 0;
-  };
-  OwnedPtr<AsyncOperation> onAccept(EventManager* eventManager, AcceptCallback* callback);
+  OwnedPtr<ByteStream> captureStdin();
+  OwnedPtr<ByteStream> captureStdout();
+  OwnedPtr<ByteStream> captureStderr();
+  OwnedPtr<ByteStream> captureStdoutAndStderr();
+
+  void start(EventManager* eventManager,
+             EventManager::ProcessExitCallback* callback);
 
 private:
-  class AcceptOp;
+  class CallbackWrapper;
 
-  OsHandle handle;
+  std::string executableName;
+  bool doPathLookup;
+
+  std::vector<std::string> args;
+  OwnedPtrVector<File::DiskRef> diskRefs;
+
+  OwnedPtr<Pipe> stdinPipe;
+  OwnedPtr<Pipe> stdoutPipe;
+  OwnedPtr<Pipe> stderrPipe;
+  OwnedPtr<Pipe> stdoutAndStderrPipe;
+
+  pid_t pid;
+  OwnedPtr<AsyncOperation> waitOperation;
+  OwnedPtr<CallbackWrapper> callbackWrapper;
 };
 
 }  // namespace ekam
 
-#endif  // EKAM_SOCKET_H_
+#endif  // EKAM_OS_SUBPROCESS_H_

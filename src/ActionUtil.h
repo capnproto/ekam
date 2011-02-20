@@ -33,7 +33,7 @@
 
 #include <string>
 
-#include "ByteStream.h"
+#include "os/ByteStream.h"
 #include "Action.h"
 
 namespace ekam {

@@ -35,8 +35,8 @@
 #include <string>
 
 #include "Dashboard.h"
-#include "ByteStream.h"
-#include "EventManager.h"
+#include "os/ByteStream.h"
+#include "os/EventManager.h"
 
 namespace google {
   namespace protobuf {

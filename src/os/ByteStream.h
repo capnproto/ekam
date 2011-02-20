@@ -28,54 +28,70 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_SUBPROCESS_H_
-#define EKAM_SUBPROCESS_H_
+#ifndef EKAM_OS_BYTESTREAM_H_
+#define EKAM_OS_BYTESTREAM_H_
 
-#include <string>
-#include <vector>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <stdexcept>
 
-#include "OwnedPtr.h"
+#include "base/OwnedPtr.h"
+#include "OsHandle.h"
 #include "EventManager.h"
-#include "ByteStream.h"
-#include "File.h"
 
 namespace ekam {
 
-class Subprocess {
+class EventManager;
+
+class ByteStream {
 public:
-  Subprocess();
-  ~Subprocess();
+  // TODO(kenton):  Make class abstract.
+  ByteStream(const std::string& path, int flags);
+  ByteStream(const std::string& path, int flags, int mode);
+  ByteStream(int fd, const std::string& name);
+  ~ByteStream();
 
-  void addArgument(const std::string& arg);
-  File::DiskRef* addArgument(File* file, File::Usage usage);
+  inline OsHandle* getHandle() { return &handle; }
 
-  OwnedPtr<ByteStream> captureStdin();
-  OwnedPtr<ByteStream> captureStdout();
-  OwnedPtr<ByteStream> captureStderr();
-  OwnedPtr<ByteStream> captureStdoutAndStderr();
+  size_t read(void* buffer, size_t size);
+  size_t write(const void* buffer, size_t size);
+  void writeAll(const void* buffer, size_t size);
+  void stat(struct stat* stats);
 
-  void start(EventManager* eventManager,
-             EventManager::ProcessExitCallback* callback);
+  class ReadAllCallback {
+  public:
+    virtual ~ReadAllCallback();
+
+    virtual void consume(const void* buffer, size_t size) = 0;
+    virtual void eof() = 0;
+    virtual void error(int number) = 0;
+  };
+
+  OwnedPtr<AsyncOperation> readAll(EventManager* eventManager, ReadAllCallback* callback);
 
 private:
-  class CallbackWrapper;
+  class ReadEventCallback;
 
-  std::string executableName;
-  bool doPathLookup;
+  OsHandle handle;
+};
 
-  std::vector<std::string> args;
-  OwnedPtrVector<File::DiskRef> diskRefs;
+class Pipe {
+public:
+  Pipe();
+  ~Pipe();
 
-  OwnedPtr<Pipe> stdinPipe;
-  OwnedPtr<Pipe> stdoutPipe;
-  OwnedPtr<Pipe> stderrPipe;
-  OwnedPtr<Pipe> stdoutAndStderrPipe;
+  OwnedPtr<ByteStream> releaseReadEnd();
+  OwnedPtr<ByteStream> releaseWriteEnd();
+  void attachReadEndForExec(int target);
+  void attachWriteEndForExec(int target);
 
-  pid_t pid;
-  OwnedPtr<AsyncOperation> waitOperation;
-  OwnedPtr<CallbackWrapper> callbackWrapper;
+private:
+  int fds[2];
+
+  void closeReadEnd();
+  void closeWriteEnd();
 };
 
 }  // namespace ekam
 
-#endif  // EKAM_SUBPROCESS_H_
+#endif  // EKAM_OS_BYTESTREAM_H_

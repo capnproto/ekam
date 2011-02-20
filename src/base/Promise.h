@@ -28,8 +28,8 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef EKAM_PROMISE_H_
-#define EKAM_PROMISE_H_
+#ifndef EKAM_BASE_PROMISE_H_
+#define EKAM_BASE_PROMISE_H_
 
 #include <set>
 #include <vector>
@@ -820,4 +820,4 @@ Executor::When<typename std::remove_reference<Types>::type...> Executor::when(Ty
 
 }  // namespace ekam
 
-#endif  // EKAM_PROMISE_H_
+#endif  // EKAM_BASE_PROMISE_H_

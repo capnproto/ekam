@@ -34,7 +34,7 @@
 #include <vector>
 #include <iterator>
 
-#include "OwnedPtr.h"
+#include "base/OwnedPtr.h"
 
 namespace ekam {
 

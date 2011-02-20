@@ -35,10 +35,10 @@
 #include <vector>
 #include <sys/types.h>
 
-#include "OwnedPtr.h"
+#include "base/OwnedPtr.h"
 #include "File.h"
 #include "Tag.h"
-#include "EventManager.h"
+#include "os/EventManager.h"
 
 namespace ekam {
 

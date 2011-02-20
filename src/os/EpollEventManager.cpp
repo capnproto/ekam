@@ -39,6 +39,7 @@
 #include <sys/epoll.h>
 #include <sys/signalfd.h>
 #include <sys/inotify.h>
+#include <sys/stat.h>
 #include <algorithm>
 #include <stdexcept>
 #include <assert.h>
@@ -47,9 +48,8 @@
 #include <signal.h>
 #include <limits.h>
 
-#include "Debug.h"
-#include "Table.h"
-#include "DiskFile.h"
+#include "base/Debug.h"
+#include "base/Table.h"
 
 namespace ekam {
 
@@ -88,6 +88,27 @@ std::string epollEventsToString(uint32_t events) {
   }
 
   return result;
+}
+
+// TODO:  Copied from DiskFile.cpp.  Share code somehow?
+bool statIfExists(const std::string& path, struct stat* output) {
+  int result;
+  do {
+    result = stat(path.c_str(), output);
+  } while (result < 0 && errno == EINTR);
+
+  if (result == 0) {
+    return true;
+  } else if (errno == ENOENT) {
+    return false;
+  } else {
+    throw OsError(path, "stat", errno);
+  }
+}
+
+bool isDirectory(const std::string& path) {
+  struct stat stats;
+  return statIfExists(path.c_str(), &stats) && S_ISDIR(stats.st_mode);
 }
 
 }  // namespace
@@ -496,7 +517,7 @@ public:
     // Split directory and basename.
     std::string directory;
     std::string basename;
-    if (DiskFile(filename, NULL).isDirectory()) {
+    if (isDirectory(filename)) {
       directory = filename;
     } else {
       std::string::size_type slashPos = filename.find_last_of('/');
