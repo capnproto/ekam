@@ -240,10 +240,14 @@ void EpollEventManager::SignalHandler::maybeStopExpecting() {
 
 // =======================================================================================
 
-class EpollEventManager::AsyncCallbackHandler : public AsyncOperation {
+class EpollEventManager::AsyncCallbackHandler : public AsyncOperation, public PendingRunnable {
 public:
   AsyncCallbackHandler(EpollEventManager* eventManager, Callback* callback)
       : eventManager(eventManager), called(false), callback(callback) {
+    eventManager->asyncCallbacks.push_back(this);
+  }
+  AsyncCallbackHandler(EpollEventManager* eventManager, OwnedPtr<Runnable> runnable)
+      : eventManager(eventManager), called(false), callback(nullptr), runnable(runnable.release()) {
     eventManager->asyncCallbacks.push_back(this);
   }
   ~AsyncCallbackHandler() {
@@ -261,26 +265,34 @@ public:
 
   void run() {
     called = true;
-    callback->run();
+    if (runnable == nullptr) {
+      callback->run();
+    } else {
+      runnable->run();
+    }
   }
 
 private:
   EpollEventManager* eventManager;
   bool called;
   Callback* callback;
+  OwnedPtr<Runnable> runnable;
 };
 
 OwnedPtr<AsyncOperation> EpollEventManager::runAsynchronously(Callback* callback) {
   return newOwned<AsyncCallbackHandler>(this, callback);
 }
 
+OwnedPtr<PendingRunnable> EpollEventManager::runLater(OwnedPtr<Runnable> runnable) {
+  return newOwned<AsyncCallbackHandler>(this, runnable.release());
+}
+
 // =======================================================================================
 
-class EpollEventManager::SignalHandler::ProcessExitHandler : public AsyncOperation {
+class EpollEventManager::SignalHandler::ProcessExitHandler: public FulfillerAgent {
 public:
-  ProcessExitHandler(SignalHandler* signalHandler, pid_t pid,
-                     ProcessExitCallback* callback)
-      : signalHandler(signalHandler), pid(pid), callback(callback) {
+  ProcessExitHandler(SignalHandler* signalHandler, pid_t pid)
+      : signalHandler(signalHandler), pid(pid) {
     if (!signalHandler->processExitHandlerMap.insert(
         std::make_pair(pid, this)).second) {
       throw std::runtime_error("Already waiting on this process.");
@@ -294,6 +306,10 @@ public:
     }
   }
 
+  Promise<ProcessExitCode> makePromise(OwnedPtr<ProcessExitHandler> self) {
+    return fulfiller.makePromise(self.release());
+  }
+
   void handle(int waitStatus) {
     DEBUG_INFO << "Process " << pid << " exited with status: " << waitStatus;
 
@@ -302,19 +318,19 @@ public:
     pid = -1;
 
     if (WIFEXITED(waitStatus)) {
-      callback->exited(WEXITSTATUS(waitStatus));
+      fulfiller.fulfill(ProcessExitCode(WEXITSTATUS(waitStatus)));
     } else if (WIFSIGNALED(waitStatus)) {
-      callback->signaled(WTERMSIG(waitStatus));
+      fulfiller.fulfill(ProcessExitCode(ProcessExitCode::SIGNALED, WTERMSIG(waitStatus)));
     } else {
       DEBUG_ERROR << "Didn't understand process exit status.";
-      callback->exited(-1);
+      fulfiller.fulfill(ProcessExitCode(-1));
     }
   }
 
 private:
   SignalHandler* signalHandler;
   pid_t pid;
-  ProcessExitCallback* callback;
+  Fulfiller<ProcessExitCode> fulfiller;
 };
 
 void EpollEventManager::SignalHandler::handleProcessExit() {
@@ -355,14 +371,14 @@ void EpollEventManager::SignalHandler::handleProcessExit() {
   }
 }
 
-OwnedPtr<AsyncOperation> EpollEventManager::SignalHandler::onProcessExit(
-    pid_t pid, ProcessExitCallback* callback) {
-  return newOwned<ProcessExitHandler>(this, pid, callback);
+Promise<ProcessExitCode> EpollEventManager::SignalHandler::onProcessExit(pid_t pid) {
+  auto handler = newOwned<ProcessExitHandler>(this, pid);
+  auto handlerPtr = handler.get();
+  return handlerPtr->makePromise(handler.release());
 }
 
-OwnedPtr<AsyncOperation> EpollEventManager::onProcessExit(
-    pid_t pid, ProcessExitCallback* callback) {
-  return signalHandler.onProcessExit(pid, callback);
+Promise<ProcessExitCode> EpollEventManager::onProcessExit(pid_t pid) {
+  return signalHandler.onProcessExit(pid);
 }
 
 // =======================================================================================

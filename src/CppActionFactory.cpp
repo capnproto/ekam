@@ -143,11 +143,11 @@ void LinkAction::DepsSet::addObject(BuildContext* context, File* objectFile) {
 
 // ---------------------------------------------------------------------------------------
 
-class LinkAction::LinkProcess : public AsyncOperation, public EventManager::ProcessExitCallback {
+class LinkAction::LinkProcess : public AsyncOperation {
 public:
   LinkProcess(LinkAction* action, EventManager* eventManager, BuildContext* context,
               const OwnedPtrVector<File>& deps)
-      : action(action), context(context) {
+      : action(action) {
     std::string base, ext;
     splitExtension(action->file->canonicalName(), &base, &ext);
 
@@ -180,30 +180,26 @@ public:
 
     logStream = subprocess.captureStdoutAndStderr();
 
-    subprocess.start(eventManager, this);
+    subprocessWaitOp = eventManager->when(subprocess.start(eventManager))(
+      [context](ProcessExitCode exitCode) {
+        if (exitCode.wasSignaled() || exitCode.getExitCode() != 0) {
+          context->failed();
+        }
+      });
 
     logger = newOwned<Logger>(context);
     logOp = logStream->readAll(eventManager, logger.get());
   }
   ~LinkProcess() {}
 
-  // implements ProcessExitCallback ----------------------------------------------------
-  void exited(int exitCode) {
-    if (exitCode != 0) {
-      context->failed();
-    }
-  }
-  void signaled(int signalNumber) {
-    context->failed();
-  }
-
 private:
   LinkAction* action;
-  BuildContext* context;
 
   OwnedPtr<File> executableFile;
 
   Subprocess subprocess;
+  Promise<void> subprocessWaitOp;
+
   OwnedPtr<ByteStream> logStream;
   OwnedPtr<Logger> logger;
   OwnedPtr<AsyncOperation> logOp;

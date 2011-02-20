@@ -56,9 +56,12 @@ public:
   // implements RunnableEventManager -----------------------------------------------------
   void loop();
 
+  // implements Executor -----------------------------------------------------------------
+  OwnedPtr<PendingRunnable> runLater(OwnedPtr<Runnable> runnable);
+
   // implements EventManager -------------------------------------------------------------
   OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
-  OwnedPtr<AsyncOperation> onProcessExit(pid_t pid, ProcessExitCallback* callback);
+  Promise<ProcessExitCode> onProcessExit(pid_t pid);
   OwnedPtr<AsyncOperation> onReadable(int fd, IoCallback* callback);
   OwnedPtr<AsyncOperation> onWritable(int fd, IoCallback* callback);
   OwnedPtr<AsyncOperation> onFileChange(const std::string& filename, FileChangeCallback* callback);
@@ -110,7 +113,7 @@ private:
     SignalHandler(Epoller* epoller);
     ~SignalHandler();
 
-    OwnedPtr<AsyncOperation> onProcessExit(pid_t pid, ProcessExitCallback* callback);
+    Promise<ProcessExitCode> onProcessExit(pid_t pid);
 
     // implements IoHandler --------------------------------------------------------------
     void handle(uint32_t events);

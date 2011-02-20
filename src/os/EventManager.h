@@ -35,8 +35,43 @@
 #include <sys/types.h>
 #include <string>
 #include "base/OwnedPtr.h"
+#include "base/Promise.h"
 
 namespace ekam {
+
+class ProcessExitCode {
+public:
+  ProcessExitCode(): signaled(false), exitCodeOrSignal(0) {}
+  ProcessExitCode(int exitCode)
+      : signaled(false), exitCodeOrSignal(exitCode) {}
+  enum Signaled { SIGNALED };
+  ProcessExitCode(Signaled, int signalNumber)
+      : signaled(true), exitCodeOrSignal(signalNumber) {}
+
+  bool wasSignaled() {
+    return signaled;
+  }
+
+  int getExitCode() {
+    if (signaled) {
+      throwError();
+    }
+    return exitCodeOrSignal;
+  }
+
+  int getSignalNumber() {
+    if (!signaled) {
+      throwError();
+    }
+    return exitCodeOrSignal;
+  }
+
+private:
+  bool signaled;
+  int exitCodeOrSignal;
+
+  void throwError();
+};
 
 // Any function which begins an operation that completes asynchronously should return an
 // AsyncOperation.  Deleting the AsyncOperation immediately cancels it, freeing any resources
@@ -48,7 +83,7 @@ public:
   virtual ~AsyncOperation();
 };
 
-class EventManager {
+class EventManager : public Executor {
 public:
   virtual ~EventManager();
 
@@ -62,16 +97,8 @@ public:
   // Queue the callback to run in the event loop.
   virtual OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback) = 0;
 
-  class ProcessExitCallback {
-  public:
-    virtual ~ProcessExitCallback();
-
-    virtual void exited(int exitCode) = 0;
-    virtual void signaled(int signalNumber) = 0;
-  };
-
-  // Call the callback when the process exits.
-  virtual OwnedPtr<AsyncOperation> onProcessExit(pid_t pid, ProcessExitCallback* callback) = 0;
+  // Fulfills the promise when the process exits.
+  virtual Promise<ProcessExitCode> onProcessExit(pid_t pid) = 0;
 
   class IoCallback {
   public:

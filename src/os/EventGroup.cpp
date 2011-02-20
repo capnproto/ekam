@@ -41,13 +41,31 @@ EventGroup::ExceptionHandler::~ExceptionHandler() {}
   try {                                                          \
     STATEMENT;                                                   \
     if (group->eventCount == 0) {                                \
-      group->exceptionHandler->noMoreEvents();                   \
+      group->callNoMoreEventsLater();                            \
     }                                                            \
   } catch (const std::exception& exception) {                    \
     group->exceptionHandler->threwException(exception);          \
   } catch (...) {                                                \
     group->exceptionHandler->threwUnknownException();            \
   }
+
+class EventGroup::RunnableWrapper : public Runnable {
+public:
+  RunnableWrapper(EventGroup* group, OwnedPtr<Runnable> wrapped)
+      : group(group), wrapped(wrapped.release()) {
+    ++group->eventCount;
+  }
+  ~RunnableWrapper() {
+    --group->eventCount;
+  }
+
+  // implements Runnable -----------------------------------------------------------------
+  void run() { HANDLE_EXCEPTIONS(wrapped->run()); }
+
+private:
+  EventGroup* group;
+  OwnedPtr<Runnable> wrapped;
+};
 
 class EventGroup::CallbackWrapper : public Callback, public AsyncOperation {
 public:
@@ -67,36 +85,6 @@ public:
 private:
   EventGroup* group;
   Callback* wrapped;
-};
-
-class EventGroup::ProcessExitCallbackWrapper : public ProcessExitCallback, public AsyncOperation {
-public:
-  ProcessExitCallbackWrapper(EventGroup* group, ProcessExitCallback* wrapped)
-      : group(group), wrapped(wrapped), done(false) {
-    ++group->eventCount;
-  }
-  ~ProcessExitCallbackWrapper() {
-    if (!done) --group->eventCount;
-  }
-
-  OwnedPtr<AsyncOperation> inner;
-
-  // implements ProcessExitCallback ------------------------------------------------------
-  void exited(int exitCode) {
-    --group->eventCount;
-    done = true;
-    HANDLE_EXCEPTIONS(wrapped->exited(exitCode));
-  }
-  void signaled(int signalNumber) {
-    --group->eventCount;
-    done = true;
-    HANDLE_EXCEPTIONS(wrapped->signaled(signalNumber));
-  }
-
-private:
-  EventGroup* group;
-  ProcessExitCallback* wrapped;
-  bool done;
 };
 
 class EventGroup::IoCallbackWrapper : public IoCallback, public AsyncOperation {
@@ -149,16 +137,27 @@ EventGroup::EventGroup(EventManager* inner, ExceptionHandler* exceptionHandler)
 
 EventGroup::~EventGroup() {}
 
+OwnedPtr<PendingRunnable> EventGroup::runLater(OwnedPtr<Runnable> runnable) {
+  auto wrappedCallback = newOwned<RunnableWrapper>(this, runnable.release());
+  return inner->runLater(wrappedCallback.release());
+}
+
 OwnedPtr<AsyncOperation> EventGroup::runAsynchronously(Callback* callback) {
   auto wrappedCallback = newOwned<CallbackWrapper>(this, callback);
   wrappedCallback->inner = inner->runAsynchronously(wrappedCallback.get());
   return wrappedCallback.release();
 }
 
-OwnedPtr<AsyncOperation> EventGroup::onProcessExit(pid_t pid, ProcessExitCallback* callback) {
-  auto wrappedCallback = newOwned<ProcessExitCallbackWrapper>(this, callback);
-  wrappedCallback->inner = inner->onProcessExit(pid, wrappedCallback.get());
-  return wrappedCallback.release();
+Promise<ProcessExitCode> EventGroup::onProcessExit(pid_t pid) {
+  Promise<ProcessExitCode> innerPromise = inner->onProcessExit(pid);
+  ++eventCount;
+  return when(innerPromise)(
+    [this](ProcessExitCode exitCode) -> ProcessExitCode {
+      if (--eventCount == 0) {
+        callNoMoreEventsLater();
+      }
+      return exitCode;
+    });
 }
 
 OwnedPtr<AsyncOperation> EventGroup::onReadable(int fd, IoCallback* callback) {
@@ -178,6 +177,16 @@ OwnedPtr<AsyncOperation> EventGroup::onFileChange(const std::string& filename,
   auto wrappedCallback = newOwned<FileChangeCallbackWrapper>(this, callback);
   wrappedCallback->inner = inner->onFileChange(filename, wrappedCallback.get());
   return wrappedCallback.release();
+}
+
+void EventGroup::callNoMoreEventsLater() {
+  pendingNoMoreEvents = inner->when()(
+    [this](){
+      if (eventCount == 0) {
+        exceptionHandler->noMoreEvents();
+      }
+      pendingNoMoreEvents.release();
+    });
 }
 
 }  // namespace ekam

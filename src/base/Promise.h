@@ -343,13 +343,19 @@ private:
 
 // =======================================================================================
 
+class FulfillerAgent {
+public:
+  virtual ~FulfillerAgent() {};
+};
+
 namespace promiseInternal {
 
 class PromiseStateBase {
 public:
-  PromiseStateBase(Executor* executor, WeakLink* fulfiller)
+  PromiseStateBase(Executor* executor, WeakLink* fulfiller, OwnedPtr<FulfillerAgent> fulfillerAgent)
       : executor(executor), isFulfilled(false), dependencyFailed(false),
-        dependenciesLeft(0), dependent(NULL), fulfillerLink(fulfiller) {}
+        dependenciesLeft(0), dependent(NULL), fulfillerLink(fulfiller),
+        fulfillerAgent(fulfillerAgent.release()) {}
 
   PromiseStateBase(const PromiseStateBase& other) = delete;
   PromiseStateBase& operator=(const PromiseStateBase& other) = delete;
@@ -403,6 +409,7 @@ private:
   PromiseStateBase* dependent;
   WeakLink fulfillerLink;
   OwnedPtr<PendingRunnable> pendingReadyLater;
+  OwnedPtr<FulfillerAgent> fulfillerAgent;
 
   void readyLater() {
     pendingReadyLater = executor->runLater(newLambdaRunnable([this]() {
@@ -419,8 +426,8 @@ private:
 template <typename T>
 class PromiseState: public PromiseStateBase {
 public:
-  PromiseState(Executor* executor, WeakLink* fulfiller)
-      : PromiseStateBase(executor, fulfiller) {}
+  PromiseState(Executor* executor, WeakLink* fulfiller, OwnedPtr<FulfillerAgent> fulfillerAgent)
+      : PromiseStateBase(executor, fulfiller, fulfillerAgent.release()) {}
   ~PromiseState() {}
 
   void fulfill(const T& value) {
@@ -465,8 +472,8 @@ private:
 template <>
 class PromiseState<void>: public promiseInternal::PromiseStateBase {
 public:
-  PromiseState(Executor* executor, WeakLink* fulfiller)
-      : PromiseStateBase(executor, fulfiller) {}
+  PromiseState(Executor* executor, WeakLink* fulfiller, OwnedPtr<FulfillerAgent> fulfillerAgent)
+      : PromiseStateBase(executor, fulfiller, fulfillerAgent.release()) {}
   ~PromiseState() {}
 
   void fulfill() {
@@ -559,7 +566,7 @@ private:
 public:
   DependentPromiseState(Executor* executor, Func&& func,
                         ExceptionHandler&& exceptionHandler, ParamPack&& params)
-      : PromiseState<T>(executor, nullptr),
+      : PromiseState<T>(executor, nullptr, nullptr),
         func(std::move(func)),
         exceptionHandler(std::move(exceptionHandler)),
         params(std::move(params)) {}
@@ -621,6 +628,13 @@ public:
     state = std::move(other.state);
   }
 
+  bool operator==(std::nullptr_t) {
+    return state == nullptr;
+  }
+  bool operator!=(std::nullptr_t) {
+    return state != nullptr;
+  }
+
   T* operator->() const {
     return state->getValue()->operator->();
   }
@@ -658,6 +672,13 @@ public:
     return *this;
   }
 
+  bool operator==(std::nullptr_t) {
+    return state == nullptr;
+  }
+  bool operator!=(std::nullptr_t) {
+    return state != nullptr;
+  }
+
   Promise release() {
     return std::move(*this);
   }
@@ -688,7 +709,14 @@ public:
   Fulfiller& operator=(const Fulfiller& other) = delete;
 
   Promise<T> makePromise() {
-    auto state = newOwned<promiseInternal::PromiseState<T>>(nullptr, &stateLink);
+    auto state = newOwned<promiseInternal::PromiseState<T>>(nullptr, &stateLink, nullptr);
+    this->state = state.get();
+    return Promise<T>(state.release());
+  }
+
+  Promise<T> makePromise(OwnedPtr<FulfillerAgent> fulfillerAgent) {
+    auto state = newOwned<promiseInternal::PromiseState<T>>(
+        nullptr, &stateLink, fulfillerAgent.release());
     this->state = state.get();
     return Promise<T>(state.release());
   }
@@ -725,7 +753,14 @@ public:
   Fulfiller& operator=(const Fulfiller& other) = delete;
 
   Promise<void> makePromise() {
-    auto state = newOwned<promiseInternal::PromiseState<void>>(nullptr, &stateLink);
+    auto state = newOwned<promiseInternal::PromiseState<void>>(nullptr, &stateLink, nullptr);
+    this->state = state.get();
+    return Promise<void>(state.release());
+  }
+
+  Promise<void> makePromise(OwnedPtr<FulfillerAgent> fulfillerAgent) {
+    auto state = newOwned<promiseInternal::PromiseState<void>>(
+        nullptr, &stateLink, fulfillerAgent.release());
     this->state = state.get();
     return Promise<void>(state.release());
   }

@@ -54,8 +54,7 @@ public:
   OwnedPtr<ByteStream> captureStderr();
   OwnedPtr<ByteStream> captureStdoutAndStderr();
 
-  void start(EventManager* eventManager,
-             EventManager::ProcessExitCallback* callback);
+  Promise<ProcessExitCode> start(EventManager* eventManager);
 
 private:
   class CallbackWrapper;
@@ -72,8 +71,6 @@ private:
   OwnedPtr<Pipe> stdoutAndStderrPipe;
 
   pid_t pid;
-  OwnedPtr<AsyncOperation> waitOperation;
-  OwnedPtr<CallbackWrapper> callbackWrapper;
 };
 
 }  // namespace ekam

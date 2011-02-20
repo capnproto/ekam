@@ -30,14 +30,25 @@
 
 #include "EventManager.h"
 
+#include <stdexcept>
+
+#include "OsHandle.h"  // temporary, for toString()
+
 namespace ekam {
 
 AsyncOperation::~AsyncOperation() {}
 EventManager::~EventManager() {}
 EventManager::Callback::~Callback() {}
-EventManager::ProcessExitCallback::~ProcessExitCallback() {}
 EventManager::IoCallback::~IoCallback() {}
 EventManager::FileChangeCallback::~FileChangeCallback() {}
 RunnableEventManager::~RunnableEventManager() {}
+
+void ProcessExitCode::throwError() {
+  if (signaled) {
+    throw std::logic_error("Process was signaled: " + toString(exitCodeOrSignal));
+  } else {
+    throw std::logic_error("Process was not signaled.  Exit code: " + toString(exitCodeOrSignal));
+  }
+}
 
 }  // namespace ekam

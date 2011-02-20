@@ -294,11 +294,9 @@ private:
   }
 };
 
-class PluginDerivedAction::Process : public AsyncOperation,
-                                     public EventManager::ProcessExitCallback {
+class PluginDerivedAction::Process : public AsyncOperation {
 public:
-  Process(EventManager* eventManager, BuildContext* context, File* executable, File* input)
-      : context(context) {
+  Process(EventManager* eventManager, BuildContext* context, File* executable, File* input) {
     subprocess.addArgument(executable, File::READ);
     if (input != NULL) {
       subprocess.addArgument(input->canonicalName());
@@ -308,7 +306,13 @@ public:
     responseStream = subprocess.captureStdin();
     commandStream = subprocess.captureStdout();
     logStream = subprocess.captureStderr();
-    subprocess.start(eventManager, this);
+
+    subprocessWaitOp = eventManager->when(subprocess.start(eventManager))(
+      [context](ProcessExitCode exitCode) {
+        if (exitCode.wasSignaled() || exitCode.getExitCode() != 0) {
+          context->failed();
+        }
+      });
 
     commandReader = newOwned<CommandReader>(context, responseStream.release(), executable, input);
     commandOp = commandStream->readAll(eventManager, commandReader->asReadAllCallback());
@@ -318,19 +322,9 @@ public:
   }
   ~Process() {}
 
-  // implements ProcessExitCallback ------------------------------------------------------
-  void exited(int exitCode) {
-    if (exitCode != 0) {
-      context->failed();
-    }
-  }
-  void signaled(int signalNumber) {
-    context->failed();
-  }
-
 private:
-  BuildContext* context;
   Subprocess subprocess;
+  Promise<void> subprocessWaitOp;
 
   OwnedPtr<ByteStream> commandStream;
   OwnedPtr<CommandReader> commandReader;

@@ -44,37 +44,11 @@
 
 namespace ekam {
 
-class Subprocess::CallbackWrapper : public EventManager::ProcessExitCallback {
-public:
-  CallbackWrapper(Subprocess* subprocess, EventManager::ProcessExitCallback* finalCallback)
-      : subprocess(subprocess), finalCallback(finalCallback) {}
-  ~CallbackWrapper() {}
-
-  // implements ProcessExitCallback ------------------------------------------------------
-
-  void exited(int exitCode) {
-    subprocess->waitOperation.clear();
-    finalCallback->exited(exitCode);
-  }
-
-  void signaled(int signalNumber) {
-    subprocess->waitOperation.clear();
-    finalCallback->signaled(signalNumber);
-  }
-
-private:
-  Subprocess* subprocess;
-  EventManager::ProcessExitCallback* finalCallback;
-};
-
-// =======================================================================================
-
 Subprocess::Subprocess() : doPathLookup(false), pid(-1) {}
 
 Subprocess::~Subprocess() {
-  if (waitOperation != NULL) {
+  if (pid >= 0) {
     DEBUG_INFO << "Killing pid: " << pid;
-    waitOperation.clear();
     kill(pid, SIGKILL);
     int dummy;
     waitpid(pid, &dummy, 0);
@@ -127,7 +101,7 @@ OwnedPtr<ByteStream> Subprocess::captureStdoutAndStderr() {
   return stdoutAndStderrPipe->releaseReadEnd();
 }
 
-void Subprocess::start(EventManager* eventManager, EventManager::ProcessExitCallback* callback) {
+Promise<ProcessExitCode> Subprocess::start(EventManager* eventManager) {
   pid = fork();
 
   if (pid < 0) {
@@ -185,8 +159,11 @@ void Subprocess::start(EventManager* eventManager, EventManager::ProcessExitCall
       stdoutAndStderrPipe.clear();
     }
 
-    callbackWrapper = newOwned<CallbackWrapper>(this, callback);
-    waitOperation = eventManager->onProcessExit(pid, callbackWrapper.get());
+    return eventManager->when(eventManager->onProcessExit(pid))(
+      [this](ProcessExitCode exitCode) -> ProcessExitCode {
+        pid = -1;
+        return exitCode;
+      });
   }
 }
 

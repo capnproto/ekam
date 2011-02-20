@@ -61,22 +61,28 @@ public:
   EventGroup(EventManager* inner, ExceptionHandler* exceptionHandler);
   ~EventGroup();
 
+  // implements Executor -----------------------------------------------------------------
+  OwnedPtr<PendingRunnable> runLater(OwnedPtr<Runnable> runnable);
+
   // implements EventManager -------------------------------------------------------------
   OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
-  OwnedPtr<AsyncOperation> onProcessExit(pid_t pid, ProcessExitCallback* callback);
+  Promise<ProcessExitCode> onProcessExit(pid_t pid);
   OwnedPtr<AsyncOperation> onReadable(int fd, IoCallback* callback);
   OwnedPtr<AsyncOperation> onWritable(int fd, IoCallback* callback);
   OwnedPtr<AsyncOperation> onFileChange(const std::string& filename, FileChangeCallback* callback);
 
 private:
+  class RunnableWrapper;
   class CallbackWrapper;
-  class ProcessExitCallbackWrapper;
   class IoCallbackWrapper;
   class FileChangeCallbackWrapper;
 
   EventManager* inner;
   ExceptionHandler* exceptionHandler;
   int eventCount;
+  Promise<void> pendingNoMoreEvents;
+
+  void callNoMoreEventsLater();
 };
 
 }  // namespace ekam
