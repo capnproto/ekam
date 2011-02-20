@@ -92,14 +92,14 @@ private:
 };
 
 template <typename T>
-class MockFulfillerAgent: public PromiseFulfiller<T> {
+class MockPromiseFulfiller: public PromiseFulfiller<T> {
 public:
   typedef typename PromiseFulfiller<T>::Callback Callback;
-  MockFulfillerAgent(Callback* callback, Callback** callbackPtr)
+  MockPromiseFulfiller(Callback* callback, Callback** callbackPtr)
       : callbackPtr(callbackPtr) {
     *callbackPtr = callback;
   }
-  ~MockFulfillerAgent() {
+  ~MockPromiseFulfiller() {
     *callbackPtr = nullptr;
   }
 
@@ -111,7 +111,7 @@ TEST(PromiseTest, Basic) {
   MockExecutor mockExecutor;
 
   PromiseFulfiller<int>::Callback* fulfiller;
-  auto promise = newPromise<MockFulfillerAgent<int>>(&fulfiller);
+  auto promise = newPromise<MockPromiseFulfiller<int>>(&fulfiller);
 
   bool triggered = false;
 
@@ -139,9 +139,9 @@ TEST(PromiseTest, Dependent) {
   MockExecutor mockExecutor;
 
   PromiseFulfiller<int>::Callback* fulfiller1;
-  auto promise1 = newPromise<MockFulfillerAgent<int>>(&fulfiller1);
+  auto promise1 = newPromise<MockPromiseFulfiller<int>>(&fulfiller1);
   PromiseFulfiller<int>::Callback* fulfiller2;
-  auto promise2 = newPromise<MockFulfillerAgent<int>>(&fulfiller2);
+  auto promise2 = newPromise<MockPromiseFulfiller<int>>(&fulfiller2);
 
   Promise<int> promise3 = mockExecutor.when(promise1, promise2)(
     [](int a, int b) -> int {
@@ -170,7 +170,7 @@ TEST(PromiseTest, MoveSemantics) {
   MockExecutor mockExecutor;
 
   PromiseFulfiller<OwnedPtr<int>>::Callback* fulfiller;
-  auto promise = newPromise<MockFulfillerAgent<OwnedPtr<int>>>(&fulfiller);
+  auto promise = newPromise<MockPromiseFulfiller<OwnedPtr<int>>>(&fulfiller);
 
   OwnedPtr<int> ptr = newOwned<int>(12);
 
@@ -190,7 +190,7 @@ TEST(PromiseTest, Cancel) {
   MockExecutor mockExecutor;
 
   PromiseFulfiller<int>::Callback* fulfiller;
-  auto promise = newPromise<MockFulfillerAgent<int>>(&fulfiller);
+  auto promise = newPromise<MockPromiseFulfiller<int>>(&fulfiller);
 
   Promise<void> promise2 = mockExecutor.when(promise)(
     [](int i) {
@@ -208,7 +208,7 @@ TEST(PromiseTest, VoidPromise) {
   MockExecutor mockExecutor;
 
   PromiseFulfiller<void>::Callback* fulfiller;
-  auto promise = newPromise<MockFulfillerAgent<void>>(&fulfiller);
+  auto promise = newPromise<MockPromiseFulfiller<void>>(&fulfiller);
 
   bool triggered = false;
 
@@ -228,9 +228,9 @@ TEST(PromiseTest, Exception) {
   MockExecutor mockExecutor;
 
   PromiseFulfiller<int>::Callback* fulfiller1;
-  auto promise1 = newPromise<MockFulfillerAgent<int>>(&fulfiller1);
+  auto promise1 = newPromise<MockPromiseFulfiller<int>>(&fulfiller1);
   PromiseFulfiller<int>::Callback* fulfiller2;
-  auto promise2 = newPromise<MockFulfillerAgent<int>>(&fulfiller2);
+  auto promise2 = newPromise<MockPromiseFulfiller<int>>(&fulfiller2);
 
   bool triggered = false;
 
@@ -271,7 +271,7 @@ TEST(PromiseTest, ExceptionInCallback) {
   MockExecutor mockExecutor;
 
   PromiseFulfiller<int>::Callback* fulfiller1;
-  auto promise1 = newPromise<MockFulfillerAgent<int>>(&fulfiller1);
+  auto promise1 = newPromise<MockPromiseFulfiller<int>>(&fulfiller1);
 
   Promise<int> promise2 = mockExecutor.when(promise1)(
     [](int a) -> int {
@@ -308,7 +308,7 @@ TEST(PromiseTest, ExceptionPropagation) {
   MockExecutor mockExecutor;
 
   PromiseFulfiller<int>::Callback* fulfiller1;
-  auto promise1 = newPromise<MockFulfillerAgent<int>>(&fulfiller1);
+  auto promise1 = newPromise<MockPromiseFulfiller<int>>(&fulfiller1);
 
   Promise<void> promise2 = mockExecutor.when(promise1)(
     [](int a) {
