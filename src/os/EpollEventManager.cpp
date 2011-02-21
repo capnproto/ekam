@@ -280,14 +280,10 @@ void EpollEventManager::SignalHandler::maybeStopExpecting() {
 
 // =======================================================================================
 
-class EpollEventManager::AsyncCallbackHandler : public AsyncOperation, public PendingRunnable {
+class EpollEventManager::AsyncCallbackHandler : public PendingRunnable {
 public:
-  AsyncCallbackHandler(EpollEventManager* eventManager, Callback* callback)
-      : eventManager(eventManager), called(false), callback(callback) {
-    eventManager->asyncCallbacks.push_back(this);
-  }
   AsyncCallbackHandler(EpollEventManager* eventManager, OwnedPtr<Runnable> runnable)
-      : eventManager(eventManager), called(false), callback(nullptr), runnable(runnable.release()) {
+      : eventManager(eventManager), called(false), runnable(runnable.release()) {
     eventManager->asyncCallbacks.push_back(this);
   }
   ~AsyncCallbackHandler() {
@@ -305,23 +301,14 @@ public:
 
   void run() {
     called = true;
-    if (runnable == nullptr) {
-      callback->run();
-    } else {
-      runnable->run();
-    }
+    runnable->run();
   }
 
 private:
   EpollEventManager* eventManager;
   bool called;
-  Callback* callback;
   OwnedPtr<Runnable> runnable;
 };
-
-OwnedPtr<AsyncOperation> EpollEventManager::runAsynchronously(Callback* callback) {
-  return newOwned<AsyncCallbackHandler>(this, callback);
-}
 
 OwnedPtr<PendingRunnable> EpollEventManager::runLater(OwnedPtr<Runnable> runnable) {
   return newOwned<AsyncCallbackHandler>(this, runnable.release());

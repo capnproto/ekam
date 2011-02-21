@@ -65,7 +65,6 @@ public:
   OwnedPtr<PendingRunnable> runLater(OwnedPtr<Runnable> runnable);
 
   // implements EventManager -------------------------------------------------------------
-  OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
   Promise<ProcessExitCode> onProcessExit(pid_t pid);
   OwnedPtr<IoWatcher> watchFd(int fd);
   OwnedPtr<FileWatcher> watchFile(const std::string& filename);
@@ -74,7 +73,6 @@ private:
   class PendingEvent;
 
   class RunnableWrapper;
-  class CallbackWrapper;
   class IoWatcherWrapper;
   class FileWatcherWrapper;
 

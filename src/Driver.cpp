@@ -95,40 +95,6 @@ public:
   void noMoreEvents();
 
 private:
-  class StartCallback : public EventManager::Callback {
-  public:
-    StartCallback(ActionDriver* actionDriver) : actionDriver(actionDriver) {}
-    ~StartCallback() {}
-
-    // implements Callback ---------------------------------------------------------------
-    void run() {
-      actionDriver->asyncCallbackOp.clear();
-      actionDriver->runningAction = actionDriver->action->start(
-          &actionDriver->eventGroup, actionDriver);
-    }
-
-  private:
-    ActionDriver* actionDriver;
-  };
-
-  class DoneCallback : public EventManager::Callback {
-  public:
-    DoneCallback(ActionDriver* actionDriver) : actionDriver(actionDriver) {}
-    ~DoneCallback() {}
-
-    // implements Callback ---------------------------------------------------------------
-    void run() {
-      actionDriver->asyncCallbackOp.clear();
-      Driver* driver = actionDriver->driver;
-      actionDriver->returned();  // may delete actionDriver
-      driver->startSomeActions();
-    }
-
-  private:
-    ActionDriver* actionDriver;
-  };
-
-
   Driver* driver;
   OwnedPtr<Action> action;
   OwnedPtr<File> srcfile;
@@ -148,9 +114,7 @@ private:
 
   EventGroup eventGroup;
 
-  StartCallback startCallback;
-  DoneCallback doneCallback;
-  OwnedPtr<AsyncOperation> asyncCallbackOp;
+  Promise<void> asyncCallbackOp;
 
   bool isRunning;
   OwnedPtr<AsyncOperation> runningAction;
@@ -183,7 +147,7 @@ Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action> action,
                                    OwnedPtr<Dashboard::Task> task)
     : driver(driver), action(action.release()), srcfile(srcfile->clone()), srcHash(srcHash),
       dashboardTask(task.release()), state(PENDING), eventGroup(driver->eventManager, this),
-      startCallback(this), doneCallback(this), isRunning(false) {}
+      isRunning(false) {}
 Driver::ActionDriver::~ActionDriver() {}
 
 void Driver::ActionDriver::start() {
@@ -201,7 +165,11 @@ void Driver::ActionDriver::start() {
   isRunning = true;
   dashboardTask->setState(Dashboard::RUNNING);
 
-  asyncCallbackOp = eventGroup.runAsynchronously(&startCallback);
+  asyncCallbackOp = eventGroup.when()(
+    [this]() {
+      asyncCallbackOp.release();
+      runningAction = action->start(&eventGroup, this);
+    });
 }
 
 File* Driver::ActionDriver::findProvider(Tag tag) {
@@ -340,13 +308,19 @@ void Driver::ActionDriver::ensureRunning() {
 }
 
 void Driver::ActionDriver::queueDoneCallback() {
-  asyncCallbackOp = driver->eventManager->runAsynchronously(&doneCallback);
+  asyncCallbackOp = eventGroup.when()(
+    [this]() {
+      asyncCallbackOp.release();
+      Driver* driver = this->driver;
+      returned();  // may delete this
+      driver->startSomeActions();
+    });
 }
 
 void Driver::ActionDriver::threwException(const std::exception& e) {
   ensureRunning();
   dashboardTask->addOutput(std::string("uncaught exception: ") + e.what() + "\n");
-  asyncCallbackOp.clear();
+  asyncCallbackOp.release();
   state = FAILED;
   returned();
 }
@@ -354,7 +328,7 @@ void Driver::ActionDriver::threwException(const std::exception& e) {
 void Driver::ActionDriver::threwUnknownException() {
   ensureRunning();
   dashboardTask->addOutput("uncaught exception of unknown type\n");
-  asyncCallbackOp.clear();
+  asyncCallbackOp.release();
   state = FAILED;
   returned();
 }
@@ -440,7 +414,7 @@ void Driver::ActionDriver::reset() {
   if (isRunning) {
     dashboardTask->setState(Dashboard::BLOCKED);
     runningAction.clear();
-    asyncCallbackOp.clear();
+    asyncCallbackOp.release();
 
     for (int i = 0; i < driver->activeActions.size(); i++) {
       if (driver->activeActions.get(i) == this) {

@@ -77,23 +77,6 @@ private:
   OwnedPtr<Runnable> wrapped;
 };
 
-class EventGroup::CallbackWrapper : public Callback, public AsyncOperation {
-public:
-  CallbackWrapper(EventGroup* group, Callback* wrapped)
-      : group(group), pendingEvent(group), wrapped(wrapped) {}
-  ~CallbackWrapper() {}
-
-  OwnedPtr<AsyncOperation> inner;
-
-  // implements Callback -----------------------------------------------------------------
-  void run() { HANDLE_EXCEPTIONS(wrapped->run()); }
-
-private:
-  EventGroup* group;
-  PendingEvent pendingEvent;
-  Callback* wrapped;
-};
-
 #undef HANDLE_EXCEPTIONS
 
 // =======================================================================================
@@ -106,12 +89,6 @@ EventGroup::~EventGroup() {}
 OwnedPtr<PendingRunnable> EventGroup::runLater(OwnedPtr<Runnable> runnable) {
   auto wrappedCallback = newOwned<RunnableWrapper>(this, runnable.release());
   return inner->runLater(wrappedCallback.release());
-}
-
-OwnedPtr<AsyncOperation> EventGroup::runAsynchronously(Callback* callback) {
-  auto wrappedCallback = newOwned<CallbackWrapper>(this, callback);
-  wrappedCallback->inner = inner->runAsynchronously(wrappedCallback.get());
-  return wrappedCallback.release();
 }
 
 Promise<ProcessExitCode> EventGroup::onProcessExit(pid_t pid) {

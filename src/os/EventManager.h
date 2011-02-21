@@ -87,16 +87,6 @@ class EventManager : public Executor {
 public:
   virtual ~EventManager();
 
-  class Callback {
-  public:
-    virtual ~Callback();
-
-    virtual void run() = 0;
-  };
-
-  // Queue the callback to run in the event loop.
-  virtual OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback) = 0;
-
   // Fulfills the promise when the process exits.
   virtual Promise<ProcessExitCode> onProcessExit(pid_t pid) = 0;
 
