@@ -67,14 +67,15 @@ public:
   // implements EventManager -------------------------------------------------------------
   OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
   Promise<ProcessExitCode> onProcessExit(pid_t pid);
-  OwnedPtr<AsyncOperation> onReadable(int fd, IoCallback* callback);
-  OwnedPtr<AsyncOperation> onWritable(int fd, IoCallback* callback);
+  OwnedPtr<IoWatcher> watchFd(int fd);
   OwnedPtr<AsyncOperation> onFileChange(const std::string& filename, FileChangeCallback* callback);
 
 private:
+  class PendingEvent;
+
   class RunnableWrapper;
   class CallbackWrapper;
-  class IoCallbackWrapper;
+  class IoWatcherWrapper;
   class FileChangeCallbackWrapper;
 
   EventManager* inner;
@@ -82,6 +83,7 @@ private:
   int eventCount;
   Promise<void> pendingNoMoreEvents;
 
+  OwnedPtr<PendingEvent> newPendingEvent();
   void callNoMoreEventsLater();
 };
 

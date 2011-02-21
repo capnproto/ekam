@@ -36,13 +36,26 @@ namespace ekam {
 
 EventGroup::ExceptionHandler::~ExceptionHandler() {}
 
+class EventGroup::PendingEvent {
+public:
+  PendingEvent(EventGroup* group): group(group) {
+    ++group->eventCount;
+  }
+  ~PendingEvent() {
+    if (--group->eventCount == 0) {
+      group->callNoMoreEventsLater();
+    }
+  }
+
+private:
+  EventGroup* group;
+};
+
+
 #define HANDLE_EXCEPTIONS(STATEMENT)                             \
   EventGroup* group = this->group;                               \
   try {                                                          \
     STATEMENT;                                                   \
-    if (group->eventCount == 0) {                                \
-      group->callNoMoreEventsLater();                            \
-    }                                                            \
   } catch (const std::exception& exception) {                    \
     group->exceptionHandler->threwException(exception);          \
   } catch (...) {                                                \
@@ -52,30 +65,23 @@ EventGroup::ExceptionHandler::~ExceptionHandler() {}
 class EventGroup::RunnableWrapper : public Runnable {
 public:
   RunnableWrapper(EventGroup* group, OwnedPtr<Runnable> wrapped)
-      : group(group), wrapped(wrapped.release()) {
-    ++group->eventCount;
-  }
-  ~RunnableWrapper() {
-    --group->eventCount;
-  }
+      : group(group), pendingEvent(group), wrapped(wrapped.release()) {}
+  ~RunnableWrapper() {}
 
   // implements Runnable -----------------------------------------------------------------
   void run() { HANDLE_EXCEPTIONS(wrapped->run()); }
 
 private:
   EventGroup* group;
+  PendingEvent pendingEvent;
   OwnedPtr<Runnable> wrapped;
 };
 
 class EventGroup::CallbackWrapper : public Callback, public AsyncOperation {
 public:
   CallbackWrapper(EventGroup* group, Callback* wrapped)
-      : group(group), wrapped(wrapped) {
-    ++group->eventCount;
-  }
-  ~CallbackWrapper() {
-    --group->eventCount;
-  }
+      : group(group), pendingEvent(group), wrapped(wrapped) {}
+  ~CallbackWrapper() {}
 
   OwnedPtr<AsyncOperation> inner;
 
@@ -84,38 +90,15 @@ public:
 
 private:
   EventGroup* group;
+  PendingEvent pendingEvent;
   Callback* wrapped;
-};
-
-class EventGroup::IoCallbackWrapper : public IoCallback, public AsyncOperation {
-public:
-  IoCallbackWrapper(EventGroup* group, IoCallback* wrapped)
-      : group(group), wrapped(wrapped) {
-    ++group->eventCount;
-  }
-  ~IoCallbackWrapper() {
-    --group->eventCount;
-  }
-
-  OwnedPtr<AsyncOperation> inner;
-
-  // implements IoCallback ---------------------------------------------------------------
-  void ready() { HANDLE_EXCEPTIONS(wrapped->ready()); }
-
-private:
-  EventGroup* group;
-  IoCallback* wrapped;
 };
 
 class EventGroup::FileChangeCallbackWrapper : public FileChangeCallback, public AsyncOperation {
 public:
   FileChangeCallbackWrapper(EventGroup* group, FileChangeCallback* wrapped)
-      : group(group), wrapped(wrapped) {
-    ++group->eventCount;
-  }
-  ~FileChangeCallbackWrapper() {
-    --group->eventCount;
-  }
+      : group(group), pendingEvent(group), wrapped(wrapped) {}
+  ~FileChangeCallbackWrapper() {}
 
   OwnedPtr<AsyncOperation> inner;
 
@@ -125,6 +108,7 @@ public:
 
 private:
   EventGroup* group;
+  PendingEvent pendingEvent;
   FileChangeCallback* wrapped;
 };
 
@@ -150,26 +134,41 @@ OwnedPtr<AsyncOperation> EventGroup::runAsynchronously(Callback* callback) {
 
 Promise<ProcessExitCode> EventGroup::onProcessExit(pid_t pid) {
   Promise<ProcessExitCode> innerPromise = inner->onProcessExit(pid);
-  ++eventCount;
-  return when(innerPromise)(
-    [this](ProcessExitCode exitCode) -> ProcessExitCode {
-      if (--eventCount == 0) {
-        callNoMoreEventsLater();
-      }
+  return when(innerPromise, newPendingEvent())(
+    [this](ProcessExitCode exitCode, OwnedPtr<PendingEvent>) -> ProcessExitCode {
       return exitCode;
     });
 }
 
-OwnedPtr<AsyncOperation> EventGroup::onReadable(int fd, IoCallback* callback) {
-  auto wrappedCallback = newOwned<IoCallbackWrapper>(this, callback);
-  wrappedCallback->inner = inner->onReadable(fd, wrappedCallback.get());
-  return wrappedCallback.release();
-}
+class EventGroup::IoWatcherWrapper: public EventManager::IoWatcher {
+public:
+  IoWatcherWrapper(EventGroup* group, OwnedPtr<IoWatcher> inner)
+      : group(group), inner(inner.release()) {}
+  ~IoWatcherWrapper() {}
 
-OwnedPtr<AsyncOperation> EventGroup::onWritable(int fd, IoCallback* callback) {
-  auto wrappedCallback = newOwned<IoCallbackWrapper>(this, callback);
-  wrappedCallback->inner = inner->onWritable(fd, wrappedCallback.get());
-  return wrappedCallback.release();
+  // implements IoWatcher ----------------------------------------------------------------
+  Promise<void> onReadable() {
+    Promise<void> innerPromise = inner->onReadable();
+    return group->when(innerPromise, group->newPendingEvent())(
+      [this](Void, OwnedPtr<PendingEvent>) {
+        // Let PendingEvent die.
+      });
+  }
+  Promise<void> onWritable() {
+    Promise<void> innerPromise = inner->onWritable();
+    return group->when(innerPromise, group->newPendingEvent())(
+      [this](Void, OwnedPtr<PendingEvent>) {
+        // Let PendingEvent die.
+      });
+  }
+
+private:
+  EventGroup* group;
+  OwnedPtr<IoWatcher> inner;
+};
+
+OwnedPtr<EventManager::IoWatcher> EventGroup::watchFd(int fd) {
+  return newOwned<IoWatcherWrapper>(this, inner->watchFd(fd));
 }
 
 OwnedPtr<AsyncOperation> EventGroup::onFileChange(const std::string& filename,
@@ -179,13 +178,17 @@ OwnedPtr<AsyncOperation> EventGroup::onFileChange(const std::string& filename,
   return wrappedCallback.release();
 }
 
+OwnedPtr<EventGroup::PendingEvent> EventGroup::newPendingEvent() {
+  return newOwned<PendingEvent>(this);
+}
+
 void EventGroup::callNoMoreEventsLater() {
   pendingNoMoreEvents = inner->when()(
-    [this](){
+    [this]() {
+      pendingNoMoreEvents.release();
       if (eventCount == 0) {
         exceptionHandler->noMoreEvents();
       }
-      pendingNoMoreEvents.release();
     });
 }
 

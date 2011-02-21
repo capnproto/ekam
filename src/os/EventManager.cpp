@@ -39,7 +39,7 @@ namespace ekam {
 AsyncOperation::~AsyncOperation() {}
 EventManager::~EventManager() {}
 EventManager::Callback::~Callback() {}
-EventManager::IoCallback::~IoCallback() {}
+EventManager::IoWatcher::~IoWatcher() {}
 EventManager::FileChangeCallback::~FileChangeCallback() {}
 RunnableEventManager::~RunnableEventManager() {}
 

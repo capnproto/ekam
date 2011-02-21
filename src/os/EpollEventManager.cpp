@@ -125,42 +125,83 @@ EpollEventManager::Epoller::~Epoller() {
 
 EpollEventManager::Epoller::Watch::Watch(Epoller* epoller, OsHandle* handle,
                                          uint32_t events, IoHandler* handler)
-    : epoller(epoller), expecting(true), fd(handle->get()), name(handle->getName()),
+    : epoller(epoller), events(0), registeredEvents(0), fd(handle->get()), name(handle->getName()),
       handler(handler) {
-  struct epoll_event event;
-  event.events = events;
-  event.data.ptr = this;
-  WRAP_SYSCALL(epoll_ctl, epoller->epollHandle, EPOLL_CTL_ADD, *handle, &event);
-  ++epoller->watchCount;
+  addEvents(events);
 }
 
 EpollEventManager::Epoller::Watch::Watch(Epoller* epoller, int fd,
                                          uint32_t events, IoHandler* handler)
-    : epoller(epoller), expecting(true), fd(fd), name(toString(fd)), handler(handler) {
-  struct epoll_event event;
-  event.events = events;
-  event.data.ptr = this;
-  WRAP_SYSCALL(epoll_ctl, epoller->epollHandle, EPOLL_CTL_ADD, fd, &event);
-  ++epoller->watchCount;
+    : epoller(epoller), events(0), registeredEvents(0), fd(fd), name(toString(fd)),
+      handler(handler) {
+  addEvents(events);
 }
 
 EpollEventManager::Epoller::Watch::~Watch() {
-  if (expecting) --epoller->watchCount;
-  WRAP_SYSCALL(epoll_ctl, epoller->epollHandle, EPOLL_CTL_DEL, fd, (struct epoll_event*)NULL);
-}
+  removeEvents(events);
 
-void EpollEventManager::Epoller::Watch::setExpecting(bool expecting) {
-  if (expecting != this->expecting) {
-    if (expecting) {
-      ++epoller->watchCount;
-    } else {
-      --epoller->watchCount;
-    }
-    this->expecting = expecting;
+  if (epoller->watchesNeedingUpdate.erase(this) > 0) {
+    updateRegistration();
   }
 }
 
+void EpollEventManager::Epoller::Watch::addEvents(uint32_t eventsToAdd) {
+  uint32_t newEvents = events | eventsToAdd;
+  if (newEvents == events) {
+    return;
+  }
+
+  events = newEvents;
+  if (events == registeredEvents) {
+    epoller->watchesNeedingUpdate.erase(this);
+  } else {
+    epoller->watchesNeedingUpdate.insert(this);
+  }
+}
+
+void EpollEventManager::Epoller::Watch::removeEvents(uint32_t eventsToRemove) {
+  uint32_t newEvents = events & ~eventsToRemove;
+  if (newEvents == events) {
+    return;
+  }
+
+  events = newEvents;
+  if (events == registeredEvents) {
+    epoller->watchesNeedingUpdate.erase(this);
+  } else {
+    epoller->watchesNeedingUpdate.insert(this);
+  }
+}
+
+void EpollEventManager::Epoller::Watch::updateRegistration() {
+  if (registeredEvents == events) {
+    DEBUG_ERROR << "Watch does not need updating.";
+    return;
+  }
+
+  int op = EPOLL_CTL_MOD;
+  if (registeredEvents == 0) {
+    ++epoller->watchCount;
+    op = EPOLL_CTL_ADD;
+  } else if (events == 0) {
+    --epoller->watchCount;
+    op = EPOLL_CTL_DEL;
+  }
+  registeredEvents = events;
+
+  struct epoll_event event;
+  event.events = registeredEvents;
+  event.data.ptr = this;
+  WRAP_SYSCALL(epoll_ctl, epoller->epollHandle, op, fd, &event);
+}
+
 bool EpollEventManager::Epoller::handleEvent() {
+  // Run pending updates.
+  for (Watch* watch : watchesNeedingUpdate) {
+    watch->updateRegistration();
+  }
+  watchesNeedingUpdate.clear();
+
   if (watchCount == 0) {
     DEBUG_INFO << "No more events.";
     return false;
@@ -203,9 +244,8 @@ void dummyHandler(int i) {}
 EpollEventManager::SignalHandler::SignalHandler(Epoller* epoller)
     : signalStream(WRAP_SYSCALL(signalfd, -1, &HANDLED_SIGNALS, SFD_NONBLOCK | SFD_CLOEXEC),
                    "signalfd"),
-      watch(epoller, signalStream.getHandle(), EPOLLIN, this) {
+      watch(epoller, signalStream.getHandle(), 0, this) {
   sigprocmask(SIG_BLOCK, &HANDLED_SIGNALS, NULL);
-  watch.setExpecting(false);
 }
 
 EpollEventManager::SignalHandler::~SignalHandler() {
@@ -234,7 +274,7 @@ void EpollEventManager::SignalHandler::handle(uint32_t events) {
 
 void EpollEventManager::SignalHandler::maybeStopExpecting() {
   if (processExitHandlerMap.empty()) {
-    watch.setExpecting(false);
+    watch.removeEvents(EPOLLIN);
   }
 }
 
@@ -298,7 +338,7 @@ public:
         std::make_pair(pid, this)).second) {
       throw std::runtime_error("Already waiting on this process.");
     }
-    signalHandler->watch.setExpecting(true);
+    signalHandler->watch.addEvents(EPOLLIN);
   }
   ~ProcessExitHandler() {
     if (pid != -1) {
@@ -378,46 +418,80 @@ Promise<ProcessExitCode> EpollEventManager::onProcessExit(pid_t pid) {
 
 // =======================================================================================
 
-class EpollEventManager::ReadHandler : public AsyncOperation, public IoHandler {
+class EpollEventManager::IoWatcherImpl: public IoWatcher, public IoHandler {
 public:
-  ReadHandler(Epoller* epoller, int fd, IoCallback* callback)
-      : watch(epoller, fd, EPOLLIN, this), callback(callback) {}
-  ~ReadHandler() {}
+  IoWatcherImpl(Epoller* epoller, int fd)
+      : watch(epoller, fd, 0, this),
+        readFulfiller(nullptr), writeFulfiller(nullptr) {}
 
+  ~IoWatcherImpl() {}
+
+  // implements IoWatcher --------------------------------------------------------------
+
+  Promise<void> onReadable() {
+    if (readFulfiller != nullptr) {
+      throw std::logic_error("Already waiting for readability on this fd.");
+    }
+    return newPromise<Fulfiller>(&watch, EPOLLIN, &readFulfiller);
+  }
+
+  Promise<void> onWritable() {
+    if (readFulfiller != nullptr) {
+      throw std::logic_error("Already waiting for writability on this fd.");
+    }
+    return newPromise<Fulfiller>(&watch, EPOLLOUT, &writeFulfiller);
+  }
+
+  // implements IoHandler --------------------------------------------------------------
   void handle(uint32_t events) {
-    DEBUG_INFO << "Read ready.";
-    callback->ready();
+    if (events & (EPOLLIN | EPOLLERR | EPOLLHUP)) {
+      if (readFulfiller != nullptr) {
+        readFulfiller->ready();
+      }
+    }
+    if (events & (EPOLLOUT | EPOLLERR | EPOLLHUP)) {
+      if (writeFulfiller != nullptr) {
+        writeFulfiller->ready();
+      }
+    }
   }
 
 private:
+  class Fulfiller: public PromiseFulfiller<void> {
+  public:
+    Fulfiller(Callback* callback, Epoller::Watch* watch, uint32_t events, Fulfiller** ptr)
+        : callback(callback), watch(watch), events(events), ptr(ptr) {
+      *ptr = this;
+      watch->addEvents(events);
+    }
+    ~Fulfiller() {
+      if (ptr != nullptr) {
+        *ptr = nullptr;
+        watch->removeEvents(events);
+      }
+    }
+
+    void ready() {
+      *ptr = nullptr;
+      ptr = nullptr;
+      watch->removeEvents(events);
+      callback->fulfill();
+    }
+
+  private:
+    Callback* callback;
+    Epoller::Watch* watch;
+    uint32_t events;
+    Fulfiller** ptr;
+  };
+
   Epoller::Watch watch;
-  IoCallback* callback;
+  Fulfiller* readFulfiller;
+  Fulfiller* writeFulfiller;
 };
 
-OwnedPtr<AsyncOperation> EpollEventManager::onReadable(int fd, IoCallback* callback) {
-  return newOwned<ReadHandler>(&epoller, fd, callback);
-}
-
-// =======================================================================================
-
-class EpollEventManager::WriteHandler : public AsyncOperation, public IoHandler {
-public:
-  WriteHandler(Epoller* epoller, int fd, IoCallback* callback)
-      : watch(epoller, fd, EPOLLOUT, this), callback(callback) {}
-  ~WriteHandler() {}
-
-  void handle(uint32_t events) {
-    DEBUG_INFO << "Write ready.";
-    callback->ready();
-  }
-
-private:
-  Epoller::Watch watch;
-  IoCallback* callback;
-};
-
-OwnedPtr<AsyncOperation> EpollEventManager::onWritable(int fd, IoCallback* callback) {
-  return newOwned<WriteHandler>(&epoller, fd, callback);
+OwnedPtr<EventManager::IoWatcher> EpollEventManager::watchFd(int fd) {
+  return newOwned<IoWatcherImpl>(&epoller, fd);
 }
 
 // =======================================================================================
@@ -439,7 +513,7 @@ public:
     DEBUG_INFO << "inotify_add_watch(" << path << ") [" << wd << "]";
     inotifyHandler->watchMap[wd] = this;
     inotifyHandler->watchByNameMap[path] = this;
-    inotifyHandler->watch.setExpecting(true);
+    inotifyHandler->watch.addEvents(EPOLLIN);
   }
 
   ~WatchedDirectory() {
@@ -463,7 +537,7 @@ public:
     inotifyHandler->currentlyHandlingWatches.erase(this);
 
     if (inotifyHandler->currentlyHandlingWatches.empty()) {
-      inotifyHandler->watch.setExpecting(false);
+      inotifyHandler->watch.removeEvents(EPOLLIN);
     }
   }
 
@@ -593,9 +667,7 @@ private:
 
 EpollEventManager::InotifyHandler::InotifyHandler(Epoller* epoller)
     : inotifyStream(WRAP_SYSCALL(inotify_init1, IN_NONBLOCK | IN_CLOEXEC), "inotify"),
-      watch(epoller, inotifyStream.getHandle(), EPOLLIN, this) {
-  watch.setExpecting(false);
-}
+      watch(epoller, inotifyStream.getHandle(), 0, this) {}
 
 EpollEventManager::InotifyHandler::~InotifyHandler() {}
 

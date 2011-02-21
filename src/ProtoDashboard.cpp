@@ -115,7 +115,9 @@ OwnedPtr<Dashboard::Task> ProtoDashboard::beginTask(
 
 ProtoDashboard::WriteBuffer::WriteBuffer(EventManager* eventManager,
                                          OwnedPtr<ByteStream> stream)
-    : eventManager(eventManager), stream(stream.release()), offset(0), disconnectOp(NULL) {}
+    : eventManager(eventManager), stream(stream.release()),
+      ioWatcher(eventManager->watchFd(this->stream->getHandle()->get())),
+      offset(0), disconnectOp(NULL) {}
 ProtoDashboard::WriteBuffer::~WriteBuffer() {}
 
 void ProtoDashboard::WriteBuffer::write(const google::protobuf::MessageLite& message) {
@@ -154,16 +156,14 @@ void ProtoDashboard::WriteBuffer::ready() {
       offset = 0;
       messages.pop();
     }
-    // Wrote everything.
-    waitWritableOp.clear();
   } catch (const OsError& error) {
     if (error.getErrorNumber() == EAGAIN) {
       // Ran out of kernel buffer space.  Wait until writable again.
-      if (waitWritableOp == NULL) {
-        waitWritableOp = eventManager->onWritable(stream->getHandle()->get(), this);
-      }
+      waitWritablePromise = eventManager->when(ioWatcher->onWritable())(
+        [this](Void) {
+          ready();
+        });
     } else if (disconnectOp != NULL) {
-      waitWritableOp.clear();
       stream.clear();
 
       disconnectOp->disconnected();

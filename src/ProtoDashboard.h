@@ -65,7 +65,7 @@ public:
 private:
   class TaskImpl;
 
-  class WriteBuffer : public EventManager::IoCallback {
+  class WriteBuffer {
   public:
     WriteBuffer(EventManager* eventManager, OwnedPtr<ByteStream> stream);
     ~WriteBuffer();
@@ -73,15 +73,13 @@ private:
     void write(const google::protobuf::MessageLite& data);
     OwnedPtr<AsyncOperation> onDisconnect(DisconnectedCallback* callback);
 
-    // implements IoCallback -------------------------------------------------------------
-    void ready();
-
   private:
     EventManager* eventManager;
     OwnedPtr<ByteStream> stream;
+    OwnedPtr<EventManager::IoWatcher> ioWatcher;
     std::queue<std::string> messages;
     std::string::size_type offset;
-    OwnedPtr<AsyncOperation> waitWritableOp;
+    Promise<void> waitWritablePromise;
 
     class DisconnectOp : public AsyncOperation {
     public:
@@ -95,6 +93,8 @@ private:
       DisconnectedCallback* callback;
     };
     DisconnectOp* disconnectOp;
+
+    void ready();
   };
 
   int idCounter;

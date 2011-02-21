@@ -100,19 +100,18 @@ public:
   // Fulfills the promise when the process exits.
   virtual Promise<ProcessExitCode> onProcessExit(pid_t pid) = 0;
 
-  class IoCallback {
+  class IoWatcher {
   public:
-    virtual ~IoCallback();
+    virtual ~IoWatcher();
 
-    // File descriptor is ready for I/O.
-    virtual void ready() = 0;
+    // Fulfills the promise when the file descriptor is readable.
+    virtual Promise<void> onReadable() = 0;
+    // Fulfills the promise when the file descriptor is writable.
+    virtual Promise<void> onWritable() = 0;
   };
 
-  // Call the callback whenever the file descriptor is readable.
-  virtual OwnedPtr<AsyncOperation> onReadable(int fd, IoCallback* callback) = 0;
-
-  // Call the callback whenever the file descriptor is writable.
-  virtual OwnedPtr<AsyncOperation> onWritable(int fd, IoCallback* callback) = 0;
+  // Watch the file descriptor for readability and writability.
+  virtual OwnedPtr<IoWatcher> watchFd(int fd) = 0;
 
   class FileChangeCallback {
   public:

@@ -37,7 +37,8 @@
 #include <signal.h>
 #include <deque>
 #include <set>
-#include <tr1/unordered_map>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "EventManager.h"
 #include "base/OwnedPtr.h"
@@ -62,14 +63,12 @@ public:
   // implements EventManager -------------------------------------------------------------
   OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
   Promise<ProcessExitCode> onProcessExit(pid_t pid);
-  OwnedPtr<AsyncOperation> onReadable(int fd, IoCallback* callback);
-  OwnedPtr<AsyncOperation> onWritable(int fd, IoCallback* callback);
+  OwnedPtr<IoWatcher> watchFd(int fd);
   OwnedPtr<AsyncOperation> onFileChange(const std::string& filename, FileChangeCallback* callback);
 
 private:
   class AsyncCallbackHandler;
-  class ReadHandler;
-  class WriteHandler;
+  class IoWatcherImpl;
 
   class IoHandler {
   public:
@@ -91,21 +90,28 @@ private:
       Watch(Epoller* epoller, int fd, uint32_t events, IoHandler* handler);
       ~Watch();
 
-      void setExpecting(bool expecting);
+      // Add or remove events being watched.
+      void addEvents(uint32_t eventsToAdd);
+      void removeEvents(uint32_t eventsToRemove);
 
     private:
       friend class Epoller;
 
       Epoller* epoller;
-      bool expecting;
+      uint32_t events;
+      uint32_t registeredEvents;
       int fd;
       std::string name;
       IoHandler* handler;
+
+      void updateRegistration();
     };
 
   private:
     OsHandle epollHandle;
     int watchCount;
+
+    std::unordered_set<Watch*> watchesNeedingUpdate;
   };
 
   class SignalHandler : public IoHandler {

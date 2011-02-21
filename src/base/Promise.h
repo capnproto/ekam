@@ -608,6 +608,7 @@ private:
   bool dependencyFailed;
   int dependenciesLeft;
   OwnedPtr<PendingRunnable> pendingReadyLater;
+  WeakLink weakLink;
 
   struct AddDependenciesFunctor {
     template <typename First, typename... Rest>
@@ -635,20 +636,27 @@ private:
   }
 
   template <typename Callback, typename Func2, typename... Params>
-  static void callAndFulfill(Callback* callback, const Func2& func, Params&&... params) {
+  static void callAndFulfill(WeakLink* linkToFulfiller, Callback* callback,
+                             const Func2& func, Params&&... params) {
     try {
-      callback->fulfill(func(std::forward<Params>(params)...));
+      auto result = func(std::forward<Params>(params)...);
+      if (linkToFulfiller->isEntangled()) {
+        callback->fulfill(result);
+      }
     } catch (...) {
       callback->propagateCurrentException();
     }
   }
 
   template <typename Func2, typename... Params>
-  static void callAndFulfill(typename PromiseFulfiller<void>::Callback* callback, const Func2& func,
-                             Params&&... params) {
+  static void callAndFulfill(WeakLink* linkToFulfiller,
+                             typename PromiseFulfiller<void>::Callback* callback,
+                             const Func2& func, Params&&... params) {
     try {
       func(std::forward<Params>(params)...);
-      callback->fulfill();
+      if (linkToFulfiller->isEntangled()) {
+        callback->fulfill();
+      }
     } catch (...) {
       callback->propagateCurrentException();
     }
@@ -666,8 +674,9 @@ private:
 
   struct DoReadyFunctor {
     template <typename... Params>
-    void operator()(Callback* callback, const Func& func, Params&&... params) const {
-      callAndFulfill(callback, func, unpack(std::forward<Params>(params))...);
+    void operator()(WeakLink* linkToFulfiller, Callback* callback,
+                    const Func& func, Params&&... params) const {
+      callAndFulfill(linkToFulfiller, callback, func, unpack(std::forward<Params>(params))...);
     }
   };
 
@@ -676,7 +685,8 @@ private:
     ParamPack localParams(std::move(params));
     Func localFunc(std::move(func));
 
-    localParams.applyMoving(DoReadyFunctor(), callback, localFunc);
+    WeakLink linkToFulfiller(&weakLink);
+    localParams.applyMoving(DoReadyFunctor(), &linkToFulfiller, callback, localFunc);
   }
 
   template <typename U>
@@ -691,9 +701,9 @@ private:
 
   struct DoErrorFunctor {
     template <typename... Params>
-    void operator()(Callback* callback, const ExceptionHandler& exceptionHandler,
-                    Params&&... params) const {
-      callAndFulfill(callback, exceptionHandler, unpackMaybeException(
+    void operator()(WeakLink* linkToFulfiller, Callback* callback,
+                    const ExceptionHandler& exceptionHandler, Params&&... params) const {
+      callAndFulfill(linkToFulfiller, callback, exceptionHandler, unpackMaybeException(
           std::forward<Params>(params))...);
     }
   };
@@ -703,7 +713,8 @@ private:
     ParamPack localParams(std::move(this->params));
     ExceptionHandler localExceptionHandler(std::move(this->exceptionHandler));
 
-    localParams.applyMoving(DoErrorFunctor(), callback, localExceptionHandler);
+    WeakLink linkToFulfiller(&weakLink);
+    localParams.applyMoving(DoErrorFunctor(), &linkToFulfiller, callback, localExceptionHandler);
   }
 
   void readyLater() {
@@ -755,6 +766,7 @@ public:
   Promise& operator=(const Promise& other) = delete;
   Promise& operator=(Promise&& other) {
     state = std::move(other.state);
+    return *this;
   }
 
   bool operator==(std::nullptr_t) {

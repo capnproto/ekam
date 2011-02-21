@@ -76,15 +76,31 @@ void ByteStream::stat(struct stat* stats) {
   WRAP_SYSCALL(fstat, handle, stats);
 }
 
-class ByteStream::ReadEventCallback : public AsyncOperation, public EventManager::IoCallback {
+class ByteStream::ReadEventCallback : public AsyncOperation {
 public:
-  ReadEventCallback(int fd, ReadAllCallback* callback)
-      : fd(fd), callback(callback) {}
+  ReadEventCallback(EventManager* eventManager, int fd, ReadAllCallback* callback)
+      : eventManager(eventManager),
+        watcher(eventManager->watchFd(fd)),
+        fd(fd),
+        callback(callback) {
+    waitForReady();
+  }
   ~ReadEventCallback() {}
 
-  OwnedPtr<AsyncOperation> inner;
+private:
+  EventManager* eventManager;
+  OwnedPtr<EventManager::IoWatcher> watcher;
+  int fd;
+  ReadAllCallback* callback;
+  Promise<void> readPromise;
 
-  // implements IoCallback ---------------------------------------------------------------
+  void waitForReady() {
+    readPromise = eventManager->when(watcher->onReadable())(
+      [this](Void) {
+        ready();
+      });
+  }
+
   void ready() {
     char buffer[4096];
     ssize_t size;
@@ -94,25 +110,21 @@ public:
 
     if (size > 0) {
       callback->consume(buffer, size);
+      waitForReady();
     } else if (size == 0) {
+      watcher.clear();
       callback->eof();
-      inner.clear();
     } else {
-      callback->error(errno);
-      inner.clear();
+      int error = errno;
+      watcher.clear();
+      callback->error(error);
     }
   }
-
-private:
-  int fd;
-  ReadAllCallback* callback;
 };
 
 OwnedPtr<AsyncOperation> ByteStream::readAll(EventManager* eventManager,
                                              ReadAllCallback* callback) {
-  OwnedPtr<ReadEventCallback> eventCallback = newOwned<ReadEventCallback>(handle.get(), callback);
-  eventCallback->inner = eventManager->onReadable(handle.get(), eventCallback.get());
-  return eventCallback.release();
+  return newOwned<ReadEventCallback>(eventManager, handle.get(), callback);
 }
 
 // =======================================================================================
