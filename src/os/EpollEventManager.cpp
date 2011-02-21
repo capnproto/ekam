@@ -424,7 +424,14 @@ public:
       : watch(epoller, fd, 0, this),
         readFulfiller(nullptr), writeFulfiller(nullptr) {}
 
-  ~IoWatcherImpl() {}
+  ~IoWatcherImpl() {
+    if (readFulfiller != nullptr) {
+      readFulfiller->abandon();
+    }
+    if (writeFulfiller != nullptr) {
+      writeFulfiller->abandon();
+    }
+  }
 
   // implements IoWatcher --------------------------------------------------------------
 
@@ -478,6 +485,17 @@ private:
       callback->fulfill();
     }
 
+    void abandon() {
+      *ptr = nullptr;
+      ptr = nullptr;
+      watch->removeEvents(events);
+      try {
+        throw std::logic_error("IoWatcher deleted while waiting for I/O.");
+      } catch (...) {
+        callback->propagateCurrentException();
+      }
+    }
+
   private:
     Callback* callback;
     Epoller::Watch* watch;
@@ -498,7 +516,7 @@ OwnedPtr<EventManager::IoWatcher> EpollEventManager::watchFd(int fd) {
 
 class EpollEventManager::InotifyHandler::WatchedDirectory {
   class CallbackTable : public Table<IndexedColumn<std::string>,
-                                     UniqueColumn<WatchOperation*> > {
+                                     UniqueColumn<FileWatcherImpl*> > {
   public:
     static const int BASENAME = 0;
     static const int WATCH_OP = 1;
@@ -506,7 +524,7 @@ class EpollEventManager::InotifyHandler::WatchedDirectory {
 
 public:
   WatchedDirectory(InotifyHandler* inotifyHandler, const std::string& path)
-      : inotifyHandler(inotifyHandler), path(path), currentlyHandling(NULL) {
+      : inotifyHandler(inotifyHandler), path(path) {
     wd = WRAP_SYSCALL(inotify_add_watch, *inotifyHandler->inotifyStream.getHandle(), path.c_str(),
                       IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY | IN_MOVE_SELF |
                       IN_MOVED_FROM | IN_MOVED_TO);
@@ -520,7 +538,7 @@ public:
     DEBUG_INFO << "~WatchedDirectory(): " << path;
 
     if (callbackTable.size() > 0) {
-      DEBUG_ERROR << "Deleting WatchedDirectory before all WatchOperations were removed.";
+      DEBUG_ERROR << "Deleting WatchedDirectory before all FileWatcherImpls were removed.";
     }
 
     if (wd >= 0) {
@@ -532,31 +550,19 @@ public:
     }
 
     invalidate();
-
-    // Make sure that if this WatchedDirectory has a pending event, that event is ignored.
-    inotifyHandler->currentlyHandlingWatches.erase(this);
-
-    if (inotifyHandler->currentlyHandlingWatches.empty()) {
-      inotifyHandler->watch.removeEvents(EPOLLIN);
-    }
   }
 
-  void addWatch(const std::string& basename, WatchOperation* op) {
+  void addWatch(const std::string& basename, FileWatcherImpl* op) {
     DEBUG_INFO << "Watch directory " << path << " now covering: " << basename;
     callbackTable.add(basename, op);
   }
 
-  void removeWatch(WatchOperation* op) {
+  void removeWatch(FileWatcherImpl* op) {
     DEBUG_INFO << "Watch directory " << path << " no longer covering: " << basenameForOp(op);
     if (callbackTable.erase<CallbackTable::WATCH_OP>(op) == 0) {
       DEBUG_ERROR << "Trying to remove watch that was never added.";
     }
-    if (currentlyHandling == NULL) {
-      deleteSelfIfEmpty();
-    } else {
-      // Cancel any pending event callback.
-      currentlyHandling->erase(op);
-    }
+    deleteSelfIfEmpty();
   }
 
   void invalidate() {
@@ -576,15 +582,17 @@ private:
 
   CallbackTable callbackTable;
 
-  std::set<WatchOperation*>* currentlyHandling;
-
   void deleteSelfIfEmpty() {
     if (callbackTable.size() == 0) {
+      auto inotifyHandler = this->inotifyHandler;
       inotifyHandler->ownedWatchDirectories.erase(this);
+      if (inotifyHandler->ownedWatchDirectories.empty()) {
+        inotifyHandler->watch.removeEvents(EPOLLIN);
+      }
     }
   }
 
-  std::string basenameForOp(WatchOperation* op) {
+  std::string basenameForOp(FileWatcherImpl* op) {
     const CallbackTable::Row* row = callbackTable.find<CallbackTable::WATCH_OP>(op);
     if (row == NULL) {
       return "(invalid)";
@@ -594,11 +602,10 @@ private:
   }
 };
 
-class EpollEventManager::InotifyHandler::WatchOperation : public AsyncOperation {
+class EpollEventManager::InotifyHandler::FileWatcherImpl: public FileWatcher {
 public:
-  WatchOperation(InotifyHandler* inotifyHandler, const std::string& filename,
-                 FileChangeCallback* callback)
-      : callback(callback), watchedDirectory(NULL), modified(false), deleted(false) {
+  FileWatcherImpl(InotifyHandler* inotifyHandler, const std::string& filename)
+      : watchedDirectory(nullptr), modified(false), deleted(false), fulfiller(nullptr) {
     // Split directory and basename.
     std::string directory;
     std::string basename;
@@ -629,7 +636,7 @@ public:
     watchedDirectory->addWatch(basename, this);
   }
 
-  ~WatchOperation() {
+  ~FileWatcherImpl() {
     if (watchedDirectory != NULL) {
       watchedDirectory->removeWatch(this);
     }
@@ -637,32 +644,71 @@ public:
 
   void flagAsModified() {
     modified = true;
+    maybeFulfill();
   }
 
   void flagAsDeleted() {
     deleted = true;
+    maybeFulfill();
   }
 
-  // Call the callback based on previous flagsAs*() calls.
-  void callCallback() {
-    if (deleted) {
-      deleted = false;
-      modified = false;
-      watchedDirectory->removeWatch(this);
-      watchedDirectory = NULL;
-      callback->deleted();
-    } else if (modified) {
-      modified = false;
-      callback->modified();
-    }
-    // WARNING:  "this" may have been destroyed.
+  // implements FileWatcher --------------------------------------------------------------
+  Promise<FileChangeType> onChange() {
+    auto result = newPromise<Fulfiller>(&fulfiller);
+    maybeFulfill();
+    return result;
   }
 
 private:
-  FileChangeCallback* callback;
+  class Fulfiller: public PromiseFulfiller<FileChangeType> {
+  public:
+    Fulfiller(Callback* callback, Fulfiller** ptr)
+        : callback(callback), ptr(ptr) {
+      *ptr = this;
+    }
+    ~Fulfiller() {
+      if (ptr != nullptr) {
+        *ptr = nullptr;
+      }
+    }
+
+    void fulfill(FileChangeType type) {
+      *ptr = nullptr;
+      ptr = nullptr;
+      callback->fulfill(type);
+    }
+
+    void abandon() {
+      *ptr = nullptr;
+      ptr = nullptr;
+      try {
+        throw std::logic_error("FileWatcher deleted while waiting for changes.");
+      } catch (...) {
+        callback->propagateCurrentException();
+      }
+    }
+
+  private:
+    Callback* callback;
+    Fulfiller** ptr;
+  };
+
   WatchedDirectory* watchedDirectory;
   bool modified;
   bool deleted;
+  Fulfiller* fulfiller;
+
+  void maybeFulfill() {
+    if (fulfiller != nullptr) {
+      if (deleted) {
+        fulfiller->fulfill(FileChangeType::DELETED);
+      } else if (modified) {
+        fulfiller->fulfill(FileChangeType::MODIFIED);
+      }
+      deleted = false;
+      modified = false;
+    }
+  }
 };
 
 EpollEventManager::InotifyHandler::InotifyHandler(Epoller* epoller)
@@ -687,25 +733,31 @@ void EpollEventManager::InotifyHandler::WatchedDirectory::handle(struct inotify_
              << ((event->mask & IN_MOVED_FROM ) ? " IN_MOVED_FROM"  : "")
              << ((event->mask & IN_MOVED_TO   ) ? " IN_MOVED_TO"    : "");
 
-  if (event->mask & (IN_MOVE_SELF | IN_DELETE_SELF)) {
-    // Watch descriptor is automatically removed.
-    wd = -1;
+  // Some events implicitly remove the watch descriptor (because the watched directory no longer
+  // exists).  Such descriptors are now invalid and may be reused the next time
+  // inotify_add_watch() is called.  But, the corresponding WatchedDirectories still have
+  // FileWatcherImpls pointing at them, so we can't just delete them.  So, invalidate them so
+  // that no future FileWatcherImpls will use them.
+  //
+  // inotify has a special kind of event called IN_IGNORED which is supposed to signal that the
+  // watch descriptor was removed, either implicitly or explicitly.  However, in my testing,
+  // this event does not seem to be generated in the case of IN_MOVE_SELF, even though this
+  // case *does* implicitly remove the watch descriptor (which I know because the next call
+  // to inotify_add_watch() typically reuses it).  This appears to be a bug in Linux (observed
+  // in 2.6.35-22-generic).  Will file a bug report if I get time to write a demo program.
+  if (event->mask & (IN_DELETE_SELF | IN_MOVE_SELF)) {
+    DEBUG_INFO << "Watch descriptor implicitly removed: " << event->wd;
+    invalidate();
   }
-
-  // We must collect the complete set of WatchOperations before we call any callbacks, because
-  // any callback could come back and change what is being watched.
-  std::set<WatchOperation*> currentlyHandling;
-  this->currentlyHandling = &currentlyHandling;
 
   for (CallbackTable::SearchIterator<CallbackTable::BASENAME> iter(callbackTable, basename);
        iter.next();) {
-    WatchOperation* op = iter.cell<CallbackTable::WATCH_OP>();
+    FileWatcherImpl* op = iter.cell<CallbackTable::WATCH_OP>();
     if (event->mask & (IN_DELETE | IN_DELETE_SELF | IN_MOVED_FROM | IN_MOVE_SELF)) {
       op->flagAsDeleted();
     } else {
       op->flagAsModified();
     }
-    currentlyHandling.insert(op);
   }
 
   // If this event is indicating creation or deletion of a file in the directory, then call the
@@ -714,23 +766,10 @@ void EpollEventManager::InotifyHandler::WatchedDirectory::handle(struct inotify_
       (event->mask & (IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO))) {
     for (CallbackTable::SearchIterator<CallbackTable::BASENAME> iter(callbackTable, "");
          iter.next();) {
-      WatchOperation* op = iter.cell<CallbackTable::WATCH_OP>();
+      FileWatcherImpl* op = iter.cell<CallbackTable::WATCH_OP>();
       op->flagAsModified();
-      currentlyHandling.insert(op);
     }
   }
-
-  // Repeatedly call a callback until none are left.  Note that we can't just iterate through
-  // the set because if the callback deletes other WatchedOperations in the set, they will be
-  // removed from it, invalidating any iterators.
-  while (!currentlyHandling.empty()) {
-    WatchOperation* op = *currentlyHandling.begin();
-    currentlyHandling.erase(currentlyHandling.begin());
-    op->callCallback();
-  }
-
-  this->currentlyHandling = NULL;
-  deleteSelfIfEmpty();
 }
 
 void EpollEventManager::InotifyHandler::handle(uint32_t epollEvents) {
@@ -741,9 +780,10 @@ void EpollEventManager::InotifyHandler::handle(uint32_t epollEvents) {
   char* pos = buffer;
   char* end = buffer + n;
 
-  // Annoyingly, inotify() provides no way to read a single event at a time.  Unfortunately,
-  // each time we handle an event, any subsequent event could become invalid.  E.g. handling
-  // the first event might cause the watch descriptor for the second event to be unregistered.
+  // Annoyingly, inotify() provides no way to read a single event at a time.  If we were using
+  // traditional callbacks for each event, then the callback for an earlier event could invalidate
+  // later events.  E.g. handling the first event might cause the watch descriptor for the second
+  // event to be unregistered.
   //
   // As if that weren't bad enough, any particular event in the stream might indicate that a
   // particular watch descriptor has been automatically removed because the thing it was watching
@@ -752,14 +792,9 @@ void EpollEventManager::InotifyHandler::handle(uint32_t epollEvents) {
   // *first* event we create a new watch descriptor, that new descriptor may have the same
   // number as the one associated with the second event THAT WE HAVEN'T EVEN HANDLED YET.
   //
-  // Therefore, we have to verify carefully make multiple passes over the events, making sure
-  // that we understand exactly what is happening to each descriptor before we call any
-  // callbacks.
-  //
-  // FFFFFFFFFFFFFFFFFFFFFFUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU-
-
-  // First parse all the events.
-  std::vector<std::pair<struct inotify_event*, WatchedDirectory*> > events;
+  // Luckily, when a promise is fulfilled, no callback is executed immediately; the callback
+  // is queued on the event queue.  Therefore, we don't have to worry about our caller coming
+  // back and messing with our state while we're still going through the event list.
 
   while (pos < end) {
     if (end - pos < (signed)sizeof(struct inotify_event)) {
@@ -784,65 +819,27 @@ void EpollEventManager::InotifyHandler::handle(uint32_t epollEvents) {
                << ((event->mask & IN_MODIFY     ) ? " IN_MODIFY"      : "")
                << ((event->mask & IN_MOVE_SELF  ) ? " IN_MOVE_SELF"   : "")
                << ((event->mask & IN_MOVED_FROM ) ? " IN_MOVED_FROM"  : "")
-               << ((event->mask & IN_MOVED_TO   ) ? " IN_MOVED_TO"    : "");
+               << ((event->mask & IN_MOVED_TO   ) ? " IN_MOVED_TO"    : "")
+               << ((event->mask & IN_IGNORED    ) ? " IN_IGNORED"     : "");
 
     WatchMap::iterator iter = watchMap.find(event->wd);
     if (iter == watchMap.end()) {
-      DEBUG_ERROR << "inotify event had unknown watch descriptor?";
+      if (event->mask != IN_IGNORED) {
+        DEBUG_ERROR << "inotify event had unknown watch descriptor? " << event->wd;
+      }
     } else {
-      events.push_back(std::make_pair(event, iter->second));
-    }
-  }
-
-  // Some events implicitly remove the watch descriptor (because the watched directory no longer
-  // exists).  Such descriptors are now invalid and may be reused the next time
-  // inotify_add_watch() is called.  But, the corresponding WatchedDirectories still have
-  // WatchOperations pointing at them, so we can't just delete them.  So, invalidate them so
-  // that no future WatchOperations will use them.
-  //
-  // inotify has a special kind of event called IN_IGNORED which is supposed to signal that the
-  // watch descriptor was removed, either implicitly or explicitly.  However, in my testing,
-  // this event does not seem to be generated in the case of IN_MOVE_SELF, even though this
-  // case *does* implicitly remove the watch descriptor (which I know because the next call
-  // to inotify_add_watch() typically reuses it).  This appears to be a bug in Linux (observed
-  // in 2.6.35-22-generic).  Will file a bug report if I get time to write a demo program.
-  for (size_t i = 0; i < events.size(); i++) {
-    struct inotify_event* event = events[i].first;
-    WatchedDirectory* watchedDirectory = events[i].second;
-
-    if (event->mask & (IN_DELETE_SELF | IN_MOVE_SELF)) {
-      DEBUG_INFO << "Watch descriptor implicitly removed: " << event->wd;
-      watchedDirectory->invalidate();
-    }
-  }
-
-  // Calling a callback could delete the WatchedDirectory for a subsequent event.  So, record
-  // what objects we're handling.  The destructor for WatchedDirectory will remove the object
-  // from this set if present.
-  currentlyHandlingWatches.clear();
-  for (size_t i = 0; i < events.size(); i++) {
-    currentlyHandlingWatches.insert(events[i].second);
-  }
-
-  // Finally, let's call the callbacks.
-  for (size_t i = 0; i < events.size(); i++) {
-    struct inotify_event* event = events[i].first;
-    WatchedDirectory* watchedDirectory = events[i].second;
-
-    if (currentlyHandlingWatches.count(watchedDirectory) > 0) {
-      watchedDirectory->handle(event);
+      iter->second->handle(event);
     }
   }
 }
 
-OwnedPtr<AsyncOperation> EpollEventManager::InotifyHandler::onFileChange(
-    const std::string& filename, FileChangeCallback* callback) {
-  return newOwned<WatchOperation>(this, filename, callback);
+OwnedPtr<EventManager::FileWatcher> EpollEventManager::InotifyHandler::watchFile(
+    const std::string& filename) {
+  return newOwned<FileWatcherImpl>(this, filename);
 }
 
-OwnedPtr<AsyncOperation> EpollEventManager::onFileChange(
-    const std::string& filename, FileChangeCallback* callback) {
-  return inotifyHandler.onFileChange(filename, callback);
+OwnedPtr<EventManager::FileWatcher> EpollEventManager::watchFile(const std::string& filename) {
+  return inotifyHandler.watchFile(filename);
 }
 
 // =======================================================================================

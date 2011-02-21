@@ -104,7 +104,7 @@ public:
 };
 
 // =======================================================================================
-// TODO:  Put elsewhere (it's not even used by this file anymore, athough it's generaly useful)
+// TODO:  Put elsewhere
 
 class WeakLink {
 public:

@@ -68,7 +68,7 @@ public:
   OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
   Promise<ProcessExitCode> onProcessExit(pid_t pid);
   OwnedPtr<IoWatcher> watchFd(int fd);
-  OwnedPtr<AsyncOperation> onFileChange(const std::string& filename, FileChangeCallback* callback);
+  OwnedPtr<FileWatcher> watchFile(const std::string& filename);
 
 private:
   class PendingEvent;
@@ -76,7 +76,7 @@ private:
   class RunnableWrapper;
   class CallbackWrapper;
   class IoWatcherWrapper;
-  class FileChangeCallbackWrapper;
+  class FileWatcherWrapper;
 
   EventManager* inner;
   ExceptionHandler* exceptionHandler;

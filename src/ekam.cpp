@@ -111,7 +111,7 @@ void usage(const char* command, FILE* out) {
 // =======================================================================================
 // TODO:  Move file-watching code to another module.
 
-class Watcher : public EventManager::FileChangeCallback {
+class Watcher {
 public:
   Watcher(OwnedPtr<File> file, EventManager* eventManager, Driver* driver,
           bool isDirectory)
@@ -125,24 +125,43 @@ public:
   OwnedPtr<File> file;
 
   void resetWatch() {
-    asyncOp.clear();
+    asyncOp.release();
     diskRef = file->getOnDisk(File::READ);
-    asyncOp = eventManager->onFileChange(diskRef->path(), this);
+    watcher = eventManager->watchFile(diskRef->path());
+    waitForEvent();
+  }
+
+  void waitForEvent() {
+    asyncOp = eventManager->when(watcher->onChange())(
+      [this](EventManager::FileChangeType changeType) {
+        switch (changeType) {
+          case EventManager::FileChangeType::MODIFIED:
+            modified();
+            break;
+          case EventManager::FileChangeType::DELETED:
+            deleted();
+            break;
+        }
+        waitForEvent();
+      });
   }
 
   void clearWatch() {
-    asyncOp.clear();
+    asyncOp.release();
   }
 
   bool isDeleted() {
     return asyncOp == NULL;
   }
 
+  virtual void modified() = 0;
+  virtual void deleted() = 0;
   virtual void reallyDeleted() = 0;
 
 private:
   OwnedPtr<File::DiskRef> diskRef;
-  OwnedPtr<AsyncOperation> asyncOp;
+  OwnedPtr<EventManager::FileWatcher> watcher;
+  Promise<void> asyncOp;
 };
 
 class FileWatcher : public Watcher {

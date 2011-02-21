@@ -113,16 +113,20 @@ public:
   // Watch the file descriptor for readability and writability.
   virtual OwnedPtr<IoWatcher> watchFd(int fd) = 0;
 
-  class FileChangeCallback {
-  public:
-    virtual ~FileChangeCallback();
-
-    virtual void modified() = 0;
-    virtual void deleted() = 0;
+  enum class FileChangeType {
+    MODIFIED,
+    DELETED
   };
 
-  virtual OwnedPtr<AsyncOperation> onFileChange(const std::string& filename,
-                                                FileChangeCallback* callback) = 0;
+  class FileWatcher {
+  public:
+    virtual ~FileWatcher();
+
+    virtual Promise<FileChangeType> onChange() = 0;
+  };
+
+  // Watch a file (on disk) for changes or deletion.
+  virtual OwnedPtr<FileWatcher> watchFile(const std::string& filename) = 0;
 };
 
 class RunnableEventManager : public EventManager {

@@ -64,7 +64,7 @@ public:
   OwnedPtr<AsyncOperation> runAsynchronously(Callback* callback);
   Promise<ProcessExitCode> onProcessExit(pid_t pid);
   OwnedPtr<IoWatcher> watchFd(int fd);
-  OwnedPtr<AsyncOperation> onFileChange(const std::string& filename, FileChangeCallback* callback);
+  OwnedPtr<FileWatcher> watchFile(const std::string& filename);
 
 private:
   class AsyncCallbackHandler;
@@ -140,15 +140,14 @@ private:
     InotifyHandler(Epoller* epoller);
     ~InotifyHandler();
 
-    OwnedPtr<AsyncOperation> onFileChange(const std::string& filename,
-                                          FileChangeCallback* callback);
+    OwnedPtr<FileWatcher> watchFile(const std::string& filename);
 
     // implements IoHandler --------------------------------------------------------------
     void handle(uint32_t events);
 
   private:
     class WatchedDirectory;
-    class WatchOperation;
+    class FileWatcherImpl;
 
     ByteStream inotifyStream;
     Epoller::Watch watch;
@@ -158,7 +157,6 @@ private:
     WatchMap watchMap;
     typedef std::tr1::unordered_map<std::string, WatchedDirectory*> WatchByNameMap;
     WatchByNameMap watchByNameMap;
-    std::set<WatchedDirectory*> currentlyHandlingWatches;
   };
 
   Epoller epoller;

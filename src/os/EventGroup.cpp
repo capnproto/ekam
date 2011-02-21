@@ -94,24 +94,6 @@ private:
   Callback* wrapped;
 };
 
-class EventGroup::FileChangeCallbackWrapper : public FileChangeCallback, public AsyncOperation {
-public:
-  FileChangeCallbackWrapper(EventGroup* group, FileChangeCallback* wrapped)
-      : group(group), pendingEvent(group), wrapped(wrapped) {}
-  ~FileChangeCallbackWrapper() {}
-
-  OwnedPtr<AsyncOperation> inner;
-
-  // implements FileChangeCallback -------------------------------------------------------
-  void modified() { HANDLE_EXCEPTIONS(wrapped->modified()); }
-  void deleted() { HANDLE_EXCEPTIONS(wrapped->deleted()); }
-
-private:
-  EventGroup* group;
-  PendingEvent pendingEvent;
-  FileChangeCallback* wrapped;
-};
-
 #undef HANDLE_EXCEPTIONS
 
 // =======================================================================================
@@ -171,11 +153,29 @@ OwnedPtr<EventManager::IoWatcher> EventGroup::watchFd(int fd) {
   return newOwned<IoWatcherWrapper>(this, inner->watchFd(fd));
 }
 
-OwnedPtr<AsyncOperation> EventGroup::onFileChange(const std::string& filename,
-                                                  FileChangeCallback* callback) {
-  auto wrappedCallback = newOwned<FileChangeCallbackWrapper>(this, callback);
-  wrappedCallback->inner = inner->onFileChange(filename, wrappedCallback.get());
-  return wrappedCallback.release();
+class EventGroup::FileWatcherWrapper: public EventManager::FileWatcher {
+public:
+  FileWatcherWrapper(EventGroup* group, OwnedPtr<FileWatcher> inner)
+      : group(group), inner(inner.release()) {}
+  ~FileWatcherWrapper() {}
+
+  // implements IoWatcher ----------------------------------------------------------------
+  Promise<FileChangeType> onChange() {
+    Promise<FileChangeType> innerPromise = inner->onChange();
+    return group->when(innerPromise, group->newPendingEvent())(
+      [this](FileChangeType changeType, OwnedPtr<PendingEvent>) -> FileChangeType {
+        // Let PendingEvent die.
+        return changeType;
+      });
+  }
+
+private:
+  EventGroup* group;
+  OwnedPtr<FileWatcher> inner;
+};
+
+OwnedPtr<EventManager::FileWatcher> EventGroup::watchFile(const std::string& filename) {
+  return newOwned<FileWatcherWrapper>(this, inner->watchFile(filename));
 }
 
 OwnedPtr<EventGroup::PendingEvent> EventGroup::newPendingEvent() {

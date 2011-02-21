@@ -40,7 +40,7 @@ AsyncOperation::~AsyncOperation() {}
 EventManager::~EventManager() {}
 EventManager::Callback::~Callback() {}
 EventManager::IoWatcher::~IoWatcher() {}
-EventManager::FileChangeCallback::~FileChangeCallback() {}
+EventManager::FileWatcher::~FileWatcher() {}
 RunnableEventManager::~RunnableEventManager() {}
 
 void ProcessExitCode::throwError() {
