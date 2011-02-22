@@ -194,9 +194,6 @@ public:
     clearWatch();
     driver->removeSourceFile(file.get());
   }
-
-private:
-  OwnedPtr<AsyncOperation> asyncOp;
 };
 
 class DirectoryWatcher : public Watcher {

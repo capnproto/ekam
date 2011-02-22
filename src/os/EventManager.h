@@ -73,16 +73,6 @@ private:
   void throwError();
 };
 
-// Any function which begins an operation that completes asynchronously should return an
-// AsyncOperation.  Deleting the AsyncOperation immediately cancels it, freeing any resources
-// associated with the operation.  Note that if there is a callback associated with an operation,
-// that callback can be destroyed as soon as the AsyncOperation has been destroyed.  Note also
-// that it is always safe to destroy an AsyncOperation *during* a callback.
-class AsyncOperation {
-public:
-  virtual ~AsyncOperation();
-};
-
 class EventManager : public Executor {
 public:
   virtual ~EventManager();

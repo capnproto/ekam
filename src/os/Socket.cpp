@@ -100,8 +100,10 @@ bool parseIpAddr(std::string text, struct sockaddr_in* addr) {
 
 }  // namespace
 
-ServerSocket::ServerSocket(const std::string& bindAddress, int backlog)
-    : handle(bindAddress, WRAP_SYSCALL(socket, AF_INET, SOCK_STREAM, 0)) {
+ServerSocket::ServerSocket(EventManager* eventManager, const std::string& bindAddress, int backlog)
+    : eventManager(eventManager),
+      handle(bindAddress, WRAP_SYSCALL(socket, AF_INET, SOCK_STREAM, 0)),
+      watcher(eventManager->watchFd(handle.get())) {
   WRAP_SYSCALL(fcntl, handle, F_SETFL, O_NONBLOCK);
 
   int optval = 1;
@@ -118,59 +120,30 @@ ServerSocket::ServerSocket(const std::string& bindAddress, int backlog)
 
 ServerSocket::~ServerSocket() {}
 
-ServerSocket::AcceptCallback::~AcceptCallback() {}
-
-class ServerSocket::AcceptOp : public AsyncOperation {
-public:
-  AcceptOp(EventManager* eventManager, OsHandle* handle, AcceptCallback* callback)
-      : eventManager(eventManager), handle(handle), callback(callback),
-        watcher(eventManager->watchFd(handle->get())) {
-    waitForReady();
-  }
-  ~AcceptOp() {}
-
-private:
-  EventManager* eventManager;
-  OsHandle* handle;
-  AcceptCallback* callback;
-  OwnedPtr<EventManager::IoWatcher> watcher;
-  Promise<void> waitReadyPromise;
-
-  void waitForReady() {
-    waitReadyPromise = eventManager->when(watcher->onReadable())(
-      [this](Void) {
-        ready();
-      });
-  }
-
-  void ready() {
-    int fd = accept(handle->get(), NULL, NULL);
-    if (fd < 0) {
-      switch (errno) {
-        case EINTR:
-        case ECONNABORTED:
-        case EAGAIN:
+Promise<OwnedPtr<ByteStream>> ServerSocket::accept() {
+  return eventManager->when(watcher->onReadable())(
+    [this](Void) -> Promise<OwnedPtr<ByteStream>> {
+      int fd = ::accept(handle.get(), NULL, NULL);
+      if (fd < 0) {
+        switch (errno) {
+          case EINTR:
+          case ECONNABORTED:
+          case EAGAIN:
 #if EAGAIN != EWOULDBLOCK
-        case EWOULDBLOCK:
+          case EWOULDBLOCK:
 #endif
-          // This are "normal".
-          DEBUG_INFO << "accept: " << strerror(errno);
-          break;
-        default:
-          DEBUG_ERROR << "accept: " << strerror(errno);
-          break;
+            // This are "normal".  Try again.
+            DEBUG_INFO << "accept: " << strerror(errno);
+            return accept();
+          default:
+            throw OsError("accept", errno);
+            break;
+        }
+      } else {
+        // TODO:  Use peer address as name.
+        return newFulfilledPromise(newOwned<ByteStream>(fd, "accepted connection"));
       }
-    } else {
-      // TODO:  Use peer address as name.
-      callback->accepted(newOwned<ByteStream>(fd, "accepted connection"));
-    }
-    waitForReady();
-  }
-};
-
-OwnedPtr<AsyncOperation> ServerSocket::onAccept(EventManager* eventManager,
-                                                AcceptCallback* callback) {
-  return newOwned<AcceptOp>(eventManager, &handle, callback);
+    });
 }
 
 

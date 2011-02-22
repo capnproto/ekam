@@ -51,13 +51,7 @@ public:
   ProtoDashboard(EventManager* eventManager, OwnedPtr<ByteStream> stream);
   ~ProtoDashboard();
 
-  class DisconnectedCallback {
-  public:
-    virtual ~DisconnectedCallback() {}
-
-    virtual void disconnected() = 0;
-  };
-  OwnedPtr<AsyncOperation> onDisconnect(DisconnectedCallback* callback);
+  Promise<void> onDisconnect();
 
   // implements Dashboard ----------------------------------------------------------------
   OwnedPtr<Task> beginTask(const std::string& verb, const std::string& noun, Silence silence);
@@ -71,7 +65,7 @@ private:
     ~WriteBuffer();
 
     void write(const google::protobuf::MessageLite& data);
-    OwnedPtr<AsyncOperation> onDisconnect(DisconnectedCallback* callback);
+    Promise<void> onDisconnect();
 
   private:
     EventManager* eventManager;
@@ -81,18 +75,18 @@ private:
     std::string::size_type offset;
     Promise<void> waitWritablePromise;
 
-    class DisconnectOp : public AsyncOperation {
+    class DisconnectFulfiller : public PromiseFulfiller<void> {
     public:
-      DisconnectOp(WriteBuffer* writeBuffer, DisconnectedCallback* callback);
-      ~DisconnectOp();
+      DisconnectFulfiller(Callback* callback, WriteBuffer* writeBuffer);
+      ~DisconnectFulfiller();
 
-      void disconnected() { callback->disconnected(); }
+      void disconnected() { callback->fulfill(); }
 
     private:
+      Callback* callback;
       WriteBuffer* writeBuffer;
-      DisconnectedCallback* callback;
     };
-    DisconnectOp* disconnectOp;
+    DisconnectFulfiller* disconnectFulfiller;
 
     void ready();
   };

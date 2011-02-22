@@ -36,7 +36,6 @@
 
 namespace ekam {
 
-AsyncOperation::~AsyncOperation() {}
 EventManager::~EventManager() {}
 EventManager::IoWatcher::~IoWatcher() {}
 EventManager::FileWatcher::~FileWatcher() {}

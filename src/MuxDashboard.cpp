@@ -146,6 +146,15 @@ MuxDashboard::Connector::Connector(MuxDashboard* mux, Dashboard* dashboard)
   }
 }
 
-MuxDashboard::Connector::~Connector() {}
+MuxDashboard::Connector::~Connector() {
+  if (mux->wrappedDashboards.erase(dashboard) == 0) {
+    DEBUG_ERROR << "Deleting MuxDashboard connection that was never made?";
+  }
+
+  for (std::tr1::unordered_set<TaskImpl*>::iterator iter = mux->tasks.begin();
+       iter != mux->tasks.end(); ++iter) {
+    (*iter)->detach(dashboard);
+  }
+}
 
 }  // namespace ekam

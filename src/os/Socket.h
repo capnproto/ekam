@@ -40,21 +40,17 @@ namespace ekam {
 
 class ServerSocket {
 public:
-  ServerSocket(const std::string& bindAddress, int backlog = 0);
+  ServerSocket(EventManager* eventManager, const std::string& bindAddress, int backlog = 0);
   ~ServerSocket();
 
-  class AcceptCallback {
-  public:
-    virtual ~AcceptCallback();
-
-    virtual void accepted(OwnedPtr<ByteStream> stream) = 0;
-  };
-  OwnedPtr<AsyncOperation> onAccept(EventManager* eventManager, AcceptCallback* callback);
+  Promise<OwnedPtr<ByteStream>> accept();
 
 private:
   class AcceptOp;
 
+  EventManager* eventManager;
   OsHandle handle;
+  OwnedPtr<EventManager::IoWatcher> watcher;
 };
 
 }  // namespace ekam

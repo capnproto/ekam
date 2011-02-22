@@ -117,7 +117,7 @@ ProtoDashboard::WriteBuffer::WriteBuffer(EventManager* eventManager,
                                          OwnedPtr<ByteStream> stream)
     : eventManager(eventManager), stream(stream.release()),
       ioWatcher(eventManager->watchFd(this->stream->getHandle()->get())),
-      offset(0), disconnectOp(NULL) {}
+      offset(0), disconnectFulfiller(NULL) {}
 ProtoDashboard::WriteBuffer::~WriteBuffer() {}
 
 void ProtoDashboard::WriteBuffer::write(const google::protobuf::MessageLite& message) {
@@ -163,58 +163,67 @@ void ProtoDashboard::WriteBuffer::ready() {
         [this](Void) {
           ready();
         });
-    } else if (disconnectOp != NULL) {
+    } else {
       stream.clear();
 
-      disconnectOp->disconnected();
+      if (disconnectFulfiller != NULL) {
+        disconnectFulfiller->disconnected();
+      }
     }
   }
 }
 
 // =======================================================================================
 
-ProtoDashboard::WriteBuffer::DisconnectOp::DisconnectOp(WriteBuffer* writeBuffer,
-                                                        DisconnectedCallback* callback)
-    : writeBuffer(writeBuffer), callback(callback) {
-  if (writeBuffer->disconnectOp != NULL) {
+ProtoDashboard::WriteBuffer::DisconnectFulfiller::DisconnectFulfiller(Callback* callback,
+                                                                      WriteBuffer* writeBuffer)
+    : callback(callback), writeBuffer(writeBuffer) {
+  if (writeBuffer->disconnectFulfiller != NULL) {
     throw std::logic_error("Can only register one disconnect callback at a time.");
   }
-  writeBuffer->disconnectOp = this;
+  writeBuffer->disconnectFulfiller = this;
 }
 
-ProtoDashboard::WriteBuffer::DisconnectOp::~DisconnectOp() {
-  assert(writeBuffer->disconnectOp == this);
-  writeBuffer->disconnectOp = NULL;
+ProtoDashboard::WriteBuffer::DisconnectFulfiller::~DisconnectFulfiller() {
+  assert(writeBuffer->disconnectFulfiller == this);
+  writeBuffer->disconnectFulfiller = NULL;
 }
 
-OwnedPtr<AsyncOperation> ProtoDashboard::onDisconnect(DisconnectedCallback* callback) {
-  return writeBuffer.onDisconnect(callback);
+Promise<void> ProtoDashboard::onDisconnect() {
+  return writeBuffer.onDisconnect();
 }
 
-OwnedPtr<AsyncOperation> ProtoDashboard::WriteBuffer::onDisconnect(DisconnectedCallback* callback) {
-  return newOwned<DisconnectOp>(this, callback);
+Promise<void> ProtoDashboard::WriteBuffer::onDisconnect() {
+  return newPromise<DisconnectFulfiller>(this);
 }
 
 // =======================================================================================
 
-class NetworkAcceptingDashboard : public Dashboard, public ServerSocket::AcceptCallback {
+class NetworkAcceptingDashboard : public Dashboard {
 public:
   NetworkAcceptingDashboard(EventManager* eventManager, const std::string& address,
                             OwnedPtr<Dashboard> baseDashboard)
       : eventManager(eventManager),
         base(baseDashboard.release()),
         baseConnector(newOwned<MuxDashboard::Connector>(&mux, base.get())),
-        socket(newOwned<ServerSocket>(address)),
-        acceptOp(socket->onAccept(eventManager, this)) {}
+        socket(newOwned<ServerSocket>(eventManager, address)),
+        acceptOp(doAccept()) {}
   ~NetworkAcceptingDashboard() {}
+
+  Promise<void> doAccept() {
+    return eventManager->when(socket->accept())(
+      [this](OwnedPtr<ByteStream> stream){
+        accepted(stream.release());
+        return doAccept();
+      });
+  }
+
+  void accepted(OwnedPtr<ByteStream> stream);
 
   // implements Dashboard ----------------------------------------------------------------
   OwnedPtr<Task> beginTask(const std::string& verb, const std::string& noun, Silence silence) {
     return mux.beginTask(verb, noun, silence);
   }
-
-  // implements AcceptCallback -----------------------------------------------------------
-  void accepted(OwnedPtr<ByteStream> stream);
 
 private:
   EventManager* eventManager;
@@ -222,26 +231,26 @@ private:
   MuxDashboard mux;
   OwnedPtr<MuxDashboard::Connector> baseConnector;
   OwnedPtr<ServerSocket> socket;
-  OwnedPtr<AsyncOperation> acceptOp;
+  Promise<void> acceptOp;
 
-  class ConnectedProtoDashboard : public ProtoDashboard::DisconnectedCallback {
+  class ConnectedProtoDashboard {
   public:
     ConnectedProtoDashboard(NetworkAcceptingDashboard* owner, EventManager* eventManager,
                             OwnedPtr<ByteStream> stream)
-        : owner(owner), protoDashboard(eventManager, stream.release()),
-          connector(newOwned<MuxDashboard::Connector>(&owner->mux, &protoDashboard)) {}
+        : protoDashboard(eventManager, stream.release()),
+          connector(newOwned<MuxDashboard::Connector>(&owner->mux, &protoDashboard)) {
+      disconnectPromise = eventManager->when(protoDashboard.onDisconnect())(
+        [this, owner](Void) {
+          connector.clear();
+          owner->connectedDashboards.erase(this);
+        });
+    }
     ~ConnectedProtoDashboard() {}
 
-    // implements DisconnectedCallback -----------------------------------------------------
-    void disconnected() {
-      connector.clear();
-      owner->connectedDashboards.erase(this);
-    }
-
   private:
-    NetworkAcceptingDashboard* owner;
     ProtoDashboard protoDashboard;
     OwnedPtr<MuxDashboard::Connector> connector;
+    Promise<void> disconnectPromise;
   };
   OwnedPtrMap<ConnectedProtoDashboard*, ConnectedProtoDashboard> connectedDashboards;
 };
