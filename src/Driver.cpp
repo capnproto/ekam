@@ -263,11 +263,11 @@ void Driver::ActionDriver::addActionType(OwnedPtr<ActionFactory> factory) {
 }
 
 void Driver::ActionDriver::noMoreEvents() {
-  ensureRunning();
-
-  if (state == RUNNING) {
-    state = DONE;
-    queueDoneCallback();
+  if (isRunning) {
+    if (state == RUNNING) {
+      state = DONE;
+      queueDoneCallback();
+    }
   }
 }
 

@@ -57,6 +57,9 @@ namespace {
 
 std::string epollEventsToString(uint32_t events) {
   std::string result;
+  if (events == 0) {
+    result.append(" (none)");
+  }
   if (events & EPOLLIN) {
     result.append(" EPOLLIN");
   }
@@ -146,6 +149,7 @@ EpollEventManager::Epoller::Watch::~Watch() {
 }
 
 void EpollEventManager::Epoller::Watch::addEvents(uint32_t eventsToAdd) {
+  DEBUG_INFO << "Adding events for " << fd << ":" << epollEventsToString(eventsToAdd);
   uint32_t newEvents = events | eventsToAdd;
   if (newEvents == events) {
     return;
@@ -160,6 +164,7 @@ void EpollEventManager::Epoller::Watch::addEvents(uint32_t eventsToAdd) {
 }
 
 void EpollEventManager::Epoller::Watch::removeEvents(uint32_t eventsToRemove) {
+  DEBUG_INFO << "Removing events for " << fd << ":" << epollEventsToString(eventsToRemove);
   uint32_t newEvents = events & ~eventsToRemove;
   if (newEvents == events) {
     return;
@@ -178,6 +183,7 @@ void EpollEventManager::Epoller::Watch::updateRegistration() {
     DEBUG_ERROR << "Watch does not need updating.";
     return;
   }
+  DEBUG_INFO << "Updating event registrations for " << fd << ":" << epollEventsToString(events);
 
   int op = EPOLL_CTL_MOD;
   if (registeredEvents == 0) {
@@ -217,7 +223,7 @@ bool EpollEventManager::Epoller::handleEvent() {
   }
 
   Watch* watch = reinterpret_cast<Watch*>(event.data.ptr);
-  DEBUG_INFO << "epoll event: " << watch->name << ": " << epollEventsToString(event.events);
+  DEBUG_INFO << "epoll event: " << watch->name << ":" << epollEventsToString(event.events);
 
   watch->handler->handle(event.events);
 

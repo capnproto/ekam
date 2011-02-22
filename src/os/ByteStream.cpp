@@ -41,8 +41,6 @@
 
 namespace ekam {
 
-ByteStream::ReadAllCallback::~ReadAllCallback() {}
-
 ByteStream::ByteStream(const std::string& path, int flags)
     : handle(path, WRAP_SYSCALL(open, path.c_str(), flags, 0666)) {}
 
@@ -56,6 +54,16 @@ ByteStream::~ByteStream() {}
 
 size_t ByteStream::read(void* buffer, size_t size) {
   return WRAP_SYSCALL(read, handle, buffer, size);
+}
+
+Promise<size_t> ByteStream::readAsync(EventManager* eventManager, void* buffer, size_t size) {
+  if (watcher == nullptr) {
+    watcher = eventManager->watchFd(handle.get());
+  }
+  return eventManager->when(watcher->onReadable())(
+    [this, buffer, size](Void) -> size_t {
+      return read(buffer, size);
+    });
 }
 
 size_t ByteStream::write(const void* buffer, size_t size) {
@@ -74,57 +82,6 @@ void ByteStream::writeAll(const void* buffer, size_t size) {
 
 void ByteStream::stat(struct stat* stats) {
   WRAP_SYSCALL(fstat, handle, stats);
-}
-
-class ByteStream::ReadEventCallback : public AsyncOperation {
-public:
-  ReadEventCallback(EventManager* eventManager, int fd, ReadAllCallback* callback)
-      : eventManager(eventManager),
-        watcher(eventManager->watchFd(fd)),
-        fd(fd),
-        callback(callback) {
-    waitForReady();
-  }
-  ~ReadEventCallback() {}
-
-private:
-  EventManager* eventManager;
-  OwnedPtr<EventManager::IoWatcher> watcher;
-  int fd;
-  ReadAllCallback* callback;
-  Promise<void> readPromise;
-
-  void waitForReady() {
-    readPromise = eventManager->when(watcher->onReadable())(
-      [this](Void) {
-        ready();
-      });
-  }
-
-  void ready() {
-    char buffer[4096];
-    ssize_t size;
-    do {
-      size = ::read(fd, buffer, sizeof(buffer));
-    } while (size == -1 && errno == EINTR);
-
-    if (size > 0) {
-      callback->consume(buffer, size);
-      waitForReady();
-    } else if (size == 0) {
-      watcher.clear();
-      callback->eof();
-    } else {
-      int error = errno;
-      watcher.clear();
-      callback->error(error);
-    }
-  }
-};
-
-OwnedPtr<AsyncOperation> ByteStream::readAll(EventManager* eventManager,
-                                             ReadAllCallback* callback) {
-  return newOwned<ReadEventCallback>(eventManager, handle.get(), callback);
 }
 
 // =======================================================================================

@@ -105,13 +105,13 @@ private:
   OwnedPtr<File> file;  // nullable
 };
 
-class PluginDerivedAction::CommandReader : public LineReader::Callback {
+class PluginDerivedAction::CommandReader {
 public:
-  CommandReader(BuildContext* context, OwnedPtr<ByteStream> responseStream,
-                File* executable, File* input)
+  CommandReader(BuildContext* context, ByteStream* requestStream,
+                OwnedPtr<ByteStream> responseStream, File* executable, File* input)
       : context(context), executable(executable->clone()),
         responseStream(responseStream.release()),
-        lineReader(this), silent(false) {
+        lineReader(requestStream), silent(false) {
     if (input != NULL) {
       this->input = input->clone();
       knownFiles.add(input->canonicalName(), input->clone());
@@ -122,11 +122,32 @@ public:
   }
   ~CommandReader() {}
 
-  ByteStream::ReadAllCallback* asReadAllCallback() {
-    return &lineReader;
+  Promise<void> readAll(EventManager* eventManager) {
+    return eventManager->when(lineReader.readLine(eventManager))(
+      [=](OwnedPtr<std::string> line) -> Promise<void> {
+        if (line == nullptr) {
+          eof();
+          return newFulfilledPromise();
+        }
+
+        consume(*line);
+        return readAll(eventManager);
+      }, [=](MaybeException<OwnedPtr<std::string>> error) {
+        try {
+          error.get();
+        } catch (const std::exception& e) {
+          context->log(e.what());
+          context->failed();
+          throw;
+        } catch (...) {
+          context->log("unknown exception");
+          context->failed();
+          throw;
+        }
+      });
   }
 
-  // implements LineReader::Callback -----------------------------------------------------
+private:
   void consume(const std::string& line) {
     if (findInCache(line)) return;
 
@@ -256,11 +277,6 @@ public:
         executable.release(), std::move(verb), silent, std::move(triggers)));
   }
 
-  void error(int number) {
-    context->log("read(command pipe): " + std::string(strerror(number)));
-    context->failed();
-  }
-
 private:
   BuildContext* context;
   OwnedPtr<File> executable;
@@ -314,11 +330,12 @@ public:
         }
       });
 
-    commandReader = newOwned<CommandReader>(context, responseStream.release(), executable, input);
-    commandOp = commandStream->readAll(eventManager, commandReader->asReadAllCallback());
+    commandReader = newOwned<CommandReader>(context, commandStream.get(), responseStream.release(),
+                                            executable, input);
+    commandOp = commandReader->readAll(eventManager);
 
     logger = newOwned<Logger>(context);
-    logOp = logStream->readAll(eventManager, logger.get());
+    logOp = logger->readAll(eventManager, logStream.get());
   }
   ~Process() {}
 
@@ -328,11 +345,11 @@ private:
 
   OwnedPtr<ByteStream> commandStream;
   OwnedPtr<CommandReader> commandReader;
-  OwnedPtr<AsyncOperation> commandOp;
+  Promise<void> commandOp;
 
   OwnedPtr<ByteStream> logStream;
   OwnedPtr<Logger> logger;
-  OwnedPtr<AsyncOperation> logOp;
+  Promise<void> logOp;
 };
 
 OwnedPtr<AsyncOperation> PluginDerivedAction::start(EventManager* eventManager,

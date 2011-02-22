@@ -117,6 +117,7 @@ TEST(PromiseTest, Basic) {
 
   Promise<int> promise2 = mockExecutor.when(promise)(
     [&triggered](int i) -> int {
+      EXPECT_EQ(5, i);
       triggered = true;
       return 123;
     });
@@ -133,6 +134,27 @@ TEST(PromiseTest, Basic) {
 
   // Fulfiller deleted because promise has been consumed.
   EXPECT_TRUE(fulfiller == nullptr);
+}
+
+TEST(PromiseTest, PreFulfilled) {
+  MockExecutor mockExecutor;
+
+  auto promise = newFulfilledPromise(5);
+
+  bool triggered = false;
+
+  Promise<int> promise2 = mockExecutor.when(promise)(
+    [&triggered](int i) -> int {
+      EXPECT_EQ(5, i);
+      triggered = true;
+      return 123;
+    });
+
+  EXPECT_FALSE(triggered);
+
+  mockExecutor.runNext();
+
+  EXPECT_TRUE(triggered);
 }
 
 TEST(PromiseTest, Dependent) {
@@ -163,7 +185,115 @@ TEST(PromiseTest, Dependent) {
   mockExecutor.runNext();
   EXPECT_FALSE(mockExecutor.empty());
   mockExecutor.runNext();
-  ASSERT_EQ(result, 46);
+  EXPECT_EQ(result, 46);
+}
+
+TEST(PromiseTest, Chained) {
+  MockExecutor mockExecutor;
+
+  PromiseFulfiller<int>::Callback* fulfiller1;
+  auto promise1 = newPromise<MockPromiseFulfiller<int>>(&fulfiller1);
+  PromiseFulfiller<int>::Callback* fulfiller2;
+  auto promise2 = newPromise<MockPromiseFulfiller<int>>(&fulfiller2);
+
+  int result = 0;
+
+  Promise<void> promise3 = mockExecutor.when(promise2)(
+    [&result](int a) {
+      result = a;
+    });
+
+  EXPECT_TRUE(mockExecutor.empty());
+  fulfiller2->fulfill(promise1.release());
+  EXPECT_TRUE(mockExecutor.empty());
+  EXPECT_EQ(0, result);
+  fulfiller1->fulfill(123);
+  EXPECT_FALSE(mockExecutor.empty());
+  mockExecutor.runNext();
+  EXPECT_EQ(result, 123);
+}
+
+TEST(PromiseTest, ChainedVoid) {
+  MockExecutor mockExecutor;
+
+  PromiseFulfiller<void>::Callback* fulfiller1;
+  auto promise1 = newPromise<MockPromiseFulfiller<void>>(&fulfiller1);
+  PromiseFulfiller<void>::Callback* fulfiller2;
+  auto promise2 = newPromise<MockPromiseFulfiller<void>>(&fulfiller2);
+
+  bool triggered = false;
+
+  Promise<void> promise3 = mockExecutor.when(promise2)(
+    [&triggered](Void) {
+      triggered = true;
+    });
+
+  EXPECT_TRUE(mockExecutor.empty());
+  fulfiller2->fulfill(promise1.release());
+  EXPECT_TRUE(mockExecutor.empty());
+  EXPECT_FALSE(triggered);
+  fulfiller1->fulfill();
+  EXPECT_FALSE(mockExecutor.empty());
+  mockExecutor.runNext();
+  EXPECT_TRUE(triggered);
+}
+
+TEST(PromiseTest, ChainedVoidWhen) {
+  MockExecutor mockExecutor;
+
+  PromiseFulfiller<void>::Callback* fulfiller1;
+  auto promise1 = newPromise<MockPromiseFulfiller<void>>(&fulfiller1);
+  PromiseFulfiller<void>::Callback* fulfiller2 = nullptr;
+
+  Promise<void> promise3 = mockExecutor.when(promise1)(
+    [&fulfiller2](Void) -> Promise<void> {
+      DEBUG_ERROR << "promise3";
+      return newPromise<MockPromiseFulfiller<void>>(&fulfiller2);
+    });
+
+  bool triggered = false;
+
+  Promise<void> promise4 = mockExecutor.when(promise3)(
+    [&triggered](Void) {
+      DEBUG_ERROR << "promise4";
+      triggered = true;
+    });
+
+  EXPECT_TRUE(mockExecutor.empty());
+  fulfiller1->fulfill();
+  EXPECT_FALSE(mockExecutor.empty());
+  EXPECT_TRUE(fulfiller2 == nullptr);
+  mockExecutor.runNext();
+  EXPECT_FALSE(fulfiller2 == nullptr);
+  EXPECT_TRUE(mockExecutor.empty());
+  EXPECT_FALSE(triggered);
+
+  ASSERT_TRUE(fulfiller2 != nullptr);
+  fulfiller2->fulfill();
+  EXPECT_FALSE(mockExecutor.empty());
+  mockExecutor.runNext();
+  EXPECT_TRUE(triggered);
+}
+
+TEST(PromiseTest, ChainedPreFulfilled) {
+  MockExecutor mockExecutor;
+
+  auto promise1 = newFulfilledPromise(123);
+  PromiseFulfiller<int>::Callback* fulfiller2;
+  auto promise2 = newPromise<MockPromiseFulfiller<int>>(&fulfiller2);
+
+  int result = 0;
+
+  Promise<void> promise3 = mockExecutor.when(promise2)(
+    [&result](int a) {
+      result = a;
+    });
+
+  EXPECT_TRUE(mockExecutor.empty());
+  fulfiller2->fulfill(promise1.release());
+  EXPECT_FALSE(mockExecutor.empty());
+  mockExecutor.runNext();
+  ASSERT_EQ(result, 123);
 }
 
 TEST(PromiseTest, MoveSemantics) {

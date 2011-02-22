@@ -38,42 +38,31 @@
 
 namespace ekam {
 
-class Logger : public ByteStream::ReadAllCallback {
+class Logger {
 public:
   Logger(BuildContext* context);
   ~Logger();
 
-  // implements ReadAllCallback ----------------------------------------------------------
-  void consume(const void* buffer, size_t size);
-  void eof();
-  void error(int number);
+  Promise<void> readAll(EventManager* eventManager, ByteStream* stream);
 
 private:
+  class ReadAllFulfiller;
+
   BuildContext* context;
+  char buffer[4096];
 };
 
-class LineReader : public ByteStream::ReadAllCallback {
+class LineReader {
 public:
-  class Callback {
-  public:
-    virtual ~Callback();
-
-    virtual void consume(const std::string& line) = 0;
-    virtual void eof() = 0;
-    virtual void error(int number) = 0;
-  };
-
-  LineReader(Callback* callback);
+  LineReader(ByteStream* stream);
   ~LineReader();
 
-  // implements ReadAllCallback ----------------------------------------------------------
-  void consume(const void* buffer, size_t size);
-  void eof();
-  void error(int number);
+  Promise<OwnedPtr<std::string>> readLine(EventManager* eventManager);
 
 private:
-  Callback* callback;
+  ByteStream* stream;
   std::string leftover;
+  char buffer[4096];
 };
 
 }  // namespace ekam

@@ -37,54 +37,59 @@ Logger::Logger(BuildContext* context)
     : context(context) {}
 Logger::~Logger() {}
 
-void Logger::consume(const void* buffer, size_t size) {
-  context->log(std::string(reinterpret_cast<const char*>(buffer), size));
-}
-
-void Logger::eof() {}
-
-void Logger::error(int number) {
-  context->log("read(log pipe): " + std::string(strerror(number)));
-  context->failed();
+Promise<void> Logger::readAll(EventManager* eventManager, ByteStream* stream) {
+  return eventManager->when(stream->readAsync(eventManager, buffer, sizeof(buffer)))(
+    [=](size_t size) -> Promise<void> {
+      if (size == 0) {
+        return newFulfilledPromise();
+      }
+      context->log(std::string(buffer, size));
+      return readAll(eventManager, stream);
+    }, [=](MaybeException<size_t> error) {
+      try {
+        error.get();
+      } catch (const std::exception& e) {
+        context->log(e.what());
+        context->failed();
+        throw;
+      } catch (...) {
+        context->log("unknown exception");
+        context->failed();
+        throw;
+      }
+    });
 }
 
 // =======================================================================================
 
-LineReader::Callback::~Callback() {}
-
-LineReader::LineReader(Callback* callback) : callback(callback) {}
+LineReader::LineReader(ByteStream* stream) : stream(stream) {}
 LineReader::~LineReader() {}
 
-// implements ReadAllCallback ------------------------------------------------------------
-
-void LineReader::consume(const void* buffer, size_t size) {
-  const char* data = reinterpret_cast<const char*>(buffer);
-  std::string line = leftover;
-
-  while (true) {
-    const char* eol = reinterpret_cast<const char*>(memchr(data, '\n', size));
-    if (eol == NULL) {
-      leftover.assign(data, size);
-      break;
-    }
-    line.append(data, eol);
-    callback->consume(line);
-    line.clear();
-    size -= eol + 1 - data;
-    data = eol + 1;
+Promise<OwnedPtr<std::string>> LineReader::readLine(EventManager* eventManager) {
+  std::string::size_type endpos = leftover.find_first_of('\n');
+  if (endpos != std::string::npos) {
+    auto result = newOwned<std::string>(leftover, 0, endpos);
+    leftover.erase(0, endpos + 1);
+    return newFulfilledPromise(result.release());
   }
-}
 
-void LineReader::eof() {
-  if (!leftover.empty()) {
-    callback->consume(leftover);
-    leftover.clear();
-  }
-  callback->eof();
-}
+  return eventManager->when(stream->readAsync(eventManager, buffer, sizeof(buffer)))(
+    [=](size_t size) -> Promise<OwnedPtr<std::string>> {
+      if (size == 0) {
+        if (leftover.empty()) {
+          // No more data.
+          return newFulfilledPromise(OwnedPtr<std::string>(nullptr));
+        } else {
+          // Still have a line of text that had no trailing newline.
+          auto line = newOwned<std::string>(std::move(leftover));
+          leftover.clear();
+          return newFulfilledPromise(line.release());
+        }
+      }
 
-void LineReader::error(int number) {
-  callback->error(number);
+      leftover.append(buffer, size);
+      return readLine(eventManager);
+    });
 }
 
 }  // namespace ekam

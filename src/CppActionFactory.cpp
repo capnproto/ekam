@@ -188,7 +188,7 @@ public:
       });
 
     logger = newOwned<Logger>(context);
-    logOp = logStream->readAll(eventManager, logger.get());
+    logOp = logger->readAll(eventManager, logStream.get());
   }
   ~LinkProcess() {}
 
@@ -202,7 +202,7 @@ private:
 
   OwnedPtr<ByteStream> logStream;
   OwnedPtr<Logger> logger;
-  OwnedPtr<AsyncOperation> logOp;
+  Promise<void> logOp;
 };
 
 OwnedPtr<AsyncOperation> LinkAction::start(EventManager* eventManager, BuildContext* context) {

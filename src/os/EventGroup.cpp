@@ -164,6 +164,7 @@ void EventGroup::callNoMoreEventsLater() {
     [this]() {
       pendingNoMoreEvents.release();
       if (eventCount == 0) {
+        DEBUG_INFO << "No more events on EventGroup.";
         exceptionHandler->noMoreEvents();
       }
     });

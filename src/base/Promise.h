@@ -40,6 +40,7 @@
 #include <utility>
 
 #include "OwnedPtr.h"
+#include "Debug.h"
 
 namespace ekam {
 
@@ -353,6 +354,8 @@ public:
 
 namespace promiseInternal {
 
+class PromiseConstructors;
+
 template <typename T, typename Func, typename ExceptionHandler, typename ParamPack>
 class DependentPromiseFulfiller;
 
@@ -364,8 +367,10 @@ public:
 template <typename T>
 class PromiseState {
 public:
-  PromiseState(): listener(nullptr), fulfilled(false), failed(false) {}
+  PromiseState(): owner(nullptr), listener(nullptr), fulfilled(false), failed(false) {}
   virtual ~PromiseState() {}
+
+  Promise<T>* owner;
 
 private:
   PromiseListener* listener;
@@ -409,6 +414,8 @@ private:
     postFulfill(false);
   }
 
+  void fulfill(Promise<T> chainedPromise);
+
   void propagateCurrentException() {
     preFulfill();
     this->value = std::current_exception();
@@ -427,13 +434,16 @@ private:
   friend class PromiseFulfiller<U>::Callback;
   template <typename U, typename Func, typename ExceptionHandler, typename ParamPack>
   friend class DependentPromiseFulfiller;
+  friend struct PromiseConstructors;
 };
 
 template <>
 class PromiseState<void> {
 public:
-  PromiseState(): listener(nullptr), fulfilled(false), failed(false) {}
+  PromiseState(): owner(nullptr), listener(nullptr), fulfilled(false), failed(false) {}
   virtual ~PromiseState() {}
+
+  Promise<void>* owner;
 
 private:
   PromiseListener* listener;
@@ -470,6 +480,8 @@ private:
     postFulfill(false);
   }
 
+  void fulfill(Promise<void> chainedPromise);
+
   void propagateCurrentException() {
     preFulfill();
     this->value = std::current_exception();
@@ -487,11 +499,12 @@ private:
   friend class PromiseFulfiller<void>::Callback;
   template <typename U, typename Func, typename ExceptionHandler, typename ParamPack>
   friend class DependentPromiseFulfiller;
+  friend struct PromiseConstructors;
 };
 
 template <typename T>
 struct Unpack {
-  typedef T&& Type;
+  typedef T Type;
 };
 
 template <typename T>
@@ -502,6 +515,16 @@ struct Unpack<Promise<T>> {
 template <>
 struct Unpack<Promise<void>> {
   typedef Void Type;
+};
+
+template <typename T>
+struct Chain {
+  typedef T Type;
+};
+
+template <typename T>
+struct Chain<Promise<T>> {
+  typedef T Type;
 };
 
 // =======================================================================================
@@ -540,6 +563,8 @@ public:
     state->fulfill();
   }
 
+  void fulfill(Promise<void> chain);
+
   void propagateCurrentException() {
     state->propagateCurrentException();
   }
@@ -572,6 +597,38 @@ private:
 
 // =======================================================================================
 
+template <typename ReturnType>
+struct CallAndFulfillFunctor {
+  template <typename Callback, typename Func2, typename... Params>
+  void operator()(WeakLink* linkToFulfiller, Callback* callback,
+                  const Func2& func, Params&&... params) const {
+    try {
+      auto result = func(std::forward<Params>(params)...);
+      if (linkToFulfiller->isEntangled()) {
+        callback->fulfill(std::move(result));
+      }
+    } catch (...) {
+      callback->propagateCurrentException();
+    }
+  }
+};
+
+template <>
+struct CallAndFulfillFunctor<void> {
+  template <typename Callback, typename Func2, typename... Params>
+  void operator()(WeakLink* linkToFulfiller, Callback* callback,
+                  const Func2& func, Params&&... params) const {
+    try {
+      func(std::forward<Params>(params)...);
+      if (linkToFulfiller->isEntangled()) {
+        callback->fulfill();
+      }
+    } catch (...) {
+      callback->propagateCurrentException();
+    }
+  }
+};
+
 template <typename T, typename Func, typename ExceptionHandler, typename ParamPack>
 class DependentPromiseFulfiller : public PromiseFulfiller<T>, public PromiseListener {
 public:
@@ -587,6 +644,12 @@ public:
         dependencyFailed(false),
         dependenciesLeft(1) {
     addAllDependencies();
+  }
+
+  ~DependentPromiseFulfiller() {
+    if (pendingReadyLater != nullptr) {
+      DEBUG_INFO << "Promise canceled: " << this;
+    }
   }
 
   void dependencyDone(bool failed) {
@@ -635,33 +698,6 @@ private:
     params.apply(AddDependenciesFunctor(), this);
   }
 
-  template <typename Callback, typename Func2, typename... Params>
-  static void callAndFulfill(WeakLink* linkToFulfiller, Callback* callback,
-                             const Func2& func, Params&&... params) {
-    try {
-      auto result = func(std::forward<Params>(params)...);
-      if (linkToFulfiller->isEntangled()) {
-        callback->fulfill(result);
-      }
-    } catch (...) {
-      callback->propagateCurrentException();
-    }
-  }
-
-  template <typename Func2, typename... Params>
-  static void callAndFulfill(WeakLink* linkToFulfiller,
-                             typename PromiseFulfiller<void>::Callback* callback,
-                             const Func2& func, Params&&... params) {
-    try {
-      func(std::forward<Params>(params)...);
-      if (linkToFulfiller->isEntangled()) {
-        callback->fulfill();
-      }
-    } catch (...) {
-      callback->propagateCurrentException();
-    }
-  }
-
   template <typename U>
   static U&& unpack(U&& value) {
     return std::forward<U>(value);
@@ -676,7 +712,8 @@ private:
     template <typename... Params>
     void operator()(WeakLink* linkToFulfiller, Callback* callback,
                     const Func& func, Params&&... params) const {
-      callAndFulfill(linkToFulfiller, callback, func, unpack(std::forward<Params>(params))...);
+      CallAndFulfillFunctor<decltype(func(unpack(std::forward<Params>(params))...))>()(
+          linkToFulfiller, callback, func, unpack(std::forward<Params>(params))...);
     }
   };
 
@@ -703,8 +740,10 @@ private:
     template <typename... Params>
     void operator()(WeakLink* linkToFulfiller, Callback* callback,
                     const ExceptionHandler& exceptionHandler, Params&&... params) const {
-      callAndFulfill(linkToFulfiller, callback, exceptionHandler, unpackMaybeException(
-          std::forward<Params>(params))...);
+      CallAndFulfillFunctor<decltype(
+          exceptionHandler(unpackMaybeException(std::forward<Params>(params))...))>()(
+            linkToFulfiller, callback, exceptionHandler,
+            unpackMaybeException(std::forward<Params>(params))...);
     }
   };
 
@@ -753,19 +792,21 @@ struct ForceErrorFunctor {
 
 // =======================================================================================
 
-template <typename PromiseFulfillerImpl, typename... Params>
-Promise<typename PromiseFulfillerImpl::PromiseType> newPromise(Params&&... params);
-
 template <typename T>
 class Promise {
 public:
   Promise() {}
   Promise(const Promise& other) = delete;
-  Promise(Promise&& other) = default;
+  Promise(Promise&& other): state(other.state.release()) {
+    if (state != nullptr) {
+      state->owner = this;
+    }
+  }
 
   Promise& operator=(const Promise& other) = delete;
   Promise& operator=(Promise&& other) {
-    state = std::move(other.state);
+    state = other.state.release();
+    state->owner = this;
     return *this;
   }
 
@@ -787,22 +828,93 @@ public:
 private:
   typedef promiseInternal::PromiseState<T> State;
 
-  explicit Promise(OwnedPtr<State> state): state(state.release()) {}
+  explicit Promise(OwnedPtr<State> state): state(state.release()) {
+    this->state->owner = this;
+  }
 
   OwnedPtr<State> state;
 
   friend class Executor;
-  template <typename PromiseFulfillerImpl, typename... Params>
-  friend Promise<typename PromiseFulfillerImpl::PromiseType> newPromise(Params&&... params);
+  friend struct promiseInternal::PromiseConstructors;
   template <typename U, typename Func, typename ExceptionHandler, typename ParamPack>
   friend class promiseInternal::DependentPromiseFulfiller;
+  friend class promiseInternal::PromiseState<T>;
 };
+
+inline void PromiseFulfiller<void>::Callback::fulfill(Promise<void> chain) {
+  state->fulfill(chain.release());
+}
+
+namespace promiseInternal {
+
+template <typename T>
+void PromiseState<T>::fulfill(Promise<T> chainedPromise) {
+  auto listener = this->listener;
+  auto owner = this->owner;
+  *owner = chainedPromise.release();  // will delete this!
+  if (listener != nullptr) {
+    owner->state->setListener(listener);
+  }
+}
+
+inline void PromiseState<void>::fulfill(Promise<void> chainedPromise) {
+  auto listener = this->listener;
+  auto owner = this->owner;
+  *owner = chainedPromise.release();
+  if (listener != nullptr) {
+    owner->state->setListener(listener);
+  }
+}
+
+struct PromiseConstructors {
+  template <typename PromiseFulfillerImpl, typename... Params>
+  static Promise<typename PromiseFulfillerImpl::PromiseType> newPromise(Params&&... params) {
+    typedef typename PromiseFulfillerImpl::PromiseType T;
+    return Promise<T>(newOwned<promiseInternal::FulfillerPromiseState<T, PromiseFulfillerImpl>>(
+        std::forward<Params>(params)...));
+  }
+
+  template <typename T>
+  static Promise<typename std::remove_reference<T>::type> newFulfilledPromise(T&& value) {
+    Promise<T> result(newOwned<promiseInternal::PromiseState<T>>());
+    result.state->fulfill(std::forward<T>(value));
+    return result;
+  }
+
+  static Promise<void> newFulfilledPromise() {
+    Promise<void> result(newOwned<promiseInternal::PromiseState<void>>());
+    result.state->fulfill();
+    return result;
+  }
+
+  template <typename T>
+  static Promise<T> newPromiseFromCurrentException() {
+    Promise<T> result(newOwned<promiseInternal::PromiseState<T>>());
+    result.state->propagateCurrentException();
+    return result;
+  }
+};
+
+}  // namespace promiseInternal
 
 template <typename PromiseFulfillerImpl, typename... Params>
 Promise<typename PromiseFulfillerImpl::PromiseType> newPromise(Params&&... params) {
-  typedef typename PromiseFulfillerImpl::PromiseType T;
-  return Promise<T>(newOwned<promiseInternal::FulfillerPromiseState<T, PromiseFulfillerImpl>>(
-      std::forward<Params>(params)...));
+  return promiseInternal::PromiseConstructors::newPromise<PromiseFulfillerImpl, Params...>(
+      std::forward<Params>(params)...);
+}
+
+template <typename T>
+Promise<typename std::remove_reference<T>::type> newFulfilledPromise(T&& value) {
+  return promiseInternal::PromiseConstructors::newFulfilledPromise(std::forward<T>(value));
+}
+
+inline Promise<void> newFulfilledPromise() {
+  return promiseInternal::PromiseConstructors::newFulfilledPromise();
+}
+
+template <typename T>
+Promise<T> newPromiseFromCurrentException() {
+  return promiseInternal::PromiseConstructors::newPromiseFromCurrentException<T>();
 }
 
 // =======================================================================================
@@ -818,7 +930,8 @@ public:
   When& operator=(When&& other) = delete;
 
 #define RESULT_TYPE \
-    decltype(func(std::declval<typename promiseInternal::Unpack<Types>::Type>()...))
+    typename promiseInternal::Chain< \
+      decltype(func(std::declval<typename promiseInternal::Unpack<Types>::Type>()...))>::Type
 
   template <typename Func>
   auto operator()(Func&& func) -> Promise<RESULT_TYPE> {
@@ -842,24 +955,6 @@ public:
 private:
   Executor* executor;
   ParamPack params;
-
-  template <typename PromiseState>
-  struct AddDependenciesFunctor {
-    template <typename First, typename... Rest>
-    void operator()(PromiseState* state, const Promise<First>& first, Rest&&... rest) const {
-      state->addDependency(first.state.get());
-      operator()(state, std::forward<Rest>(rest)...);
-    }
-
-    template <typename First, typename... Rest>
-    void operator()(PromiseState* state, First&& first, Rest&&... rest) const {
-      operator()(state, std::forward<Rest>(rest)...);
-    }
-
-    void operator()(PromiseState* state) const {
-      state->allDependenciesAdded();
-    }
-  };
 
   When(Executor* executor, Types&&... params)
       : executor(executor),

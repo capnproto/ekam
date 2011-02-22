@@ -54,25 +54,16 @@ public:
   inline OsHandle* getHandle() { return &handle; }
 
   size_t read(void* buffer, size_t size);
+  Promise<size_t> readAsync(EventManager* eventManager, void* buffer, size_t size);
   size_t write(const void* buffer, size_t size);
   void writeAll(const void* buffer, size_t size);
   void stat(struct stat* stats);
-
-  class ReadAllCallback {
-  public:
-    virtual ~ReadAllCallback();
-
-    virtual void consume(const void* buffer, size_t size) = 0;
-    virtual void eof() = 0;
-    virtual void error(int number) = 0;
-  };
-
-  OwnedPtr<AsyncOperation> readAll(EventManager* eventManager, ReadAllCallback* callback);
 
 private:
   class ReadEventCallback;
 
   OsHandle handle;
+  OwnedPtr<EventManager::IoWatcher> watcher;
 };
 
 class Pipe {
