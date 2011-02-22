@@ -74,11 +74,9 @@ public:
 
   // implements Action -------------------------------------------------------------------
   std::string getVerb();
-  OwnedPtr<AsyncOperation> start(EventManager* eventManager, BuildContext* context);
+  Promise<void> start(EventManager* eventManager, BuildContext* context);
 
 private:
-  class LinkProcess;
-
   class DepsSet {
   public:
     DepsSet() {}
@@ -143,69 +141,7 @@ void LinkAction::DepsSet::addObject(BuildContext* context, File* objectFile) {
 
 // ---------------------------------------------------------------------------------------
 
-class LinkAction::LinkProcess : public AsyncOperation {
-public:
-  LinkProcess(LinkAction* action, EventManager* eventManager, BuildContext* context,
-              const OwnedPtrVector<File>& deps)
-      : action(action) {
-    std::string base, ext;
-    splitExtension(action->file->canonicalName(), &base, &ext);
-
-    const char* cxx = getenv("CXX");
-
-    subprocess.addArgument(cxx == NULL ? "c++" : cxx);
-    subprocess.addArgument("-o");
-
-    executableFile = context->newOutput(base);
-    subprocess.addArgument(executableFile.get(), File::WRITE);
-
-    if (isTestName(base)) {
-      std::vector<Tag> tags;
-      tags.push_back(TEST_EXECUTABLE);
-      context->provide(executableFile.get(), tags);
-    }
-
-    for (int i = 0; i < deps.size(); i++) {
-      subprocess.addArgument(deps.get(i), File::READ);
-    }
-
-    const char* libs = getenv("LIBS");
-    if (libs != NULL) {
-      while (const char* spacepos = strchr(libs, ' ')) {
-        subprocess.addArgument(std::string(libs, spacepos));
-        libs = spacepos + 1;
-      }
-      subprocess.addArgument(libs);
-    }
-
-    logStream = subprocess.captureStdoutAndStderr();
-
-    subprocessWaitOp = eventManager->when(subprocess.start(eventManager))(
-      [context](ProcessExitCode exitCode) {
-        if (exitCode.wasSignaled() || exitCode.getExitCode() != 0) {
-          context->failed();
-        }
-      });
-
-    logger = newOwned<Logger>(context);
-    logOp = logger->readAll(eventManager, logStream.get());
-  }
-  ~LinkProcess() {}
-
-private:
-  LinkAction* action;
-
-  OwnedPtr<File> executableFile;
-
-  Subprocess subprocess;
-  Promise<void> subprocessWaitOp;
-
-  OwnedPtr<ByteStream> logStream;
-  OwnedPtr<Logger> logger;
-  Promise<void> logOp;
-};
-
-OwnedPtr<AsyncOperation> LinkAction::start(EventManager* eventManager, BuildContext* context) {
+Promise<void> LinkAction::start(EventManager* eventManager, BuildContext* context) {
   DepsSet deps;
 
   if (mode == GTEST) {
@@ -213,7 +149,7 @@ OwnedPtr<AsyncOperation> LinkAction::start(EventManager* eventManager, BuildCont
     if (gtestMain == NULL) {
       context->log("Cannot find gtest_main.o.");
       context->failed();
-      return nullptr;
+      return newFulfilledPromise();
     }
 
     deps.addObject(context, gtestMain);
@@ -224,7 +160,52 @@ OwnedPtr<AsyncOperation> LinkAction::start(EventManager* eventManager, BuildCont
   OwnedPtrVector<File> flatDeps;
   deps.enumerate(flatDeps.appender());
 
-  return newOwned<LinkProcess>(this, eventManager, context, flatDeps);
+  std::string base, ext;
+  splitExtension(file->canonicalName(), &base, &ext);
+
+  const char* cxx = getenv("CXX");
+
+  auto subprocess = newOwned<Subprocess>();
+
+  subprocess->addArgument(cxx == NULL ? "c++" : cxx);
+  subprocess->addArgument("-o");
+
+  auto executableFile = context->newOutput(base);
+  subprocess->addArgument(executableFile.get(), File::WRITE);
+
+  if (isTestName(base)) {
+    std::vector<Tag> tags;
+    tags.push_back(TEST_EXECUTABLE);
+    context->provide(executableFile.get(), tags);
+  }
+
+  for (int i = 0; i < flatDeps.size(); i++) {
+    subprocess->addArgument(flatDeps.get(i), File::READ);
+  }
+
+  const char* libs = getenv("LIBS");
+  if (libs != NULL) {
+    while (const char* spacepos = strchr(libs, ' ')) {
+      subprocess->addArgument(std::string(libs, spacepos));
+      libs = spacepos + 1;
+    }
+    subprocess->addArgument(libs);
+  }
+
+  auto logStream = subprocess->captureStdoutAndStderr();
+
+  auto subprocessWaitOp = eventManager->when(subprocess->start(eventManager))(
+    [context](ProcessExitCode exitCode) {
+      if (exitCode.wasSignaled() || exitCode.getExitCode() != 0) {
+        context->failed();
+      }
+    });
+
+  auto logger = newOwned<Logger>(context, logStream.release());
+  auto logOp = logger->run(eventManager);
+
+  return eventManager->when(subprocessWaitOp, logOp, logger, subprocess, executableFile)(
+      [](Void, Void, OwnedPtr<Logger>, OwnedPtr<Subprocess>, OwnedPtr<File>){});
 }
 
 // =======================================================================================

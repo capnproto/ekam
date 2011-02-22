@@ -117,7 +117,7 @@ private:
   Promise<void> asyncCallbackOp;
 
   bool isRunning;
-  OwnedPtr<AsyncOperation> runningAction;
+  Promise<void> runningAction;
 
   OwnedPtrVector<File> outputs;
 
@@ -337,7 +337,7 @@ void Driver::ActionDriver::returned() {
   ensureRunning();
 
   // Cancel anything still running.
-  runningAction.clear();
+  runningAction.release();
   isRunning = false;
 
   // Pull self out of driver->activeActions.
@@ -413,7 +413,7 @@ void Driver::ActionDriver::reset() {
 
   if (isRunning) {
     dashboardTask->setState(Dashboard::BLOCKED);
-    runningAction.clear();
+    runningAction.release();
     asyncCallbackOp.release();
 
     for (int i = 0; i < driver->activeActions.size(); i++) {

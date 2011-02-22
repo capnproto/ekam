@@ -40,15 +40,16 @@ namespace ekam {
 
 class Logger {
 public:
-  Logger(BuildContext* context);
+  Logger(BuildContext* context, OwnedPtr<ByteStream> stream);
   ~Logger();
 
-  Promise<void> readAll(EventManager* eventManager, ByteStream* stream);
+  Promise<void> run(EventManager* eventManager);
 
 private:
   class ReadAllFulfiller;
 
   BuildContext* context;
+  OwnedPtr<ByteStream> stream;
   char buffer[4096];
 };
 

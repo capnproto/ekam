@@ -59,7 +59,7 @@ public:
   bool isSilent() { return true; }
   std::string getVerb() { return "scan"; }
 
-  OwnedPtr<AsyncOperation> start(EventManager* eventManager, BuildContext* context) {
+  Promise<void> start(EventManager* eventManager, BuildContext* context) {
     std::vector<Tag> tags;
 
     std::string name = file->canonicalName();
@@ -82,7 +82,7 @@ public:
 
     context->provide(file.get(), tags);
 
-    return nullptr;
+    return newFulfilledPromise();
   }
 
 private:

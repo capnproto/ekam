@@ -85,7 +85,7 @@ public:
 
   virtual bool isSilent() { return false; }
   virtual std::string getVerb() = 0;
-  virtual OwnedPtr<AsyncOperation> start(EventManager* eventManager, BuildContext* context) = 0;
+  virtual Promise<void> start(EventManager* eventManager, BuildContext* context) = 0;
 };
 
 class ActionFactory {

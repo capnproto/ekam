@@ -33,18 +33,18 @@
 
 namespace ekam {
 
-Logger::Logger(BuildContext* context)
-    : context(context) {}
+Logger::Logger(BuildContext* context, OwnedPtr<ByteStream> stream)
+    : context(context), stream(stream.release()) {}
 Logger::~Logger() {}
 
-Promise<void> Logger::readAll(EventManager* eventManager, ByteStream* stream) {
+Promise<void> Logger::run(EventManager* eventManager) {
   return eventManager->when(stream->readAsync(eventManager, buffer, sizeof(buffer)))(
     [=](size_t size) -> Promise<void> {
       if (size == 0) {
         return newFulfilledPromise();
       }
       context->log(std::string(buffer, size));
-      return readAll(eventManager, stream);
+      return run(eventManager);
     }, [=](MaybeException<size_t> error) {
       try {
         error.get();

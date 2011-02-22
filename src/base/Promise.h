@@ -371,6 +371,7 @@ public:
   virtual ~PromiseState() {}
 
   Promise<T>* owner;
+  OwnedPtr<PromiseState> chainedPromise;
 
 private:
   PromiseListener* listener;
@@ -444,6 +445,7 @@ public:
   virtual ~PromiseState() {}
 
   Promise<void>* owner;
+  OwnedPtr<PromiseState> chainedPromise;
 
 private:
   PromiseListener* listener;
@@ -829,6 +831,9 @@ private:
   typedef promiseInternal::PromiseState<T> State;
 
   explicit Promise(OwnedPtr<State> state): state(state.release()) {
+    while (this->state->chainedPromise != nullptr) {
+      this->state = this->state->chainedPromise.release();
+    }
     this->state->owner = this;
   }
 
@@ -851,18 +856,32 @@ template <typename T>
 void PromiseState<T>::fulfill(Promise<T> chainedPromise) {
   auto listener = this->listener;
   auto owner = this->owner;
-  *owner = chainedPromise.release();  // will delete this!
-  if (listener != nullptr) {
-    owner->state->setListener(listener);
+
+  if (owner == nullptr) {
+    throw std::logic_error(
+        "Not supported: Calling fulfill() with a chained promise from the PromiseFulfiller's "
+        "constructor.  This is probably not what you intended anyway.");
+  } else {
+    *owner = chainedPromise.release();  // will delete this!
+    if (listener != nullptr) {
+      owner->state->setListener(listener);
+    }
   }
 }
 
 inline void PromiseState<void>::fulfill(Promise<void> chainedPromise) {
   auto listener = this->listener;
   auto owner = this->owner;
-  *owner = chainedPromise.release();
-  if (listener != nullptr) {
-    owner->state->setListener(listener);
+
+  if (owner == nullptr) {
+    throw std::logic_error(
+        "Not supported: Calling fulfill() with a chained promise from the PromiseFulfiller's "
+        "constructor.  This is probably not what you intended anyway.");
+  } else {
+    *owner = chainedPromise.release();  // will delete this!
+    if (listener != nullptr) {
+      owner->state->setListener(listener);
+    }
   }
 }
 

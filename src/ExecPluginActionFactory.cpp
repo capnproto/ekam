@@ -93,10 +93,9 @@ public:
   // implements Action -------------------------------------------------------------------
   std::string getVerb() { return verb; }
   bool isSilent() { return silent; }
-  OwnedPtr<AsyncOperation> start(EventManager* eventManager, BuildContext* context);
+  Promise<void> start(EventManager* eventManager, BuildContext* context);
 
 private:
-  class Process;
   class CommandReader;
 
   OwnedPtr<File> executable;
@@ -107,11 +106,12 @@ private:
 
 class PluginDerivedAction::CommandReader {
 public:
-  CommandReader(BuildContext* context, ByteStream* requestStream,
+  CommandReader(BuildContext* context, OwnedPtr<ByteStream> requestStream,
                 OwnedPtr<ByteStream> responseStream, File* executable, File* input)
       : context(context), executable(executable->clone()),
+        requestStream(requestStream.release()),
         responseStream(responseStream.release()),
-        lineReader(requestStream), silent(false) {
+        lineReader(this->requestStream.get()), silent(false) {
     if (input != NULL) {
       this->input = input->clone();
       knownFiles.add(input->canonicalName(), input->clone());
@@ -281,6 +281,7 @@ private:
   BuildContext* context;
   OwnedPtr<File> executable;
   OwnedPtr<File> input;  // nullable
+  OwnedPtr<ByteStream> requestStream;
   OwnedPtr<ByteStream> responseStream;
   LineReader lineReader;
 
@@ -310,51 +311,34 @@ private:
   }
 };
 
-class PluginDerivedAction::Process : public AsyncOperation {
-public:
-  Process(EventManager* eventManager, BuildContext* context, File* executable, File* input) {
-    subprocess.addArgument(executable, File::READ);
-    if (input != NULL) {
-      subprocess.addArgument(input->canonicalName());
-    }
+Promise<void> PluginDerivedAction::start(EventManager* eventManager, BuildContext* context) {
+  auto subprocess = newOwned<Subprocess>();
 
-    OwnedPtr<ByteStream> responseStream;
-    responseStream = subprocess.captureStdin();
-    commandStream = subprocess.captureStdout();
-    logStream = subprocess.captureStderr();
-
-    subprocessWaitOp = eventManager->when(subprocess.start(eventManager))(
-      [context](ProcessExitCode exitCode) {
-        if (exitCode.wasSignaled() || exitCode.getExitCode() != 0) {
-          context->failed();
-        }
-      });
-
-    commandReader = newOwned<CommandReader>(context, commandStream.get(), responseStream.release(),
-                                            executable, input);
-    commandOp = commandReader->readAll(eventManager);
-
-    logger = newOwned<Logger>(context);
-    logOp = logger->readAll(eventManager, logStream.get());
+  subprocess->addArgument(executable.get(), File::READ);
+  if (file != NULL) {
+    subprocess->addArgument(file->canonicalName());
   }
-  ~Process() {}
 
-private:
-  Subprocess subprocess;
-  Promise<void> subprocessWaitOp;
+  OwnedPtr<ByteStream> responseStream = subprocess->captureStdin();
+  OwnedPtr<ByteStream> commandStream = subprocess->captureStdout();
+  OwnedPtr<ByteStream> logStream = subprocess->captureStderr();
 
-  OwnedPtr<ByteStream> commandStream;
-  OwnedPtr<CommandReader> commandReader;
-  Promise<void> commandOp;
+  auto subprocessWaitOp = eventManager->when(subprocess->start(eventManager))(
+    [context](ProcessExitCode exitCode) {
+      if (exitCode.wasSignaled() || exitCode.getExitCode() != 0) {
+        context->failed();
+      }
+    });
 
-  OwnedPtr<ByteStream> logStream;
-  OwnedPtr<Logger> logger;
-  Promise<void> logOp;
-};
+  auto commandReader = newOwned<CommandReader>(
+      context, commandStream.release(), responseStream.release(), executable.get(), file.get());
+  auto commandOp = commandReader->readAll(eventManager);
 
-OwnedPtr<AsyncOperation> PluginDerivedAction::start(EventManager* eventManager,
-                                                    BuildContext* context) {
-  return newOwned<Process>(eventManager, context, executable.get(), file.get());
+  OwnedPtr<Logger> logger = newOwned<Logger>(context, logStream.release());
+  auto logOp = logger->run(eventManager);
+
+  return eventManager->when(subprocessWaitOp, commandOp, logOp, subprocess, commandReader, logger)(
+      [](Void, Void, Void, OwnedPtr<Subprocess>, OwnedPtr<CommandReader>, OwnedPtr<Logger>){});
 }
 
 // =======================================================================================
