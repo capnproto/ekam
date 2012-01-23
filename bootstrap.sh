@@ -54,8 +54,8 @@ if test -e tmp/ekam; then
   rm -f tmp/ekam
 fi
 
-echo \$ ./bootstrap-ekam -j4
-./bootstrap-ekam -j4
+echo \$ CXXFLAGS=-std=gnu++0x ./bootstrap-ekam -j4
+CXXFLAGS=-std=gnu++0x ./bootstrap-ekam -j4
 
 echo "*************************************************"
 if test -e bin/ekam; then
