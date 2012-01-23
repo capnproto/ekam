@@ -33,8 +33,9 @@
 echo "This script builds a basic Ekam binary using a single massive compiler"
 echo "invocation, then rebuilds Ekam using Ekam itself."
 
-SOURCES=$(ls src/*.cpp | grep -v KqueueEventManager | grep -v EpollEventManager |
-                         grep -v ProtoDashboard | grep -v ekam-client | grep -v _test)
+SOURCES=$(ls src/*.cpp src/*/*.cpp |
+    grep -v KqueueEventManager | grep -v PollEventManager |
+    grep -v ProtoDashboard | grep -v ekam-client | grep -v _test)
 
 set -e
 
@@ -42,8 +43,8 @@ echo "*************************************************"
 echo "Building using one massive compile..."
 echo "*************************************************"
 
-echo \$ c++ $SOURCES -o bootstrap-ekam
-c++ $SOURCES -o bootstrap-ekam
+echo \$ g++ -Isrc -std=gnu++0x $SOURCES -o bootstrap-ekam
+g++ -Isrc -std=gnu++0x $SOURCES -o bootstrap-ekam
 
 echo "*************************************************"
 echo "Building again using Ekam..."

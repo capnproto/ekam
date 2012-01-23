@@ -13,7 +13,7 @@ echo newOutput "$OUTPUT"
 read OUTPUT_DISK_PATH
 
 if test `uname` = Linux; then
-  gcc -g -shared -Wall -fPIC -ldl -o "$OUTPUT_DISK_PATH" "$INPUT_DISK_PATH"
+  gcc -g -shared -Wall -Wl,-no-undefined -fPIC -o "$OUTPUT_DISK_PATH" "$INPUT_DISK_PATH" -ldl
 else
   gcc -g -shared -Wall -fPIC -o "$OUTPUT_DISK_PATH" "$INPUT_DISK_PATH"
 fi
