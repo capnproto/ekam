@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_BASE_TABLE_H_
-#define EKAM_BASE_TABLE_H_
+#ifndef KENTONSCODE_BASE_TABLE_H_
+#define KENTONSCODE_BASE_TABLE_H_
 
 #include <tr1/unordered_map>
 #include <vector>
@@ -338,4 +338,4 @@ private:
 
 }  // namespace ekam
 
-#endif  // EKAM_BASE_TABLE_H_
+#endif  // KENTONSCODE_BASE_TABLE_H_

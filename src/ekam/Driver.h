@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_DRIVER_H_
-#define EKAM_DRIVER_H_
+#ifndef KENTONSCODE_EKAM_DRIVER_H_
+#define KENTONSCODE_EKAM_DRIVER_H_
 
 #include <tr1/unordered_map>
 #include <tr1/memory>
@@ -115,4 +115,4 @@ private:
 
 }  // namespace ekam
 
-#endif  // EKAM_DRIVER_H_
+#endif  // KENTONSCODE_EKAM_DRIVER_H_

@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_OS_SOCKET_H_
-#define EKAM_OS_SOCKET_H_
+#ifndef KENTONSCODE_OS_SOCKET_H_
+#define KENTONSCODE_OS_SOCKET_H_
 
 #include "base/OwnedPtr.h"
 #include "OsHandle.h"
@@ -41,4 +41,4 @@ private:
 
 }  // namespace ekam
 
-#endif  // EKAM_OS_SOCKET_H_
+#endif  // KENTONSCODE_OS_SOCKET_H_

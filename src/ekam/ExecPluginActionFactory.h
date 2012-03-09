@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_EXECPLUGINACTIONFACTORY_H_
-#define EKAM_EXECPLUGINACTIONFACTORY_H_
+#ifndef KENTONSCODE_EKAM_EXECPLUGINACTIONFACTORY_H_
+#define KENTONSCODE_EKAM_EXECPLUGINACTIONFACTORY_H_
 
 #include "Action.h"
 
@@ -33,4 +33,4 @@ public:
 
 }  // namespace ekam
 
-#endif  // EKAM_EXECPLUGINACTIONFACTORY_H_
+#endif  // KENTONSCODE_EKAM_EXECPLUGINACTIONFACTORY_H_

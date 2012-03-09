@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_CPPACTIONFACTORY_H_
-#define EKAM_CPPACTIONFACTORY_H_
+#ifndef KENTONSCODE_EKAM_CPPACTIONFACTORY_H_
+#define KENTONSCODE_EKAM_CPPACTIONFACTORY_H_
 
 #include <vector>
 #include <iterator>
@@ -39,4 +39,4 @@ private:
 
 }  // namespace ekam
 
-#endif  // EKAM_CPPACTIONFACTORY_H_
+#endif  // KENTONSCODE_EKAM_CPPACTIONFACTORY_H_

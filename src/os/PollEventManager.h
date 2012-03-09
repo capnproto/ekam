@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_OS_POLLEVENTMANAGER_H_
-#define EKAM_OS_POLLEVENTMANAGER_H_
+#ifndef KENTONSCODE_OS_POLLEVENTMANAGER_H_
+#define KENTONSCODE_OS_POLLEVENTMANAGER_H_
 
 #include <sys/types.h>
 #include <stdint.h>
@@ -64,4 +64,4 @@ private:
 
 }  // namespace ekam
 
-#endif  // EKAM_OS_POLLEVENTMANAGER_H_
+#endif  // KENTONSCODE_OS_POLLEVENTMANAGER_H_

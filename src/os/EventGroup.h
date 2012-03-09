@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_OS_EVENTGROUP_H_
-#define EKAM_OS_EVENTGROUP_H_
+#ifndef KENTONSCODE_OS_EVENTGROUP_H_
+#define KENTONSCODE_OS_EVENTGROUP_H_
 
 #include <tr1/unordered_set>
 
@@ -73,4 +73,4 @@ private:
 
 }  // namespace ekam
 
-#endif  // EKAM_OS_EVENTGROUP_H_
+#endif  // KENTONSCODE_OS_EVENTGROUP_H_

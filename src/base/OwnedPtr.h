@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_BASE_OWNEDPTR_H_
-#define EKAM_BASE_OWNEDPTR_H_
+#ifndef KENTONSCODE_BASE_OWNEDPTR_H_
+#define KENTONSCODE_BASE_OWNEDPTR_H_
 
 #include <stddef.h>
 #include <tr1/type_traits>
@@ -725,4 +725,4 @@ private:
 
 }  // namespace ekam
 
-#endif  // EKAM_BASE_OWNEDPTR_H_
+#endif  // KENTONSCODE_BASE_OWNEDPTR_H_

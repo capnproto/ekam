@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_DASHBOARD_H_
-#define EKAM_DASHBOARD_H_
+#ifndef KENTONSCODE_EKAM_DASHBOARD_H_
+#define KENTONSCODE_EKAM_DASHBOARD_H_
 
 #include <string>
 #include "base/OwnedPtr.h"
@@ -59,4 +59,4 @@ OwnedPtr<Dashboard> initNetworkDashboard(EventManager* eventManager, const std::
 
 }  // namespace ekam
 
-#endif  // EKAM_DASHBOARD_H_
+#endif  // KENTONSCODE_EKAM_DASHBOARD_H_

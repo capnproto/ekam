@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_CONSOLEDASHBOARD_H_
-#define EKAM_CONSOLEDASHBOARD_H_
+#ifndef KENTONSCODE_EKAM_CONSOLEDASHBOARD_H_
+#define KENTONSCODE_EKAM_CONSOLEDASHBOARD_H_
 
 #include <vector>
 #include <stdio.h>
@@ -77,4 +77,4 @@ private:
 
 }  // namespace ekam
 
-#endif  // EKAM_CONSOLEDASHBOARD_H_
+#endif  // KENTONSCODE_EKAM_CONSOLEDASHBOARD_H_

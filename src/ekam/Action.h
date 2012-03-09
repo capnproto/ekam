@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_ACTION_H_
-#define EKAM_ACTION_H_
+#ifndef KENTONSCODE_EKAM_ACTION_H_
+#define KENTONSCODE_EKAM_ACTION_H_
 
 #include <string>
 #include <vector>
@@ -84,4 +84,4 @@ public:
 
 }  // namespace ekam
 
-#endif  // EKAM_ACTION_H_
+#endif  // KENTONSCODE_EKAM_ACTION_H_

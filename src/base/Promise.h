@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_BASE_PROMISE_H_
-#define EKAM_BASE_PROMISE_H_
+#ifndef KENTONSCODE_BASE_PROMISE_H_
+#define KENTONSCODE_BASE_PROMISE_H_
 
 #include <set>
 #include <vector>
@@ -974,4 +974,4 @@ Executor::When<typename std::remove_reference<Types>::type...> Executor::when(Ty
 
 }  // namespace ekam
 
-#endif  // EKAM_BASE_PROMISE_H_
+#endif  // KENTONSCODE_BASE_PROMISE_H_

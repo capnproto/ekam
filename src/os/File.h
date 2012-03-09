@@ -14,8 +14,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef EKAM_FILE_H_
-#define EKAM_FILE_H_
+#ifndef KENTONSCODE_OS_FILE_H_
+#define KENTONSCODE_OS_FILE_H_
 
 #include <vector>
 #include <iterator>
@@ -91,4 +91,4 @@ void recursivelyCreateDirectory(File* location);
 
 }  // namespace ekam
 
-#endif  // EKAM_FILE_H_
+#endif  // KENTONSCODE_OS_FILE_H_
