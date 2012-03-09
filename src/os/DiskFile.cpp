@@ -44,7 +44,7 @@
 #include "base/Debug.h"
 #include "os/OsHandle.h"
 #include "os/ByteStream.h"
-#include "Hash.h"
+#include "base/Hash.h"
 
 namespace ekam {
 

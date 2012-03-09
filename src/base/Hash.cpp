@@ -33,7 +33,6 @@
 #include <stdexcept>
 
 #include "sha256.h"
-#include "File.h"
 
 namespace ekam {
 

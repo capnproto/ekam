@@ -40,7 +40,7 @@
 
 #include "Driver.h"
 #include "base/Debug.h"
-#include "DiskFile.h"
+#include "os/DiskFile.h"
 #include "Action.h"
 #include "SimpleDashboard.h"
 #include "ConsoleDashboard.h"

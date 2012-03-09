@@ -36,7 +36,7 @@
 #include <string>
 #include <vector>
 
-#include "Hash.h"
+#include "base/Hash.h"
 
 namespace ekam {
 
