@@ -415,6 +415,9 @@ class OwnedPtrVector {
 public:
   OwnedPtrVector() {}
   OwnedPtrVector(const OwnedPtrVector&) = delete;
+  OwnedPtrVector(OwnedPtrVector&& other) {
+    vec.swap(other.vec);
+  }
   ~OwnedPtrVector() {
     for (typename std::vector<T*>::const_iterator iter = vec.begin(); iter != vec.end(); ++iter) {
       deleteEnsuringCompleteType(*iter);
