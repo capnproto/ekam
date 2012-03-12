@@ -3,3 +3,5 @@ src/protobuf
 eclipse/bin
 .cproject
 .project
+bin
+lib
