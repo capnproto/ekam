@@ -116,6 +116,30 @@ OwnedPtr<T> newOwned(Params&&... params) {
   return OwnedPtr<T>(new T(std::forward<Params>(params)...));
 }
 
+template <typename T>
+class Indirect {
+public:
+  template <typename... Params>
+  Indirect(Params&&... params): ptr(newOwned<T>(params...)) {}
+  Indirect(Indirect&& other): ptr(other.ptr.release()) {}
+  Indirect(const Indirect& other): ptr(newOwned<T>(*other.ptr)) {}
+
+  Indirect& operator=(Indirect&& other) { ptr = other.ptr.release(); return *this; }
+  Indirect& operator=(const Indirect& other) { ptr = newOwned<T>(*other.ptr); return *this; }
+
+  bool operator==(const Indirect& other) const { return *ptr == *other.ptr; }
+  bool operator!=(const Indirect& other) const { return *ptr != *other.ptr; }
+
+  const T& operator*() const { return *ptr; }
+  T& operator*() { return *ptr; }
+
+  const T* operator->() const { return ptr.get(); }
+  T* operator->() { return ptr.get(); }
+
+private:
+  OwnedPtr<T> ptr;
+};
+
 // TODO:  Hide this somewhere private?
 class Refcount {
 public:

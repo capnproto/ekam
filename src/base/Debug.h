@@ -67,8 +67,8 @@ private:
 };
 
 #define DEBUG_LOG(SEVERITY) \
-  if (!DebugMessage::shouldLog(::ekam::DebugMessage::SEVERITY, __FILE__, __LINE__)) {} else \
-  ::ekam::DebugMessage(::ekam::DebugMessage::SEVERITY, __FILE__, __LINE__)
+  if (!::ekam::DebugMessage::shouldLog(::ekam::DebugMessage::SEVERITY, __FILE__, __LINE__)) {} \
+  else ::ekam::DebugMessage(::ekam::DebugMessage::SEVERITY, __FILE__, __LINE__)
 
 #define DEBUG_INFO DEBUG_LOG(INFO)
 #define DEBUG_WARNING DEBUG_LOG(WARNING)
