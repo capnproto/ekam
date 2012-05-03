@@ -27,6 +27,7 @@
 
 #ifdef __CDT_PARSER__
 #define nullptr 0
+#define noexcept
 namespace std { struct nullptr_t; }
 #endif
 
