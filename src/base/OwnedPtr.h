@@ -121,7 +121,7 @@ template <typename T>
 class Indirect {
 public:
   template <typename... Params>
-  Indirect(Params&&... params): ptr(newOwned<T>(params...)) {}
+  Indirect(Params&&... params): ptr(newOwned<T>(std::forward<Params>(params)...)) {}
   Indirect(Indirect&& other): ptr(other.ptr.release()) {}
   Indirect(const Indirect& other): ptr(newOwned<T>(*other.ptr)) {}
 
