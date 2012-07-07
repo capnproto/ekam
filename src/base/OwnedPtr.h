@@ -26,7 +26,6 @@
 #include <assert.h>
 
 #ifdef __CDT_PARSER__
-#define nullptr 0
 #define noexcept
 #define constexpr
 namespace std { struct nullptr_t; }
