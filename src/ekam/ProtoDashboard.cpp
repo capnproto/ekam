@@ -89,7 +89,13 @@ void ProtoDashboard::TaskImpl::addOutput(const std::string& text) {
 
 ProtoDashboard::ProtoDashboard(EventManager* eventManager, OwnedPtr<ByteStream> stream)
     : idCounter(0),
-      writeBuffer(eventManager, stream.release()) {}
+      writeBuffer(eventManager, stream.release()) {
+  proto::Header header;
+  char* cwd = get_current_dir_name();
+  header.set_project_root(cwd);
+  free(cwd);
+  writeBuffer.write(header);
+}
 ProtoDashboard::~ProtoDashboard() {}
 
 OwnedPtr<Dashboard::Task> ProtoDashboard::beginTask(

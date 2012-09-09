@@ -275,7 +275,7 @@ void ConsoleDashboard::TaskImpl::writeFinalLog(Color verbColor) {
       struct winsize windowSize;
       ioctl(dashboard->fd, TIOCGWINSZ, &windowSize);
 
-      for (int i = 0; i < 10 && !formatter.atEnd(); i++) {
+      for (int i = 0; i < 30 && !formatter.atEnd(); i++) {
         std::string line = formatter.getLine(2, windowSize.ws_col);
         fprintf(dashboard->out, "  %s\n", line.c_str());
       }

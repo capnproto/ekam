@@ -27,6 +27,14 @@
 
 namespace ekam {
 
+using google::protobuf::io::ZeroCopyInputStream;
+using google::protobuf::io::FileInputStream;
+using google::protobuf::io::FileOutputStream;
+using google::protobuf::io::CodedInputStream;
+using google::protobuf::uint32;
+using google::protobuf::TextFormat;
+using google::protobuf::Message;
+
 void dump(const proto::TaskUpdate& message) {
   using std::cerr;
   using std::cout;
@@ -78,36 +86,45 @@ Dashboard::TaskState toDashboardState(proto::TaskUpdate::State state) {
   }
 }
 
+bool readDelimited(ZeroCopyInputStream* rawInput, Message* message) {
+  CodedInputStream input(rawInput);
+
+  uint32 size;
+  if (!input.ReadVarint32(&size)) {
+    return false;
+  }
+
+  CodedInputStream::Limit limit = input.PushLimit(size);
+
+  if (!message->MergePartialFromCodedStream(&input) ||
+      !input.ConsumedEntireMessage()) {
+    fprintf(stderr, "Read error.\n");
+    exit(1);
+  }
+
+  input.PopLimit(limit);
+
+  return true;
+}
+
 int main(int argc, char* argv[]) {
-  using google::protobuf::io::FileInputStream;
-  using google::protobuf::io::FileOutputStream;
-  using google::protobuf::io::CodedInputStream;
-  using google::protobuf::uint32;
-  using google::protobuf::TextFormat;
+  FileInputStream rawInput(STDIN_FILENO);
+
+  proto::Header header;
+  if (!readDelimited(&rawInput, &header)) {
+    return 0;
+  }
+
+  printf("Project root: %s\n", header.project_root().c_str());
 
   ConsoleDashboard dashboard(stdout);
   OwnedPtrMap<int, Dashboard::Task> tasks;
 
-  FileInputStream rawInput(STDIN_FILENO);
-
   while (true) {
-    CodedInputStream input(&rawInput);
-
-    uint32 size;
-    if (!input.ReadVarint32(&size)) {
+    proto::TaskUpdate message;
+    if (!readDelimited(&rawInput, &message)) {
       return 0;
     }
-
-    CodedInputStream::Limit limit = input.PushLimit(size);
-
-    proto::TaskUpdate message;
-    if (!message.MergePartialFromCodedStream(&input) ||
-        !input.ConsumedEntireMessage()) {
-      fprintf(stderr, "Read error.\n");
-      return 1;
-    }
-
-    input.PopLimit(limit);
 
     if (message.has_state() && message.state() == proto::TaskUpdate::DELETED) {
       tasks.erase(message.id());
