@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/ekamdashboard">
+        <file>images/error.png</file>
+        <file>images/log.png</file>
+        <file>images/warning.png</file>
+    </qresource>
+</RCC>
