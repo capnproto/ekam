@@ -1,3 +1,19 @@
+// Kenton's Code Playground -- http://code.google.com/p/kentons-code
+// Author: Kenton Varda (temporal@gmail.com)
+// Copyright (c) 2010 Google, Inc. and contributors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #ifndef EKAMTREEWIDGET_H
 #define EKAMTREEWIDGET_H
 
@@ -5,6 +21,9 @@
 
 #include <QWidget>
 #include <QAbstractItemModel>
+#include <QTreeView>
+
+#include <projectexplorer/task.h>
 
 #include "dashboard.pb.h"
 
@@ -12,26 +31,54 @@ namespace EkamDashboard {
 namespace Internal {
 
 class EkamDashboardPlugin;
+class EkamTreeModel;
 class ActionState;
 
 class EkamTreeNode : public QObject {
   Q_OBJECT
 public:
-  EkamTreeNode();
-  EkamTreeNode(EkamTreeNode* parent, const QString& name);
+  explicit EkamTreeNode(EkamTreeModel* tree);
+  EkamTreeNode(EkamTreeNode* parent, const QString& name, bool isDirectory);
   virtual ~EkamTreeNode();
 
-  const QString& name() { return name_; }
-  ActionState* action() { return action_; }
-  void setAction(ActionState* newAction);
+  int row();
+  QModelIndex index();
+
+  void createNode(const QString& noun, const QString& verb, ActionState* action);
+
+  QVariant data(int role);
+
+  int childCount() {
+    return childNodes.size();
+  }
+  EkamTreeNode* getChild(int index) {
+    return childNodes.at(index);
+  }
+
+  ActionState* getAction() {
+    return action;
+  }
+
+private slots:
+  void actionStateChanged(ekam::proto::TaskUpdate::State newState);
+  void actionRemoved();
 
 private:
-  QString name_;
+  EkamTreeModel* tree;
 
-  // Can be null for folder nodes.
-  ActionState* action_;
+  bool isDirectory;
+  QString name;
 
-  // The EkamTreeNode uses QObject's parent and child pointers to track related nodes.
+  EkamTreeNode* parentNode;
+  QList<EkamTreeNode*> childNodes;
+
+  ActionState* action;
+  int state;
+
+  void setAction(ActionState* newAction);
+  void stateChanged(int newState);
+  void childStateChanged();
+  void removeChild(EkamTreeNode* child);
 };
 
 class EkamTreeModel : public QAbstractItemModel {
@@ -48,15 +95,18 @@ public:
   virtual int columnCount(const QModelIndex & parent = QModelIndex()) const;
   virtual bool hasChildren(const QModelIndex & parent = QModelIndex()) const;
 
-private slots:
-
-private:
-  EkamDashboardPlugin* plugin;
-  EkamTreeNode* root;
-
-  EkamTreeNode* indexToNode(const QModelIndex& index) {
+  EkamTreeNode* indexToNode(const QModelIndex& index) const {
     return index.isValid() ? reinterpret_cast<EkamTreeNode*>(index.internalPointer()) : root;
   }
+
+private slots:
+  void newAction(ActionState* action);
+
+private:
+  friend class EkamTreeNode;
+
+  EkamDashboardPlugin* plugin;
+  EkamTreeNode* root;
 };
 
 class EkamTreeWidget : public QWidget {
@@ -64,14 +114,14 @@ class EkamTreeWidget : public QWidget {
 public:
   explicit EkamTreeWidget(EkamDashboardPlugin *plugin = 0);
   virtual ~EkamTreeWidget();
-  
+
 private slots:
-  void addFile(ekam::proto::TaskUpdate::State state, const QString& verb, const QString& noun,
-               const QString& diskPath, int firstTaskId);
+  void jumpTo(const QModelIndex& index);
 
 private:
   EkamDashboardPlugin* plugin;
 
+  EkamTreeModel* model;
   QTreeView* view;
 };
 

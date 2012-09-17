@@ -1,7 +1,19 @@
 <RCC>
     <qresource prefix="/ekamdashboard">
-        <file>images/error.png</file>
-        <file>images/log.png</file>
-        <file>images/warning.png</file>
+        <file>images/state-blocked.png</file>
+        <file>images/state-deleted.png</file>
+        <file>images/state-done.png</file>
+        <file>images/state-failed.png</file>
+        <file>images/state-passed.png</file>
+        <file>images/state-pending.png</file>
+        <file>images/state-running.png</file>
+        <file>images/dir.png</file>
+        <file>images/dir-blocked.png</file>
+        <file>images/dir-deleted.png</file>
+        <file>images/dir-done.png</file>
+        <file>images/dir-failed.png</file>
+        <file>images/dir-passed.png</file>
+        <file>images/dir-pending.png</file>
+        <file>images/dir-running.png</file>
     </qresource>
 </RCC>

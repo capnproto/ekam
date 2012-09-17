@@ -1,5 +1,22 @@
+// Kenton's Code Playground -- http://code.google.com/p/kentons-code
+// Author: Kenton Varda (temporal@gmail.com)
+// Copyright (c) 2010 Google, Inc. and contributors.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #include "ekamdashboardplugin.h"
 #include "ekamdashboardconstants.h"
+#include "ekamtreewidget.h"
 
 #include <google/protobuf/io/zero_copy_stream.h>
 #include <google/protobuf/io/coded_stream.h>
@@ -59,6 +76,8 @@ bool EkamDashboardPlugin::initialize(const QStringList &arguments, QString *erro
   menu->addAction(cmd);
   am->actionContainer(Core::Constants::M_TOOLS)->addMenu(menu);
 
+  addAutoReleasedObject(new EkamTreeWidgetFactory(this));
+
   return true;
 }
 
@@ -87,16 +106,13 @@ ExtensionSystem::IPlugin::ShutdownFlag EkamDashboardPlugin::aboutToShutdown() {
   delete socket;
   socket = 0;
 
-  foreach (ActionState* action, actions) {
-    delete action;
-  }
-  actions.clear();
+  clearActions();
 
   return SynchronousShutdown;
 }
 
 void EkamDashboardPlugin::triggerAction() {
-  qDebug() << "triggerAction() qdebug";
+//  qDebug() << "triggerAction() qdebug";
   QMessageBox::information(Core::ICore::mainWindow(),
                            tr("Action triggered"),
                            tr("This is an action from EkamDashboard."));
@@ -108,7 +124,8 @@ void EkamDashboardPlugin::triggerAction() {
 }
 
 void EkamDashboardPlugin::socketError(QAbstractSocket::SocketError error) {
-  qDebug() << "Socket error: " << error;
+//  qDebug() << "Socket error: " << error;
+  clearActions();
   QTimer::singleShot(5000, this, SLOT(retryConnection()));
 }
 
@@ -118,7 +135,7 @@ void EkamDashboardPlugin::retryConnection() {
 
 void EkamDashboardPlugin::socketReady() {
   buffer += socket->readAll();
-  qDebug() << "Received data.  buffer.size() = " << buffer.size();
+//  qDebug() << "Received data.  buffer.size() = " << buffer.size();
 
   while (true) {
     int i = 0;
@@ -151,7 +168,7 @@ void EkamDashboardPlugin::socketReady() {
 
 void EkamDashboardPlugin::tryConnect() {
   seenHeader = false;
-  qDebug() << "Trying to connect...";
+//  qDebug() << "Trying to connect...";
   socket->connectToHost("localhost", 51315);
 }
 
@@ -161,12 +178,12 @@ void EkamDashboardPlugin::consumeMessage(const void* data, int size) {
 
     ekam::proto::Header header;
     header.ParseFromArray(data, size);
-    qDebug() << "Received header: " << header.DebugString().c_str();
+  //  qDebug() << "Received header: " << header.DebugString().c_str();
     projectRoot = toQString(header.project_root());
   } else {
     ekam::proto::TaskUpdate update;
     update.ParseFromArray(data, size);
-    qDebug() << "Received task update: " << update.DebugString().c_str();
+  //  qDebug() << "Received task update: " << update.DebugString().c_str();
 
     ActionState*& slot = actions[update.id()];
     if (slot == 0) {
@@ -194,6 +211,25 @@ QString EkamDashboardPlugin::findFile(const QString& canonicalPath) {
   }
 }
 
+QList<ActionState*> EkamDashboardPlugin::allActions() {
+  QList<ActionState*> result;
+
+  foreach (ActionState* action, actions) {
+    if (!action->isHidden()) {
+      result << action;
+    }
+  }
+
+  return result;
+}
+
+void EkamDashboardPlugin::clearActions() {
+  foreach (ActionState* action, actions) {
+    delete action;
+  }
+  actions.clear();
+}
+
 // =======================================================================================
 
 ActionState::ActionState(
@@ -206,14 +242,20 @@ ActionState::ActionState(
   if (!initialUpdate.log().empty()) {
     consumeLog(initialUpdate.log());
   }
+  if (!isHidden()) {
+    plugin->unhideAction(this);
+  }
 }
 
 ActionState::~ActionState() {
+  emit removed();
   clearTasks();
 }
 
 void ActionState::applyUpdate(const ekam::proto::TaskUpdate& update) {
   if (update.has_state() && update.state() != state) {
+    bool wasHidden = isHidden();
+
     // If state was previously BLOCKED, and we managed to un-block, then we don't care about the
     // reason why we were blocked, so clear the text.
     if (state == ekam::proto::TaskUpdate::BLOCKED &&
@@ -223,7 +265,18 @@ void ActionState::applyUpdate(const ekam::proto::TaskUpdate& update) {
     }
 
     state = update.state();
-    emit stateChanged(state);
+
+    if (isHidden()) {
+      if (wasHidden) {
+        emit removed();
+      }
+    } else {
+      if (wasHidden) {
+        plugin->unhideAction(this);
+      } else {
+        emit stateChanged(state);
+      }
+    }
   }
   if (!update.log().empty()) {
     consumeLog(update.log());
