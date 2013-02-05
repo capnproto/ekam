@@ -1,0 +1,6 @@
+This code is NOT a Google product.
+
+Some of this code is copyright Google because I, Kenton Varda, was employed
+at Google when I wrote it.  Google allowed me to tinker with things in my
+20% time and release the code open source, but this was never officially a
+Google project.
