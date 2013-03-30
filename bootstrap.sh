@@ -40,8 +40,8 @@ if test -e bin/ekam; then
   rm -f bin/ekam
 fi
 
-echo \$ CXXFLAGS=-std=gnu++0x ./bootstrap-ekam -j4
-CXXFLAGS=-std=gnu++0x ./bootstrap-ekam -j4
+echo \$ CXXFLAGS='-std=gnu++0x -O2 -DNDEBUG -Wall' LIBS='-pthread' ./bootstrap-ekam -j4
+CXXFLAGS='-std=gnu++0x -O2 -DNDEBUG -Wall' LIBS='-pthread' ./bootstrap-ekam -j4
 
 echo "*************************************************"
 if test -e bin/ekam; then
