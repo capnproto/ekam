@@ -11,6 +11,7 @@ import java.util.Queue;
 
 import org.eclipse.swt.widgets.Display;
 
+import com.googlecode.ekam.proto.DashboardProto.Header;
 import com.googlecode.ekam.proto.DashboardProto.TaskUpdate;
 
 public class EventThread implements Runnable {
@@ -83,6 +84,10 @@ public class EventThread implements Runnable {
     while (!Thread.interrupted()) {
       try {
         reconnect();
+
+        // Skip the header.
+        Header.parseDelimitedFrom(input);
+
         while (true) {
           TaskUpdate update = TaskUpdate.parseDelimitedFrom(input);
           if (update == null) {

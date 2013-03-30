@@ -37,7 +37,7 @@ OwnedPtr<File> getDepsFile(File* objectFile) {
 }
 
 bool isTestName(const std::string& name) {
-  std::string::size_type pos = name.find_last_of('_');
+  std::string::size_type pos = name.find_last_of("_-");
   if (pos == std::string::npos) {
     return false;
   } else {

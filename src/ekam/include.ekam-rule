@@ -38,6 +38,7 @@ echo provide "$INPUT" "c++header:$INCLUDE_NAME"
 # HACK:  gtest likes to include things from its top-level directory.
 # TODO:  Come up with a more general way for dealing with this.
 INCLUDE_NAME=${INPUT##*/gtest/}
+INCLUDE_NAME=${INCLUDE_NAME#gtest/}
 if test "$INCLUDE_NAME" != "$INPUT"; then
   echo provide "$INPUT" "c++header:$INCLUDE_NAME"
 fi

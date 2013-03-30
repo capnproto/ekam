@@ -24,6 +24,7 @@ if test $# = 0; then
   echo trigger filetype:.cc
   echo trigger filetype:.C
   echo trigger filetype:.cxx
+  echo trigger filetype:.c++
   exit 0
 fi
 
@@ -41,6 +42,9 @@ case "$INPUT" in
     ;;
   *.cxx )
     MODULE_NAME=${INPUT%.cxx}
+    ;;
+  *.c++ )
+    MODULE_NAME=${INPUT%.c++}
     ;;
   * )
     echo "Wrong file type: $INPUT" >&2
@@ -106,7 +110,7 @@ case $(basename $OUTPUT) in
   gtest_main.o )
     echo provide "$OUTPUT_DISK_PATH" gtest:main
     ;;
-  *_test.o | *_unittest.o | *_regtest.o )
+  *_test.o | *_unittest.o | *_regtest.o | *-test.o )
     # Is this a gtest test that needs to link against gtest_main?
     if grep -q 7testing8internal23MakeAndRegisterTestInfo $DEPFILE && \
        ! egrep -q '[^U] _?main$' $SYMFILE; then
