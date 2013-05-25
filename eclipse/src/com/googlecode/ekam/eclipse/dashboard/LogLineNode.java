@@ -22,7 +22,8 @@ public class LogLineNode implements TreeNode {
 
     IMarker marker = null;
 
-    if (line.filename != null) {
+    // Impose a 100-line limit on markers because too many of them cause eclipse to slow down.
+    if (line.filename != null && index < 100) {
       IFile file = fileFinder.find(line.filename);
       if (file != null) {
         try {
@@ -32,6 +33,9 @@ public class LogLineNode implements TreeNode {
           if (line.locationLine >= 0) {
             marker.setAttribute(IMarker.LINE_NUMBER, line.locationLine);
           }
+          // TODO:  It would be awesome to set CHAR_START and CHAR_END, but it turns out they are
+          //   offsets from the start of the goddamn file, rather than from the start of the line.
+          //   Translating would be hard.
         } catch (CoreException e) {
           e.printStackTrace();
         }
