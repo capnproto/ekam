@@ -165,6 +165,85 @@ static int get_cached_result(const char* pathname, char* buffer, usage_t usage) 
   return result;
 }
 
+static void canonicalizePath(char* path) {
+  /* Preconditions:
+   * - path has already been determined to be relative, perhaps because the pointer actually points
+   *   into the middle of some larger path string, in which case it must point to the character
+   *   immediately after a '/'.
+   */
+
+  /* Invariants:
+   * - src points to the beginning of a path component.
+   * - dst points to the location where the path component should end up, if it is not special.
+   * - src == path or src[-1] == '/'.
+   * - dst == path or dst[-1] == '/'.
+   */
+
+  char* src = path;
+  char* dst = path;
+  char* locked = dst;  /* dst cannot backtrack past this */
+  char* partEnd;
+  int hasMore;
+
+  for (;;) {
+    while (*src == '/') {
+      /* Skip duplicate slash. */
+      ++src;
+    }
+
+    partEnd = strchr(src, '/');
+    hasMore = partEnd != NULL;
+    if (hasMore) {
+      *partEnd = '\0';
+    } else {
+      partEnd = src + strlen(src);
+    }
+
+    if (strcmp(src, ".") == 0) {
+      /* Skip it. */
+    } else if (strcmp(src, "..") == 0) {
+      if (dst > locked) {
+        /* Backtrack over last path component. */
+        --dst;
+        while (dst > locked && dst[-1] != '/') --dst;
+      } else {
+        locked += 3;
+        goto copy;
+      }
+    } else {
+      /* Copy if needed. */
+    copy:
+      if (dst < src) {
+        memmove(dst, src, partEnd - src);
+        dst += partEnd - src;
+      } else {
+        dst = partEnd;
+      }
+      *dst++ = '/';
+    }
+
+    if (hasMore) {
+      src = partEnd + 1;
+    } else {
+      /* Oops, we have to remove the trailing '/'. */
+      if (dst == path) {
+        /* Oops, there is no trailing '/'.  We have to return ".". */
+        strcpy(path, ".");
+      } else {
+        /* Remove the trailing '/'.  Note that this means that opening the file will work even
+         * if it is not a directory, where normally it should fail on non-directories when a
+         * trailing '/' is present.  If this is a problem, we need to add some sort of special
+         * handling for this case where we stat() it separately to check if it is a directory,
+         * because Ekam findInput will not accept a trailing '/'.
+         */
+        --dst;
+        *dst = '\0';
+      }
+      return;
+    }
+  }
+}
+
 static const char* remap_file(const char* syscall_name, const char* pathname,
                               char* buffer, usage_t usage) {
   char* pos;
@@ -207,6 +286,14 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
         return buffer;
       }
       *pos = ':';
+      canonicalizePath(pos + 1);
+
+      if (strcmp(buffer, "canonical:.") == 0) {
+        /* HACK:  Don't try to remap top directory. */
+        funlockfile(ekam_call_stream);
+        if (EKAM_DEBUG) fprintf(stderr, "  current directory\n");
+        return "src";
+      }
     }
 
     /* Ask ekam to remap the file name. */
@@ -244,16 +331,20 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
     funlockfile(ekam_call_stream);
     if (EKAM_DEBUG) fprintf(stderr, "  absolute path: %s\n", pathname);
     return pathname;
-  } else if (strcmp(pathname, ".") == 0) {
-    /* HACK:  Don't try to remap current directory. */
-    funlockfile(ekam_call_stream);
-    if (EKAM_DEBUG) fprintf(stderr, "  current directory\n");
-    return pathname;
   } else {
-    /* Ask ekam to remap the file name. */
-    fputs(usage == READ ? "findInput " : "newOutput ", ekam_call_stream);
-    fputs(pathname, ekam_call_stream);
-    fputs("\n", ekam_call_stream);
+    strcpy(buffer, pathname);
+    canonicalizePath(buffer);
+    if (strcmp(buffer, ".") == 0) {
+      /* HACK:  Don't try to remap current directory. */
+      funlockfile(ekam_call_stream);
+      if (EKAM_DEBUG) fprintf(stderr, "  current directory\n");
+      return "src";
+    } else {
+      /* Ask ekam to remap the file name. */
+      fputs(usage == READ ? "findInput " : "newOutput ", ekam_call_stream);
+      fputs(buffer, ekam_call_stream);
+      fputs("\n", ekam_call_stream);
+    }
   }
 
   fflush(ekam_call_stream);
@@ -406,8 +497,9 @@ int execvpe(const char* path, char* const argv[], char* const envp[]) {
     assert(real_execvpe != NULL);
   }
 
-  // If the path does not contain a '/', PATH resolution will be done, so we don't want to
-  // remap.
+  /* If the path does not contain a '/', PATH resolution will be done, so we don't want to
+   * remap.
+   */
   if (strchr(path, '/') == NULL) {
     path = remap_file("execvpe", path, buffer, READ);
     if (path == NULL) return -1;
@@ -428,8 +520,9 @@ int execvp(const char* path, char* const argv[]) {
     assert(real_execvp != NULL);
   }
 
-  // If the path does not contain a '/', PATH resolution will be done, so we don't want to
-  // remap.
+  /* If the path does not contain a '/', PATH resolution will be done, so we don't want to
+   * remap.
+   */
   if (strchr(path, '/') != NULL) {
     path = remap_file("execvp", path, buffer, READ);
     if (path == NULL) return -1;
