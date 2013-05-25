@@ -77,7 +77,8 @@ read OUTPUT_DISK_PATH
 CXX=${CXX:-c++}
 CXXFLAGS=${CXXFLAGS:-}
 LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
-$CXX $CXXFLAGS -I/ekam-provider/c++header -c "$INPUT" -o "${MODULE_NAME}.o" 3>&1 4<&0 >&2
+    $CXX $CXXFLAGS -I/ekam-provider/c++header -c "/ekam-provider/canonical/$INPUT" \
+    -o "${MODULE_NAME}.o" 3>&1 4<&0 >&2
 
 # Ask Ekam where to put the symbol and deps lists.
 echo newOutput "${MODULE_NAME}.o.syms"

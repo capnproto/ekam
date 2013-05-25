@@ -161,21 +161,22 @@ public:
 };
 
 template <typename Func>
+class LambdaRunnable: public Runnable {
+public:
+  LambdaRunnable(Func&& func): func(std::move(func)) {}
+  ~LambdaRunnable() {}
+
+  void run() {
+    func();
+  }
+
+private:
+  Func func;
+};
+
+template <typename Func>
 OwnedPtr<Runnable> newLambdaRunnable(Func&& func) {
-  class RunnableImpl: public Runnable {
-  public:
-    RunnableImpl(Func&& func): func(std::move(func)) {}
-    ~RunnableImpl() {}
-
-    void run() {
-      func();
-    }
-
-  private:
-    Func func;
-  };
-
-  return newOwned<RunnableImpl>(std::move(func));
+  return newOwned<LambdaRunnable<Func>>(std::move(func));
 }
 
 // =======================================================================================
@@ -340,7 +341,7 @@ public:
 
 namespace promiseInternal {
 
-class PromiseConstructors;
+struct PromiseConstructors;
 
 template <typename T, typename Func, typename ExceptionHandler, typename ParamPack>
 class DependentPromiseFulfiller;
@@ -577,6 +578,7 @@ public:
       : PromiseState<T>(),
         callback(this),
         fulfillerImpl(&callback, std::forward<Params>(params)...) {}
+  virtual ~FulfillerPromiseState() {}
 
 private:
   typename PromiseFulfiller<T>::Callback callback;

@@ -118,6 +118,10 @@ private:
   OwnedPtrVector<std::vector<Tag> > providedTags;
   OwnedPtrVector<ActionFactory> providedFactories;
 
+  // True if returned() is currently on the stack.  Causes destructor to abort.  Used for
+  // debugging.
+  bool currentlyExecutingReturned = false;
+
   void ensureRunning();
   void queueDoneCallback();
   void returned();
@@ -134,12 +138,12 @@ Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action> action,
     : driver(driver), action(action.release()), srcfile(srcfile->clone()), srcHash(srcHash),
       dashboardTask(task.release()), state(PENDING), eventGroup(driver->eventManager, this),
       isRunning(false) {}
-Driver::ActionDriver::~ActionDriver() {}
+Driver::ActionDriver::~ActionDriver() {
+  assert(!currentlyExecutingReturned);
+}
 
 void Driver::ActionDriver::start() {
-  if (state != PENDING) {
-    DEBUG_ERROR << "State must be PENDING here.";
-  }
+  assert(state == PENDING);
   assert(!driver->dependencyTable.has<DependencyTable::ACTION>(this));
   assert(outputs.empty());
   assert(provisions.empty());
@@ -199,6 +203,7 @@ File* Driver::ActionDriver::provideInternal(File* file, const std::vector<Tag>& 
   if (provision == NULL) {
     auto ownedProvision = newOwned<Provision>();
     provision = ownedProvision.get();
+    provision->creator = this;
     provisions.add(ownedProvision.release());
     providedTags.add(newOwned<std::vector<Tag>>(tags));
   }
@@ -294,7 +299,7 @@ void Driver::ActionDriver::ensureRunning() {
 }
 
 void Driver::ActionDriver::queueDoneCallback() {
-  asyncCallbackOp = eventGroup.when()(
+  asyncCallbackOp = driver->eventManager->when()(
     [this]() {
       asyncCallbackOp.release();
       Driver* driver = this->driver;
@@ -321,6 +326,8 @@ void Driver::ActionDriver::threwUnknownException() {
 
 void Driver::ActionDriver::returned() {
   ensureRunning();
+
+  currentlyExecutingReturned = true;
 
   // Cancel anything still running.
   runningAction.release();
@@ -358,9 +365,11 @@ void Driver::ActionDriver::returned() {
       }
     }
 
-    // Register providers.
+    // Register providers.  But, don't allow our own dependencies to depend on them.
+    std::unordered_set<ActionDriver*> deps;
+    driver->getTransitiveDependencies(this, &deps);
     for (int i = 0; i < provisions.size(); i++) {
-      driver->registerProvider(provisions.get(i), *providedTags.get(i));
+      driver->registerProvider(provisions.get(i), *providedTags.get(i), deps);
     }
     providedTags.clear();  // Not needed anymore.
 
@@ -387,9 +396,13 @@ void Driver::ActionDriver::returned() {
       target->link(installations[i].file);
     }
   }
+
+  currentlyExecutingReturned = false;
 }
 
 void Driver::ActionDriver::reset() {
+  assert(!currentlyExecutingReturned);
+
   if (state == PENDING) {
     // Nothing to do.
     return;
@@ -563,8 +576,9 @@ void Driver::addSourceFile(File* file) {
   tags.push_back(Tag::DEFAULT_TAG);
 
   provision = newOwned<Provision>();
+  provision->creator = nullptr;
   provision->file = file->clone();
-  registerProvider(provision.get(), tags);
+  registerProvider(provision.get(), tags, std::unordered_set<ActionDriver*>());
   File* key = provision->file.get();  // cannot inline due to undefined evaluation order
   rootProvisions.add(key, provision.release());
 
@@ -633,20 +647,39 @@ void Driver::queueNewAction(ActionFactory* factory, OwnedPtr<Action> action,
   pendingActions.pushFront(actionDriver.release());
 }
 
-void Driver::registerProvider(Provision* provision, const std::vector<Tag>& tags) {
+void Driver::getTransitiveDependencies(
+    ActionDriver* action, std::unordered_set<ActionDriver*>* deps) {
+  if (action != nullptr && deps->insert(action).second) {
+    for (ActionTriggersTable::SearchIterator<ActionTriggersTable::ACTION>
+         iter(actionTriggersTable, action); iter.next();) {
+      getTransitiveDependencies(iter.cell<ActionTriggersTable::PROVISION>()->creator, deps);
+    }
+    for (DependencyTable::SearchIterator<DependencyTable::ACTION>
+         iter(dependencyTable, action); iter.next();) {
+      Provision* provision = iter.cell<DependencyTable::PROVISION>();
+      if (provision != nullptr) {
+        getTransitiveDependencies(provision->creator, deps);
+      }
+    }
+  }
+}
+
+void Driver::registerProvider(Provision* provision, const std::vector<Tag>& tags,
+                              const std::unordered_set<ActionDriver*>& dependencies) {
   provision->contentHash = provision->file->contentHash();
 
   for (std::vector<Tag>::const_iterator iter = tags.begin(); iter != tags.end(); ++iter) {
     const Tag& tag = *iter;
     tagTable.add(tag, provision);
 
-    resetDependentActions(tag);
+    resetDependentActions(tag, dependencies);
 
     fireTriggers(tag, provision);
   }
 }
 
-void Driver::resetDependentActions(const Tag& tag) {
+void Driver::resetDependentActions(const Tag& tag,
+                                   const std::unordered_set<ActionDriver*>& dependencies) {
   std::tr1::unordered_set<Provision*> provisionsToReset;
 
   std::vector<ActionDriver*> actionsToReset;
@@ -654,11 +687,18 @@ void Driver::resetDependentActions(const Tag& tag) {
   for (DependencyTable::SearchIterator<DependencyTable::TAG> iter(dependencyTable, tag);
        iter.next();) {
     ActionDriver* action = iter.cell<DependencyTable::ACTION>();
-    Provision* previousProvider = iter.cell<DependencyTable::PROVISION>();
 
-    if (action->choosePreferredProvider(tag) != previousProvider) {
-      // We can't just call reset() here because it could invalidate our iterator.
-      actionsToReset.push_back(action);
+    // Don't reset an action that contributed to the creation of this tag in the first place, since
+    // that would lead to an infinite loop of rebuilding the same action.
+    if (dependencies.count(action) == 0) {
+      Provision* previousProvider = iter.cell<DependencyTable::PROVISION>();
+
+      if (action->choosePreferredProvider(tag) != previousProvider) {
+        // We can't just call reset() here because it could invalidate our iterator.
+        actionsToReset.push_back(action);
+      }
+    } else {
+      DEBUG_INFO << "Action's inputs are affected by its outputs.";
     }
   }
 

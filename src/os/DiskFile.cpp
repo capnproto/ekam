@@ -200,7 +200,8 @@ Hash DiskFile::contentHash() {
       hasher.add(buffer, n);
     }
   } catch (const OsError& e) {
-    if (e.getErrorNumber() == ENOENT || e.getErrorNumber() == EACCES) {
+    if (e.getErrorNumber() == ENOENT || e.getErrorNumber() == EACCES ||
+        e.getErrorNumber() == EISDIR) {
       return Hash::NULL_HASH;
     }
     throw;

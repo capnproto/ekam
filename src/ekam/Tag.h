@@ -36,7 +36,7 @@ public:
   static const Tag DEFAULT_TAG;
 
   static inline Tag fromName(const std::string& name) {
-    return Tag(Hash::of(name));
+    return Tag(name);
   }
 
   static Tag fromFile(const std::string& path);
@@ -63,7 +63,12 @@ public:
 private:
   Hash hash;
 
-  inline explicit Tag(Hash hash) : hash(hash) {}
+#ifdef EXTRA_DEBUG
+  std::string name;
+  inline explicit Tag(const std::string& name) : hash(Hash::of(name)), name(name) {}
+#else
+  inline explicit Tag(const std::string& name) : hash(Hash::of(name)) {}
+#endif
 };
 
 }  // namespace ekam

@@ -17,8 +17,9 @@
 #ifndef KENTONSCODE_EKAM_DRIVER_H_
 #define KENTONSCODE_EKAM_DRIVER_H_
 
-#include <tr1/unordered_map>
-#include <tr1/memory>
+#include <unordered_map>
+#include <unordered_set>
+#include <memory>
 #include <set>
 
 #include "base/OwnedPtr.h"
@@ -61,6 +62,7 @@ private:
   TriggerTable triggers;
 
   struct Provision {
+    ActionDriver* creator;  // possibly null
     OwnedPtr<File> file;
     Hash contentHash;
   };
@@ -105,8 +107,12 @@ private:
   void queueNewAction(ActionFactory* factory, OwnedPtr<Action> action,
                       Provision* provision);
 
-  void registerProvider(Provision* provision, const std::vector<Tag>& tags);
-  void resetDependentActions(const Tag& tag);
+  void getTransitiveDependencies(ActionDriver* action, std::unordered_set<ActionDriver*>* deps);
+
+  void registerProvider(Provision* provision, const std::vector<Tag>& tags,
+                        const std::unordered_set<ActionDriver*>& dependencies);
+  void resetDependentActions(const Tag& tag,
+                             const std::unordered_set<ActionDriver*>& dependencies);
   void resetDependentActions(Provision* provision);
   void fireTriggers(const Tag& tag, Provision* provision);
 

@@ -50,6 +50,8 @@ public:
 
     std::string name = file->canonicalName();
 
+    tags.push_back(Tag::fromName("canonical:" + name));
+
     while (true) {
       tags.push_back(Tag::fromFile(name));
 
@@ -61,10 +63,13 @@ public:
       name.erase(0, slashPos + 1);
     }
 
-
-    std::string base, ext;
-    splitExtension(name, &base, &ext);
-    if (!ext.empty()) tags.push_back(Tag::fromName("filetype:" + ext));
+    if (file->isDirectory()) {
+      tags.push_back(Tag::fromName("directory:*"));
+    } else {
+      std::string base, ext;
+      splitExtension(name, &base, &ext);
+      if (!ext.empty()) tags.push_back(Tag::fromName("filetype:" + ext));
+    }
 
     context->provide(file.get(), tags);
 
@@ -105,6 +110,8 @@ public:
     resetWatch();
   }
 
+  virtual ~Watcher() {}
+
   EventManager* const eventManager;
   Driver* const driver;
   const bool isDirectory;
@@ -137,9 +144,10 @@ public:
   }
 
   bool isDeleted() {
-    return asyncOp == NULL;
+    return asyncOp == nullptr;
   }
 
+  virtual void created() = 0;
   virtual void modified() = 0;
   virtual void deleted() = 0;
   virtual void reallyDeleted() = 0;
@@ -157,6 +165,10 @@ public:
   ~FileWatcher() {}
 
   // implements FileChangeCallback -------------------------------------------------------
+  void created() {
+    DEBUG_INFO << "Source file created: " << file->canonicalName();
+    modified();
+  }
   void modified() {
     DEBUG_INFO << "Source file modified: " << file->canonicalName();
 
@@ -190,6 +202,10 @@ public:
   ~DirectoryWatcher() {}
 
   // implements FileChangeCallback -------------------------------------------------------
+  void created() {
+    driver->addSourceFile(file.get());
+    modified();
+  }
   void modified() {
     DEBUG_INFO << "Directory modified: " << file->canonicalName();
 
@@ -241,7 +257,7 @@ public:
         } else {
           child = newOwned<FileWatcher>(childFile.release(), eventManager, driver);
         }
-        child->modified();
+        child->created();
       }
 
       File* key = child->file.get();  // cannot inline due to undefined evaluation order
@@ -275,6 +291,7 @@ public:
     DEBUG_INFO << "Directory deleted: " << file->canonicalName();
 
     clearWatch();
+    driver->removeSourceFile(file.get());
 
     // Delete all children.
     for (ChildMap::Iterator iter(children); iter.next();) {
@@ -307,9 +324,9 @@ void scanSourceTree(File* src, Driver* driver) {
       for (int i = 0; i < list.size(); i++) {
         fileQueue.add(list.release(i));
       }
-    } else {
-      driver->addSourceFile(current.get());
     }
+
+    driver->addSourceFile(current.get());
   }
 }
 
