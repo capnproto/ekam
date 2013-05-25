@@ -19,6 +19,9 @@
 echo "This script builds a basic Ekam binary using a single massive compiler"
 echo "invocation, then rebuilds Ekam using Ekam itself."
 
+CXX=${CXX:-g++}
+export CXX
+
 SOURCES=$(find src/base src/os src/ekam -name '*.cpp' |
     grep -v KqueueEventManager | grep -v PollEventManager |
     grep -v ProtoDashboard | grep -v ekam-client | grep -v _test)
@@ -29,8 +32,8 @@ echo "*************************************************"
 echo "Building using one massive compile..."
 echo "*************************************************"
 
-echo \$ g++ -Isrc -std=gnu++0x $SOURCES -o bootstrap-ekam
-g++ -Isrc -std=gnu++0x $SOURCES -o bootstrap-ekam
+echo \$ $CXX -Isrc -std=c++11 $SOURCES -o bootstrap-ekam
+$CXX -Isrc -std=c++11 $SOURCES -o bootstrap-ekam
 
 echo "*************************************************"
 echo "Building again using Ekam..."
@@ -40,8 +43,8 @@ if test -e bin/ekam; then
   rm -f bin/ekam
 fi
 
-echo \$ CXXFLAGS='-std=gnu++0x -O2 -DNDEBUG -Wall' LIBS='-pthread' ./bootstrap-ekam -j4
-CXXFLAGS='-std=gnu++0x -O2 -DNDEBUG -Wall' LIBS='-pthread' ./bootstrap-ekam -j4
+echo \$ CXXFLAGS='-std=c++11 -O2 -DNDEBUG -Wall' LIBS='-pthread' ./bootstrap-ekam -j4
+CXXFLAGS='-std=c++11 -O2 -DNDEBUG -Wall' LIBS='-pthread' ./bootstrap-ekam -j4
 
 echo "*************************************************"
 if test -e bin/ekam; then
