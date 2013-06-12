@@ -66,6 +66,20 @@ OUTPUT=${MODULE_NAME}.o
 echo newOutput "$OUTPUT"
 read OUTPUT_DISK_PATH
 
+CXX=${CXX:-c++}
+CXXFLAGS=${CXXFLAGS:-}
+
+# Remove -Wglobal-constructors in tests because the test framework depends on registering global
+# objects, and we only care about global constructors in runtime code anyway.
+case "$CXXFLAGS" in
+  *-Wglobal-constructors* )
+    case "$MODULE_NAME" in
+      *-test )
+        CXXFLAGS="$CXXFLAGS -Wno-global-constructors"
+        ;;
+    esac
+esac
+
 # Compile!  We LD_PRELOAD intercept.so to intercept open() and other filesystem calls and convert
 # them into Ekam requests.  intercept.so expects file descriptors 3 and 4 to be the Ekam request
 # and response streams, so we remap them to stdout and stdin, respectively.  We also remap stdout
@@ -74,8 +88,6 @@ read OUTPUT_DISK_PATH
 #
 # The DYLD_ vars are the Mac OSX equivalent of LD_PRELOAD.  We don't bother checking which OS we're
 # on since the other vars will just be ignored anyway.
-CXX=${CXX:-c++}
-CXXFLAGS=${CXXFLAGS:-}
 LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
     $CXX $CXXFLAGS -I/ekam-provider/c++header -c "/ekam-provider/canonical/$INPUT" \
     -o "${MODULE_NAME}.o" 3>&1 4<&0 >&2

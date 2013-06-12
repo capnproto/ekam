@@ -45,6 +45,6 @@ if LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INT
 	exit 0
 else
   echo "full log: $TEST_LOG" >&2
-  egrep 'FAIL|ERROR|FATAL' "$TEST_LOG" >&2
+  egrep 'FAIL|ERROR|FATAL|ekam-provider' "$TEST_LOG" >&2
   exit 1
 fi
