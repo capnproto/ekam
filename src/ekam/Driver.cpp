@@ -703,7 +703,11 @@ void Driver::resetDependentActions(const Tag& tag,
   }
 
   for (size_t i = 0; i < actionsToReset.size(); i++) {
-    actionsToReset[i]->reset();
+    // Only reset the action if it is still in the dependency table.  If not, it was already
+    // reset (and possibly deleted!) elsewhere.
+    if (dependencyTable.find<DependencyTable::ACTION>(actionsToReset[i]) != nullptr) {
+      actionsToReset[i]->reset();
+    }
   }
 }
 
@@ -717,7 +721,11 @@ void Driver::resetDependentActions(Provision* provision) {
       actionsToReset.push_back(iter.cell<DependencyTable::ACTION>());
     }
     for (size_t j = 0; j < actionsToReset.size(); j++) {
-      actionsToReset[j]->reset();
+      // Only reset the action if it is still in the dependency table.  If not, it was already
+      // reset (and possibly deleted!) elsewhere.
+      if (dependencyTable.find<DependencyTable::ACTION>(actionsToReset[j]) != nullptr) {
+        actionsToReset[j]->reset();
+      }
     }
     if (dependencyTable.erase<DependencyTable::PROVISION>(provision) > 0) {
       DEBUG_ERROR << "Resetting dependents should have removed this provision from "

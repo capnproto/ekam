@@ -42,6 +42,7 @@ public:
   inline int erase(const iterator& iter) {
     return 0;
   }
+  inline void swap(DummyMap& other) {}
 };
 
 template <typename Choices, int index>
@@ -309,19 +310,15 @@ private:
   void refreshColumn(const std::vector<int>& newLocations) {
     typedef Column<columnNumber> C;
     typedef typename C::Index::iterator ColumnIterator;
-    ColumnIterator iter = C::index(this)->begin();
-    while (iter != C::index(this)->end()) {
+    typename C::Index newIndex;
+    for (ColumnIterator iter = C::index(this)->begin();
+         iter != C::index(this)->end(); ++iter) {
       int newLocation = newLocations[iter->second];
-      if (newLocation == -1) {
-        ColumnIterator iter2 = iter;
-        ++iter2;
-        C::index(this)->erase(iter);
-        iter = iter2;
-      } else {
-        iter->second = newLocation;
-        ++iter;
+      if (newLocation != -1) {
+        newIndex.insert(std::make_pair(iter->first, newLocation));
       }
     }
+    C::index(this)->swap(newIndex);
   }
 
   template <typename Iterator>
