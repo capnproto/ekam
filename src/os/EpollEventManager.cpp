@@ -619,6 +619,9 @@ public:
     if (watchedDirectory != NULL) {
       watchedDirectory->removeWatch(this);
     }
+    if (fulfiller != nullptr) {
+      fulfiller->abandon();
+    }
   }
 
   void flagAsModified() {
@@ -633,6 +636,9 @@ public:
 
   // implements FileWatcher --------------------------------------------------------------
   Promise<FileChangeType> onChange() {
+    if (fulfiller != nullptr) {
+      fulfiller->abandon();
+    }
     auto result = newPromise<Fulfiller>(&fulfiller);
     maybeFulfill();
     return result;
