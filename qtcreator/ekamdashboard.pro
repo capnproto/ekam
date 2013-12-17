@@ -52,11 +52,11 @@ QMAKE_EXTRA_COMPILERS += protobuf_src
 
 ## set the QTC_SOURCE environment variable to override the setting here
 QTCREATOR_SOURCES = $$(QTC_SOURCE)
-isEmpty(QTCREATOR_SOURCES):QTCREATOR_SOURCES=/home/kenton/qtcreator-2.5.2/src/qt-creator-2.5.2-src
+isEmpty(QTCREATOR_SOURCES):QTCREATOR_SOURCES=/home/kenton/src/qt-creator-opensource-src-3.0.0
 
 ## set the QTC_BUILD environment variable to override the setting here
 IDE_BUILD_TREE = $$(QTC_BUILD)
-isEmpty(IDE_BUILD_TREE):IDE_BUILD_TREE=/home/kenton/qtcreator-2.5.2
+isEmpty(IDE_BUILD_TREE):IDE_BUILD_TREE=/home/kenton/src/qt-creator-opensource-src-3.0.0
 
 ## uncomment to build plugin into user config directory
 ## <localappdata>/plugins/<ideversion>
@@ -68,13 +68,32 @@ isEmpty(IDE_BUILD_TREE):IDE_BUILD_TREE=/home/kenton/qtcreator-2.5.2
 
 PROVIDER = KentonVarda
 
-include($$QTCREATOR_SOURCES/src/qtcreatorplugin.pri)
-include($$QTCREATOR_SOURCES/src/plugins/coreplugin/coreplugin.pri)
-include($$QTCREATOR_SOURCES/src/plugins/projectexplorer/projectexplorer.pri)
-include($$QTCREATOR_SOURCES/src/plugins/cpptools/cpptools.pri)
-include($$QTCREATOR_SOURCES/src/plugins/texteditor/texteditor.pri)
+###### If the plugin can be depended upon by other plugins, this code needs to be outsourced to
+###### <dirname>_dependencies.pri, where <dirname> is the name of the directory containing the
+###### plugin's sources.
 
-LIBS += -L$$IDE_PLUGIN_PATH/Nokia -lprotobuf -lQtNetwork
+QTC_PLUGIN_NAME = EkamDashboard
+QTC_LIB_DEPENDS += \
+    # nothing here at this time
+
+QTC_PLUGIN_DEPENDS += \
+    coreplugin \
+    projectexplorer \
+    cpptools \
+    texteditor \
+    locator \
+    find
+
+QTC_PLUGIN_RECOMMENDS += \
+    # optional plugin dependencies. nothing here at this time
+
+###### End _dependencies.pri contents ######
+
+QT += network
+
+include($$QTCREATOR_SOURCES/src/qtcreatorplugin.pri)
+
+LIBS += -L$$IDE_PLUGIN_PATH/Nokia -lprotobuf
 
 RESOURCES += \
     ekamdashboard.qrc

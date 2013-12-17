@@ -63,7 +63,7 @@ bool EkamDashboardPlugin::initialize(const QStringList &arguments, QString *erro
 
   Q_UNUSED(arguments)
   Q_UNUSED(errorString)
-  Core::ActionManager *am = Core::ICore::actionManager();
+  Core::ActionManager *am = Core::ActionManager::instance();
 
   QAction *action = new QAction(tr("EkamDashboard action"), this);
   Core::Command *cmd = am->registerAction(action, Constants::ACTION_ID,
@@ -89,7 +89,7 @@ void EkamDashboardPlugin::extensionsInitialized() {
   ExtensionSystem::PluginManager *pm = ExtensionSystem::PluginManager::instance();
   hub = pm->getObject<ProjectExplorer::TaskHub>();
 
-  hub->addCategory(Core::Id(Constants::TASK_CATEGORY_ID), "Ekam task");
+  hub->addCategory(Core::Id(Constants::TASK_CATEGORY_ID), QLatin1String("Ekam task"));
 
   socket = new QTcpSocket(this);
   connect(socket, SIGNAL(error(QAbstractSocket::SocketError)),
@@ -118,7 +118,7 @@ void EkamDashboardPlugin::triggerAction() {
                            tr("This is an action from EkamDashboard."));
 
   hub->addTask(ProjectExplorer::Task(
-      ProjectExplorer::Task::Error, "test error",
+      ProjectExplorer::Task::Error, QLatin1String("test error"),
       Utils::FileName::fromUserInput(QLatin1String("/home/kenton/code/src/base/OwnedPtr.h")), 10,
       Core::Id(Constants::TASK_CATEGORY_ID)));
 }
@@ -169,7 +169,7 @@ void EkamDashboardPlugin::socketReady() {
 void EkamDashboardPlugin::tryConnect() {
   seenHeader = false;
 //  qDebug() << "Trying to connect...";
-  socket->connectToHost("localhost", 51315);
+  socket->connectToHost(QLatin1String("localhost"), 51315);
 }
 
 void EkamDashboardPlugin::consumeMessage(const void* data, int size) {
@@ -314,10 +314,10 @@ void ActionState::consumeLog(const std::string& log) {
 }
 
 void ActionState::parseLogLine(QString line) {
-  static const QRegExp FILE("^([^ :]+):(.*)");
-  static const QRegExp INDEX("^([0-9]+):(.*)");
-  static const QRegExp WARNING(" *warning:(.*)", Qt::CaseInsensitive);
-  static const QRegExp NOTE(" *note:(.*)", Qt::CaseInsensitive);
+  static const QRegExp FILE(QLatin1String("^([^ :]+):(.*)"));
+  static const QRegExp INDEX(QLatin1String("^([0-9]+):(.*)"));
+  static const QRegExp WARNING(QLatin1String(" *warning:(.*)"), Qt::CaseInsensitive);
+  static const QRegExp NOTE(QLatin1String(" *note:(.*)"), Qt::CaseInsensitive);
 
   ProjectExplorer::Task::TaskType type = ProjectExplorer::Task::Unknown;
   QString file;

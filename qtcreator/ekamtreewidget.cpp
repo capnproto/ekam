@@ -105,7 +105,7 @@ void EkamTreeNode::actionRemoved() {
 void EkamTreeNode::createNode(const QString& noun, const QString& verb, ActionState* action) {
   int slash = noun.indexOf(QLatin1Char('/'));
 
-  QString childName = (slash == -1) ? QString("%1 (%2)").arg(noun, verb) : noun.mid(0, slash);
+  QString childName = (slash == -1) ? QString(QLatin1String("%1 (%2)")).arg(noun, verb) : noun.mid(0, slash);
 
   QList<EkamTreeNode*>::iterator iter = childNodes.begin();
   while (iter < childNodes.end() && (*iter)->name < childName) {
@@ -364,7 +364,7 @@ void EkamTreeWidget::jumpTo(const QModelIndex& index) {
     if (task == 0) {
       // Open in editor.
       Core::EditorManager* editorManager = Core::EditorManager::instance();
-      editorManager->openEditor(action->getPath(), Core::Id(), Core::EditorManager::ModeSwitch);
+      editorManager->openEditor(action->getPath(), Core::Id());
     } else {
       plugin->taskHub()->taskMarkClicked(task->taskId);
     }

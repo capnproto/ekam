@@ -94,6 +94,7 @@ private:
 
 class EkamDashboardPlugin : public ExtensionSystem::IPlugin {
   Q_OBJECT
+  Q_PLUGIN_METADATA(IID "org.googlecode.kentons-code.EkamDashboardPluginr")
     
 public:
   EkamDashboardPlugin();
