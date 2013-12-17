@@ -318,6 +318,8 @@ void ActionState::parseLogLine(QString line) {
   static const QRegExp INDEX(QLatin1String("^([0-9]+):(.*)"));
   static const QRegExp WARNING(QLatin1String("(.*[^a-zA-Z0-9])?warning:(.*)"), Qt::CaseInsensitive);
   static const QRegExp ERROR(QLatin1String("(.*[^a-zA-Z0-9])?error:(.*)"), Qt::CaseInsensitive);
+  static const QRegExp FAILURE(QLatin1String(" *failure *"), Qt::CaseInsensitive);
+  static const QRegExp FULL_LOG(QLatin1String("full log: tmp/(.*)"));
 
   ProjectExplorer::Task::TaskType type = ProjectExplorer::Task::Unknown;
   QString file;
@@ -327,8 +329,15 @@ void ActionState::parseLogLine(QString line) {
   // OMGWTF matching a QRegExp modifies the QRegExp object rather than returning some sort of match
   // object, so we must make copies.  Hopefully using the copy constructor rather than constructing
   // directly from the pattern strings means they won't be re-compiled every time.
+  QRegExp fullLog = FULL_LOG;
   QRegExp fileRe = FILE;
-  if (fileRe.exactMatch(line)) {
+  if (fullLog.exactMatch(line)) {
+    file = fullLog.capturedTexts()[1];
+    file = plugin->findFile(file);
+    if (!file.startsWith(QLatin1Char('/'))) {
+      file.clear();
+    }
+  } else if (fileRe.exactMatch(line)) {
     file = fileRe.capturedTexts()[1];
     if (file.startsWith(QLatin1String("/ekam-provider/c++header/"))) {
       file.remove(0, strlen("/ekam-provider/c++header/"));
@@ -358,10 +367,13 @@ void ActionState::parseLogLine(QString line) {
 
   QRegExp errorRe = ERROR;
   QRegExp warningRe = WARNING;
+  QRegExp failureRe = FAILURE;
   if (errorRe.exactMatch(line)) {
     type = ProjectExplorer::Task::Error;
   } else if (warningRe.exactMatch(line)) {
     type = ProjectExplorer::Task::Warning;
+  } else if (failureRe.exactMatch(line)) {
+    type = ProjectExplorer::Task::Error;
   }
 
   // Qt Creator tasks don't support column numbers, so add it back into the error text.
