@@ -219,6 +219,7 @@ void EkamTreeNode::setAction(ActionState* newAction) {
   }
 
   action = newAction;
+  stateChanged(action == 0 ? DEFAULT_STATE : action->getState());
 
   if (action != 0) {
     connect(action, SIGNAL(stateChanged(ekam::proto::TaskUpdate::State)),
@@ -361,12 +362,18 @@ void EkamTreeWidget::jumpTo(const QModelIndex& index) {
   ActionState* action = model->indexToNode(index)->getAction();
   if (action != 0) {
     const ProjectExplorer::Task* task = action->firstTask();
+    Core::EditorManager* editorManager = Core::EditorManager::instance();
     if (task == 0) {
       // Open in editor.
-      Core::EditorManager* editorManager = Core::EditorManager::instance();
-      editorManager->openEditor(action->getPath(), Core::Id());
+      editorManager->openEditor(action->getPath());
     } else {
+      // Open first task in editor and issues list.
       plugin->taskHub()->taskMarkClicked(task->taskId);
+      QString name = task->file.toString();
+      if (name.isEmpty()) {
+        name = action->getPath();
+      }
+      editorManager->openEditorAt(name, task->line);
     }
   }
 }

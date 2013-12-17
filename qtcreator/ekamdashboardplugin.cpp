@@ -316,8 +316,8 @@ void ActionState::consumeLog(const std::string& log) {
 void ActionState::parseLogLine(QString line) {
   static const QRegExp FILE(QLatin1String("^([^ :]+):(.*)"));
   static const QRegExp INDEX(QLatin1String("^([0-9]+):(.*)"));
-  static const QRegExp WARNING(QLatin1String(" *warning:(.*)"), Qt::CaseInsensitive);
-  static const QRegExp NOTE(QLatin1String(" *note:(.*)"), Qt::CaseInsensitive);
+  static const QRegExp WARNING(QLatin1String("(.*[^a-zA-Z0-9])?warning:(.*)"), Qt::CaseInsensitive);
+  static const QRegExp ERROR(QLatin1String("(.*[^a-zA-Z0-9])?error:(.*)"), Qt::CaseInsensitive);
 
   ProjectExplorer::Task::TaskType type = ProjectExplorer::Task::Unknown;
   QString file;
@@ -332,6 +332,8 @@ void ActionState::parseLogLine(QString line) {
     file = fileRe.capturedTexts()[1];
     if (file.startsWith(QLatin1String("/ekam-provider/c++header/"))) {
       file.remove(0, strlen("/ekam-provider/c++header/"));
+    } else if (file.startsWith(QLatin1String("/ekam-provider/canonical/"))) {
+      file.remove(0, strlen("/ekam-provider/canonical/"));
     }
     file = plugin->findFile(file);
     if (file.startsWith(QLatin1Char('/'))) {
@@ -345,7 +347,7 @@ void ActionState::parseLogLine(QString line) {
 
   QRegExp indexRe = INDEX;
   if (indexRe.exactMatch(line)) {
-    type = ProjectExplorer::Task::Error;
+    type = ProjectExplorer::Task::Unknown;
     lineNo = indexRe.capturedTexts()[1].toInt();
     line = indexRe.capturedTexts()[2];
     if (indexRe.exactMatch(line)) {
@@ -354,14 +356,12 @@ void ActionState::parseLogLine(QString line) {
     }
   }
 
+  QRegExp errorRe = ERROR;
   QRegExp warningRe = WARNING;
-  QRegExp noteRe = NOTE;
-  if (warningRe.exactMatch(line)) {
+  if (errorRe.exactMatch(line)) {
+    type = ProjectExplorer::Task::Error;
+  } else if (warningRe.exactMatch(line)) {
     type = ProjectExplorer::Task::Warning;
-    line = warningRe.capturedTexts()[1];
-  } else if (noteRe.exactMatch(line)) {
-    type = ProjectExplorer::Task::Unknown;
-    line = noteRe.capturedTexts()[1];
   }
 
   // Qt Creator tasks don't support column numbers, so add it back into the error text.
