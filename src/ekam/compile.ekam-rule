@@ -130,4 +130,10 @@ case $(basename $OUTPUT) in
 	    echo provide "$OUTPUT_DISK_PATH" gtest:test
     fi
     ;;
+  * )
+    if egrep -q ' D [a-z]+_module' $SYMFILE && \
+       grep -q _ZN2v811HandleScopeC1Ev $DEPFILE; then
+            echo provide "$OUTPUT_DISK_PATH" nodejs:module
+    fi
+    ;;
 esac
