@@ -52,7 +52,8 @@ class LinkAction : public Action {
 public:
   enum Mode {
     NORMAL,
-    GTEST
+    GTEST,
+    NODEJS
   };
 
   LinkAction(File* file, Mode mode);
@@ -154,6 +155,12 @@ Promise<void> LinkAction::start(EventManager* eventManager, BuildContext* contex
   auto subprocess = newOwned<Subprocess>();
 
   subprocess->addArgument(cxx == NULL ? "c++" : cxx);
+
+  if (mode == NODEJS) {
+    subprocess->addArgument("-shared");
+    base += ".node";
+  }
+
   subprocess->addArgument("-o");
 
   auto executableFile = context->newOutput(base);
@@ -202,6 +209,7 @@ const Tag CppActionFactory::MAIN_SYMBOLS[] = {
 };
 
 const Tag CppActionFactory::GTEST_TEST = Tag::fromName("gtest:test");
+const Tag CppActionFactory::NODEJS_MODULE = Tag::fromName("nodejs:module");
 
 CppActionFactory::CppActionFactory() {}
 CppActionFactory::~CppActionFactory() {}
@@ -212,6 +220,7 @@ void CppActionFactory::enumerateTriggerTags(
     *iter++ = MAIN_SYMBOLS[i];
   }
   *iter++ = GTEST_TEST;
+  *iter++ = NODEJS_MODULE;
 }
 
 OwnedPtr<Action> CppActionFactory::tryMakeAction(const Tag& id, File* file) {
@@ -223,6 +232,9 @@ OwnedPtr<Action> CppActionFactory::tryMakeAction(const Tag& id, File* file) {
   }
   if (id == GTEST_TEST) {
     return newOwned<LinkAction>(file, LinkAction::GTEST);
+  }
+  if (id == NODEJS_MODULE) {
+    return newOwned<LinkAction>(file, LinkAction::NODEJS);
   }
   return nullptr;
 }
