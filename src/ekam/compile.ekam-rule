@@ -131,7 +131,7 @@ case $(basename $OUTPUT) in
     fi
     ;;
   * )
-    if egrep -q ' D [a-z]+_module' $SYMFILE && \
+    if egrep -q ' D [a-z0-9]+_module' $SYMFILE && \
        grep -q _ZN2v811HandleScopeC1Ev $DEPFILE; then
             echo provide "$OUTPUT_DISK_PATH" nodejs:module
     fi
