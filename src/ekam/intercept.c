@@ -104,6 +104,8 @@ void init_pthreads() {
 static FILE* ekam_call_stream;
 static FILE* ekam_return_stream;
 
+static char current_dir[PATH_MAX + 1];
+
 static pthread_once_t init_once_control = PTHREAD_ONCE_INIT;
 
 static void init_streams_once() {
@@ -118,6 +120,11 @@ static void init_streams_once() {
       fprintf(stderr, "fdopen(EKAM_CALL_FILENO): error %d\n", errno);
       abort();
     }
+    if (getcwd(current_dir, PATH_MAX) == NULL) {
+      fprintf(stderr, "getcwd(): error %d\n", errno);
+      abort();
+    }
+    strcat(current_dir, "/");
   } else {
     assert(ekam_return_stream != NULL);
   }
@@ -135,6 +142,7 @@ typedef enum usage {
   WRITE
 } usage_t;
 
+static const char TAG_PROVIDER_DIR[] = "/ekam-provider";
 static const char TAG_PROVIDER_PREFIX[] = "/ekam-provider/";
 static const char TMP[] = "/tmp";
 static const char VAR_TMP[] = "/var/tmp";
@@ -308,30 +316,37 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
     funlockfile(ekam_call_stream);
     if (EKAM_DEBUG) fprintf(stderr, "  temp file: %s\n", pathname);
     return pathname;
-  } else if (pathname[0] == '/') {
-    /* Absolute path.  Note the access but don't remap. */
-    if (usage == WRITE) {
-      /* Cannot write to absolute paths. */
+  } else {
+    if (strncmp(pathname, current_dir, strlen(current_dir)) == 0) {
+      /* The app is trying to open files in the current directory by absolute path.  Treat it
+       * exactly as if it had used a relative path. */
+      pathname = pathname + strlen(current_dir);
+    } else if (pathname[0] == '/') {
+      /* Absolute path.  Note the access but don't remap. */
+      if (usage == WRITE) {
+        /* Cannot write to absolute paths. */
+        funlockfile(ekam_call_stream);
+        errno = EACCES;
+        if (EKAM_DEBUG) fprintf(stderr, "  absolute path, can't write\n");
+        return NULL;
+      }
+
+      fputs("noteInput ", ekam_call_stream);
+      fputs(pathname, ekam_call_stream);
+      fputs("\n", ekam_call_stream);
+      fflush(ekam_call_stream);
+      if (ferror_unlocked(ekam_call_stream)) {
+        funlockfile(ekam_call_stream);
+        fprintf(stderr, "error: Ekam call stream broken.\n");
+        abort();
+      }
+      cache_result(pathname, pathname, usage);
       funlockfile(ekam_call_stream);
-      errno = EACCES;
-      if (EKAM_DEBUG) fprintf(stderr, "  absolute path, can't write\n");
-      return NULL;
+      if (EKAM_DEBUG) fprintf(stderr, "  absolute path: %s\n", pathname);
+      return pathname;
     }
 
-    fputs("noteInput ", ekam_call_stream);
-    fputs(pathname, ekam_call_stream);
-    fputs("\n", ekam_call_stream);
-    fflush(ekam_call_stream);
-    if (ferror_unlocked(ekam_call_stream)) {
-      funlockfile(ekam_call_stream);
-      fprintf(stderr, "error: Ekam call stream broken.\n");
-      abort();
-    }
-    cache_result(pathname, pathname, usage);
-    funlockfile(ekam_call_stream);
-    if (EKAM_DEBUG) fprintf(stderr, "  absolute path: %s\n", pathname);
-    return pathname;
-  } else {
+    /* Path in current directory. */
     strcpy(buffer, pathname);
     canonicalizePath(buffer);
     if (strcmp(buffer, ".") == 0) {
@@ -470,9 +485,69 @@ static int direct_stat(const char* path, struct stat* sb) {
 #elif defined(__linux__)
 
 WRAP(int, __xstat, (int ver, const char* path, struct stat* sb), (ver, path, sb), READ, -1)
-WRAP(int, __lxstat, (int ver, const char* path, struct stat* sb), (ver, path, sb), READ, -1)
+//WRAP(int, __lxstat, (int ver, const char* path, struct stat* sb), (ver, path, sb), READ, -1)
 WRAP(int, __xstat64, (int ver, const char* path, struct stat64* sb), (ver, path, sb), READ, -1)
-WRAP(int, __lxstat64, (int ver, const char* path, struct stat64* sb), (ver, path, sb), READ, -1)
+//WRAP(int, __lxstat64, (int ver, const char* path, struct stat64* sb), (ver, path, sb), READ, -1)
+
+/* Within the source tree, we make all symbolic links look like hard links.  Otherwise, if a
+ * symlink in the source tree pointed outside of it, and if a tool decided to read back that link
+ * and follow it manually, we'd no longer know that it was accessing something that was meant to
+ * be treated as source.
+ *
+ * To implement this, we redirect lstat -> stat when the file is in the current directory. */
+typedef int __lxstat_t (int ver, const char* path, struct stat* sb);
+int __lxstat (int ver, const char* path, struct stat* sb) {
+  static __lxstat_t* real___lxstat = NULL;
+  static __xstat_t* real___xstat = NULL;
+  char buffer[PATH_MAX];
+
+  if (real___lxstat == NULL) {
+    real___lxstat = (__lxstat_t*) dlsym(RTLD_NEXT, "__lxstat");
+    assert(real___lxstat != NULL);
+  }
+  if (real___xstat == NULL) {
+    real___xstat = (__lxstat_t*) dlsym(RTLD_NEXT, "__xstat");
+    assert(real___xstat != NULL);
+  }
+
+  path = remap_file("__lxstat", path, buffer, READ);
+  if (path == NULL) return -1;
+  if (path[0] == '/') {
+    return real___lxstat(ver, path, sb);
+  } else {
+    return real___xstat(ver, path, sb);
+  }
+}
+int ___lxstat (int ver, const char* path, struct stat* sb) {
+  return __lxstat (ver, path, sb);
+}
+
+typedef int __lxstat64_t (int ver, const char* path, struct stat64* sb);
+int __lxstat64 (int ver, const char* path, struct stat64* sb) {
+  static __lxstat64_t* real___lxstat64 = NULL;
+  static __xstat64_t* real___xstat64 = NULL;
+  char buffer[PATH_MAX];
+
+  if (real___lxstat64 == NULL) {
+    real___lxstat64 = (__lxstat64_t*) dlsym(RTLD_NEXT, "__lxstat64");
+    assert(real___lxstat64 != NULL);
+  }
+  if (real___xstat64 == NULL) {
+    real___xstat64 = (__lxstat64_t*) dlsym(RTLD_NEXT, "__xstat64");
+    assert(real___xstat64 != NULL);
+  }
+
+  path = remap_file("__lxstat64", path, buffer, READ);
+  if (path == NULL) return -1;
+  if (path[0] == '/') {
+    return real___lxstat64(ver, path, sb);
+  } else {
+    return real___xstat64(ver, path, sb);
+  }
+}
+int ___lxstat64 (int ver, const char* path, struct stat64* sb) {
+  return __lxstat64 (ver, path, sb);
+}
 
 /* Cannot intercept intra-libc function calls on Linux, so we must intercept fopen() as well. */
 WRAP(FILE*, fopen, (const char* path, const char* mode), (path, mode),
@@ -484,8 +559,11 @@ WRAP(FILE*, freopen, (const char* path, const char* mode, FILE* file), (path, mo
 WRAP(FILE*, freopen64, (const char* path, const char* mode, FILE* file), (path, mode, file),
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
 
+/* And dlopen(). */
+WRAP(void*, dlopen, (const char* path, int flag), (path, flag), READ, NULL)
+
 /* And exec*().  The PATH-checking versions need special handling. */
-WRAP(int, execv, (const char* path, char* const argv[]), (path, argv), READ, -1);
+WRAP(int, execv, (const char* path, char* const argv[]), (path, argv), READ, -1)
 
 typedef int execvpe_t(const char* path, char* const argv[], char* const envp[]);
 int execvpe(const char* path, char* const argv[], char* const envp[]) {
@@ -543,6 +621,22 @@ static int direct_stat(const char* path, struct stat* sb) {
   }
 
   return real_xstat(_STAT_VER, path, sb);
+}
+
+typedef ssize_t readlink_t(const char *path, char *buf, size_t bufsiz);
+ssize_t readlink(const char *path, char *buf, size_t bufsiz) {
+  static readlink_t* real_readlink = NULL;
+  char buffer[PATH_MAX];
+
+  if (real_readlink == NULL) {
+    real_readlink = (readlink_t*) dlsym(RTLD_NEXT, "readlink");
+    assert(real_readlink != NULL);
+  }
+
+  path = remap_file("readlink", path, buffer, READ);
+  if (path == NULL) return -1;
+  if (path[0] != '/') return EINVAL;  // no links in source directory
+  return real_readlink(path, buf, bufsiz);
 }
 
 #else
