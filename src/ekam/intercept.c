@@ -671,7 +671,7 @@ static int intercepted_open(const char * pathname, int flags, va_list args) {
   remapped = remap_file("open", pathname, buffer, (flags & O_ACCMODE) == O_RDONLY ? READ : WRITE);
   if (remapped == NULL) return -1;
 
-  if(flags & O_CREAT) {
+  if (flags & O_CREAT) {
     mode_t mode = va_arg(args, int);
     return real_open(remapped, flags, mode);
   } else {
@@ -849,8 +849,11 @@ int access(const char* path, int mode) {
 
     path = remap_file("access", path, buffer, READ);
     if (path == NULL) return -1;
-    if (mode & W_OK) {
-      /* Cannot write to files which already exist. */
+    /* TODO:  If checking W_OK, we should probably only succeed if this program created the file
+     *   in the first place.  For the moment we simply disallow writing to source files, as a
+     *   compromise. */
+    if ((mode & W_OK) && strncmp(path, "src/", 4) == 0) {
+      /* Cannot write to source files. */
       errno = EACCES;
       return -1;
     }
