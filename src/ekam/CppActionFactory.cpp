@@ -53,6 +53,7 @@ public:
   enum Mode {
     NORMAL,
     GTEST,
+    KJTEST,
     NODEJS
   };
 
@@ -79,6 +80,7 @@ private:
   };
 
   static const Tag GTEST_MAIN;
+  static const Tag KJTEST_MAIN;
   static const Tag TEST_EXECUTABLE;
 
   OwnedPtr<File> file;
@@ -86,6 +88,7 @@ private:
 };
 
 const Tag LinkAction::GTEST_MAIN = Tag::fromName("gtest:main");
+const Tag LinkAction::KJTEST_MAIN = Tag::fromName("kjtest:main");
 const Tag LinkAction::TEST_EXECUTABLE = Tag::fromName("test:executable");
 
 LinkAction::LinkAction(File* file, Mode mode) : file(file->clone()), mode(mode) {}
@@ -140,6 +143,15 @@ Promise<void> LinkAction::start(EventManager* eventManager, BuildContext* contex
     }
 
     deps.addObject(context, gtestMain);
+  } else if (mode == KJTEST) {
+    File* kjtestMain = context->findProvider(KJTEST_MAIN);
+    if (kjtestMain == NULL) {
+      context->log("Cannot find kj/test.o.");
+      context->failed();
+      return newFulfilledPromise();
+    }
+
+    deps.addObject(context, kjtestMain);
   }
 
   deps.addObject(context, file.get());
@@ -209,6 +221,7 @@ const Tag CppActionFactory::MAIN_SYMBOLS[] = {
 };
 
 const Tag CppActionFactory::GTEST_TEST = Tag::fromName("gtest:test");
+const Tag CppActionFactory::KJTEST_TEST = Tag::fromName("kjtest:test");
 const Tag CppActionFactory::NODEJS_MODULE = Tag::fromName("nodejs:module");
 
 CppActionFactory::CppActionFactory() {}
@@ -220,6 +233,7 @@ void CppActionFactory::enumerateTriggerTags(
     *iter++ = MAIN_SYMBOLS[i];
   }
   *iter++ = GTEST_TEST;
+  *iter++ = KJTEST_TEST;
   *iter++ = NODEJS_MODULE;
 }
 
@@ -232,6 +246,9 @@ OwnedPtr<Action> CppActionFactory::tryMakeAction(const Tag& id, File* file) {
   }
   if (id == GTEST_TEST) {
     return newOwned<LinkAction>(file, LinkAction::GTEST);
+  }
+  if (id == KJTEST_TEST) {
+    return newOwned<LinkAction>(file, LinkAction::KJTEST);
   }
   if (id == NODEJS_MODULE) {
     return newOwned<LinkAction>(file, LinkAction::NODEJS);

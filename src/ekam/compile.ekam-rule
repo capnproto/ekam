@@ -119,15 +119,23 @@ readsyms ABCDGRSTV "provide $OUTPUT_DISK_PATH c++symbol:" < $SYMFILE
 # Detect gtest-based tests and test support while we're here.
 # TODO(kenton):  Probably should be a separate rule.
 
-case $(basename $OUTPUT) in
-  gtest_main.o )
+case $OUTPUT in
+  */gtest_main.o )
     echo provide "$OUTPUT_DISK_PATH" gtest:main
+    ;;
+  */kj/test.o | kj/test.o )
+    echo provide "$OUTPUT_DISK_PATH" kjtest:main
     ;;
   *_test.o | *_unittest.o | *_regtest.o | *-test.o )
     # Is this a gtest test that needs to link against gtest_main?
     if grep -q 7testing8internal23MakeAndRegisterTestInfo $DEPFILE && \
        ! egrep -q '[^U] _?main$' $SYMFILE; then
-	    echo provide "$OUTPUT_DISK_PATH" gtest:test
+      echo provide "$OUTPUT_DISK_PATH" gtest:test
+    fi
+
+    # Is this a KJ test that needs to link against kj/test.o?
+    if grep -q N2kj8TestCaseC $DEPFILE; then
+      echo provide "$OUTPUT_DISK_PATH" kjtest:test
     fi
     ;;
   * )
