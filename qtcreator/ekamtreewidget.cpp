@@ -381,21 +381,12 @@ void EkamTreeWidget::jumpTo(const QModelIndex& index) {
 // =======================================================================================
 
 EkamTreeWidgetFactory::EkamTreeWidgetFactory(EkamDashboardPlugin* plugin)
-  : INavigationWidgetFactory(), plugin(plugin) {}
+  : INavigationWidgetFactory(), plugin(plugin) {
+  setId("EkamActions");
+  setDisplayName(QLatin1String("Ekam Actions"));
+  setPriority(100);
+}
 EkamTreeWidgetFactory::~EkamTreeWidgetFactory() {}
-
-QString EkamTreeWidgetFactory::displayName() const {
-  return QLatin1String("Ekam Actions");
-}
-
-int EkamTreeWidgetFactory::priority() const {
-  // No idea what this means.
-  return 100;
-}
-
-Core::Id EkamTreeWidgetFactory::id() const {
-  return Core::Id("EkamActions");
-}
 
 Core::NavigationView EkamTreeWidgetFactory::createWidget() {
   Core::NavigationView result;

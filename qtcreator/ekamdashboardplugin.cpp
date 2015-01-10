@@ -60,7 +60,7 @@ bool EkamDashboardPlugin::initialize(const QStringList &arguments, QString *erro
   // Connect to other plugins' signals
   // In the initialize method, a plugin can be sure that the plugins it
   // depends on have initialized their members.
-
+  
   Q_UNUSED(arguments)
   Q_UNUSED(errorString)
   Core::ActionManager *am = Core::ActionManager::instance();
@@ -390,4 +390,3 @@ void ActionState::parseLogLine(QString line) {
 } // namespace Internal
 } // namespace EkamDashboard
 
-Q_EXPORT_PLUGIN2(EkamDashboard, EkamDashboard::Internal::EkamDashboardPlugin)

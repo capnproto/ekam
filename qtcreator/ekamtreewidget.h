@@ -132,9 +132,6 @@ public:
   explicit EkamTreeWidgetFactory(EkamDashboardPlugin* plugin);
   virtual ~EkamTreeWidgetFactory();
 
-  virtual QString displayName() const;
-  virtual int priority() const;
-  virtual Core::Id id() const;
   virtual Core::NavigationView createWidget();
 
 private:
