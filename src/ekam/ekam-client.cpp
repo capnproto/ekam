@@ -79,6 +79,30 @@ Dashboard::TaskState toDashboardState(proto::TaskUpdate::State state) {
 }
 
 int main(int argc, char* argv[]) {
+  int maxDisplayedLogLines = 30;
+  
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
+      maxDisplayedLogLines = strtoul(argv[i+1], nullptr, 0);
+    } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+      printf(
+          "usage: nc <host> <port> | %s [-l <count>]\n"
+          "\n"
+          "Connect to Ekam process at <host> <port> and display build status.\n"
+          "\n"
+          "options:\n"
+          "  -l <count>    Set max number of log lines to display per action. This is\n"
+          "                kept relatively short by default because it makes the build\n"
+          "                output noisy, but you may need to increase it if you need\n"
+          "                to see more of a particular error log.\n",
+          argv[0]);
+      return 0;
+    } else {
+      fprintf(stderr, "Unknown option: %s\n", argv[i]);
+      return 1;
+    }
+  }
+
   kj::FdInputStream rawInput(STDIN_FILENO);
   kj::BufferedInputStreamWrapper bufferedInput(rawInput);
 
@@ -88,7 +112,7 @@ int main(int argc, char* argv[]) {
     printf("Project root: %s\n", header.getProjectRoot().cStr());
   }
 
-  ConsoleDashboard dashboard(stdout);
+  ConsoleDashboard dashboard(stdout, maxDisplayedLogLines);
   OwnedPtrMap<int, Dashboard::Task> tasks;
 
   while (bufferedInput.tryGetReadBuffer() != nullptr) {

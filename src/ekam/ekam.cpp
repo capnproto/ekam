@@ -96,7 +96,28 @@ public:
 
 void usage(const char* command, FILE* out) {
   fprintf(out,
-    "usage: %s [-hvc] [-j jobcount]\n", command);
+    "usage: %s [-hvc] [-j <jobcount>] [-n [<addr>]:<port>] [-l <count>]\n"
+    "\n"
+    "Build code with Ekam. See https://github.io/sandstorm-io/ekam for details.\n"
+    "\n"
+    "options:\n"
+    "  -c            Run in continuous mode: when there is nothing left to build,\n"
+    "                don't exit, but instead watch the source files for changes\n"
+    "                and rebuild as necessary.\n"
+    "  -j <jobcount> Run up to <jobcount> actions in parallel.\n"
+    "  -n [<addr>]:<port>  Accept network connections on the given address/port\n"
+    "                and give real-time build status and logs to anyone who\n"
+    "                connects. This enables e.g. `ekam-client` and various IDE\n"
+    "                plugins."
+    "  -l <count>    Set max number of log lines to display per action. This is\n"
+    "                kept relatively short by default because it makes the build\n"
+    "                output noisy, but you may need to increase it if you need\n"
+    "                to see more of a particular error log. NOTE: If you just\n"
+    "                need a one-off, you can use `ekam-client` rather than\n"
+    "                restarting Ekam.\n"
+    "  -h            See this help\n"
+    "  -v            Show debug logs.\n",
+    command);
 }
 
 // =======================================================================================
@@ -333,13 +354,14 @@ void scanSourceTree(File* src, Driver* driver) {
 int main(int argc, char* argv[]) {
   signal(SIGPIPE, SIG_IGN);
 
+  int maxDisplayedLogLines = 30;
   const char* command = argv[0];
   int maxConcurrentActions = 1;
   bool continuous = false;
   std::string networkDashboardAddress;
 
   while (true) {
-    int opt = getopt(argc, argv, "chvj:n:");
+    int opt = getopt(argc, argv, "chvj:n:l:");
     if (opt == -1) break;
 
     switch (opt) {
@@ -364,6 +386,15 @@ int main(int argc, char* argv[]) {
       case 'n':
         networkDashboardAddress = optarg;
         break;
+      case 'l': {
+        char* endptr;
+        maxDisplayedLogLines = strtoul(optarg, &endptr, 0);
+        if (*endptr != '\0') {
+          fprintf(stderr, "Expected number after -l.\n");
+          return 1;
+        }
+        break;
+      }
       default:
         usage(command, stderr);
         return 1;
@@ -389,7 +420,7 @@ int main(int argc, char* argv[]) {
 
   OwnedPtr<Dashboard> dashboard;
   if (isatty(STDOUT_FILENO)) {
-    dashboard = newOwned<ConsoleDashboard>(stdout);
+    dashboard = newOwned<ConsoleDashboard>(stdout, maxDisplayedLogLines);
   } else {
     dashboard = newOwned<SimpleDashboard>(stdout);
   }

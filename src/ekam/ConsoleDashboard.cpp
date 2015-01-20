@@ -269,19 +269,18 @@ void ConsoleDashboard::TaskImpl::writeFinalLog(Color verbColor) {
             ANSI_COLOR_CODES[verbColor], verb.c_str(), ANSI_CLEAR_COLOR, noun.c_str());
 
     // Write any output we have buffered.
-    // TODO:  Indent the text we write, and wrap it nicely.
     if (!outputText.empty()) {
       LogFormatter formatter(outputText);
       struct winsize windowSize;
       ioctl(dashboard->fd, TIOCGWINSZ, &windowSize);
 
-      for (int i = 0; i < 30 && !formatter.atEnd(); i++) {
+      for (int i = 0; i < dashboard->maxDisplayedLogLines && !formatter.atEnd(); i++) {
         std::string line = formatter.getLine(2, windowSize.ws_col);
         fprintf(dashboard->out, "  %s\n", line.c_str());
       }
 
       if (!formatter.atEnd()) {
-        fprintf(dashboard->out, "  ...(log truncated)...\n");
+        fprintf(dashboard->out, "  ...(log truncated; use -l to increase log limit)...\n");
       }
 
       outputText.clear();
@@ -323,9 +322,9 @@ const ConsoleDashboard::Color ConsoleDashboard::PASSED_COLOR = BRIGHT_GREEN;
 const ConsoleDashboard::Color ConsoleDashboard::FAILED_COLOR = BRIGHT_RED;
 const ConsoleDashboard::Color ConsoleDashboard::RUNNING_COLOR = BRIGHT_FUCHSIA;
 
-ConsoleDashboard::ConsoleDashboard(FILE* output)
-    : fd(fileno(output)), out(output), runningTasksLineCount(0),
-      lastDebugMessageCount(DebugMessage::getMessageCount()) {}
+ConsoleDashboard::ConsoleDashboard(FILE* output, int maxDisplayedLogLines)
+    : fd(fileno(output)), out(output), maxDisplayedLogLines(maxDisplayedLogLines),
+      runningTasksLineCount(0), lastDebugMessageCount(DebugMessage::getMessageCount()) {}
 ConsoleDashboard::~ConsoleDashboard() {}
 
 OwnedPtr<Dashboard::Task> ConsoleDashboard::beginTask(

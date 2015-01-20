@@ -25,7 +25,7 @@ namespace ekam {
 
 class ConsoleDashboard : public Dashboard {
 public:
-  ConsoleDashboard(FILE* output);
+  ConsoleDashboard(FILE* output, int maxDisplayedLogLines);
   ~ConsoleDashboard();
 
   // implements Dashboard ----------------------------------------------------------------
@@ -37,6 +37,7 @@ private:
 
   int fd;
   FILE* out;
+  int maxDisplayedLogLines;
 
   std::vector<TaskImpl*> runningTasks;
   int runningTasksLineCount;
