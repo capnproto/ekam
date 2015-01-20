@@ -18,10 +18,11 @@
 
 #include <errno.h>
 #include <unistd.h>
-#include <google/protobuf/io/zero_copy_stream_impl_lite.h>
-#include <google/protobuf/io/coded_stream.h>
+#include <capnp/message.h>
+#include <capnp/serialize.h>
+#include <stdlib.h>
 
-#include "dashboard.pb.h"
+#include "dashboard.capnp.h"
 #include "os/Socket.h"
 #include "MuxDashboard.h"
 
@@ -45,45 +46,49 @@ private:
 };
 
 const proto::TaskUpdate::State ProtoDashboard::TaskImpl::STATE_CODES[] = {
-  proto::TaskUpdate::PENDING,
-  proto::TaskUpdate::RUNNING,
-  proto::TaskUpdate::DONE   ,
-  proto::TaskUpdate::PASSED ,
-  proto::TaskUpdate::FAILED ,
-  proto::TaskUpdate::BLOCKED
+  proto::TaskUpdate::State::PENDING,
+  proto::TaskUpdate::State::RUNNING,
+  proto::TaskUpdate::State::DONE   ,
+  proto::TaskUpdate::State::PASSED ,
+  proto::TaskUpdate::State::FAILED ,
+  proto::TaskUpdate::State::BLOCKED
 };
 
 ProtoDashboard::TaskImpl::TaskImpl(int id, const std::string& verb, const std::string& noun,
                                    Silence silence, WriteBuffer* output)
     : id(id), output(output) {
-  proto::TaskUpdate update;
-  update.set_id(id);
-  update.set_state(proto::TaskUpdate::PENDING);
-  update.set_verb(verb);
-  update.set_noun(noun);
-  update.set_silent(silence == SILENT);
-  output->write(update);
+  capnp::MallocMessageBuilder message;
+  proto::TaskUpdate::Builder update = message.getRoot<proto::TaskUpdate>();
+  update.setId(id);
+  update.setState(proto::TaskUpdate::State::PENDING);
+  update.setVerb(verb);
+  update.setNoun(noun);
+  update.setSilent(silence == SILENT);
+  output->write(message.getSegmentsForOutput());
 }
 
 ProtoDashboard::TaskImpl::~TaskImpl() {
-  proto::TaskUpdate update;
-  update.set_id(id);
-  update.set_state(proto::TaskUpdate::DELETED);
-  output->write(update);
+  capnp::MallocMessageBuilder message;
+  proto::TaskUpdate::Builder update = message.getRoot<proto::TaskUpdate>();
+  update.setId(id);
+  update.setState(proto::TaskUpdate::State::DELETED);
+  output->write(message.getSegmentsForOutput());
 }
 
 void ProtoDashboard::TaskImpl::setState(TaskState state) {
-  proto::TaskUpdate update;
-  update.set_id(id);
-  update.set_state(STATE_CODES[state]);
-  output->write(update);
+  capnp::MallocMessageBuilder message;
+  proto::TaskUpdate::Builder update = message.getRoot<proto::TaskUpdate>();
+  update.setId(id);
+  update.setState(STATE_CODES[state]);
+  output->write(message.getSegmentsForOutput());
 }
 
 void ProtoDashboard::TaskImpl::addOutput(const std::string& text) {
-  proto::TaskUpdate update;
-  update.set_id(id);
-  update.set_log(text);
-  output->write(update);
+  capnp::MallocMessageBuilder message;
+  proto::TaskUpdate::Builder update = message.getRoot<proto::TaskUpdate>();
+  update.setId(id);
+  update.setLog(text);
+  output->write(message.getSegmentsForOutput());
 }
 
 // =======================================================================================
@@ -91,11 +96,12 @@ void ProtoDashboard::TaskImpl::addOutput(const std::string& text) {
 ProtoDashboard::ProtoDashboard(EventManager* eventManager, OwnedPtr<ByteStream> stream)
     : idCounter(0),
       writeBuffer(eventManager, stream.release()) {
-  proto::Header header;
+  capnp::MallocMessageBuilder message;
+  proto::Header::Builder header = message.getRoot<proto::Header>();
   char* cwd = get_current_dir_name();
-  header.set_project_root(cwd);
+  header.setProjectRoot(cwd);
   free(cwd);
-  writeBuffer.write(header);
+  writeBuffer.write(message.getSegmentsForOutput());
 }
 ProtoDashboard::~ProtoDashboard() {}
 
@@ -113,28 +119,13 @@ ProtoDashboard::WriteBuffer::WriteBuffer(EventManager* eventManager,
       offset(0), disconnectFulfiller(NULL) {}
 ProtoDashboard::WriteBuffer::~WriteBuffer() {}
 
-void ProtoDashboard::WriteBuffer::write(const google::protobuf::MessageLite& message) {
+void ProtoDashboard::WriteBuffer::write(kj::ArrayPtr<const kj::ArrayPtr<const capnp::word>> message) {
   if (stream == NULL) {
     // Already disconnected.
     return;
   }
 
-  using google::protobuf::io::CodedOutputStream;
-  using google::protobuf::uint8;
-
-  messages.push(std::string());
-  std::string* data = &messages.back();
-
-  // TODO:  This should really be a helper function in the protobuf library...
-  {
-    int size = message.ByteSize();
-    data->resize(size + CodedOutputStream::VarintSize32(size));
-    uint8* ptr = reinterpret_cast<uint8*>(&*data->begin());
-
-    ptr = CodedOutputStream::WriteVarint32ToArray(size, ptr);
-    ptr = message.SerializeWithCachedSizesToArray(ptr);
-    assert(ptr == reinterpret_cast<const uint8*>(data->data() + data->size()));
-  }
+  messages.push(capnp::messageToFlatArray(message));
 
   ready();
 }
@@ -142,9 +133,10 @@ void ProtoDashboard::WriteBuffer::write(const google::protobuf::MessageLite& mes
 void ProtoDashboard::WriteBuffer::ready() {
   try {
     while (!messages.empty()) {
-      const std::string& message = messages.front();
+      const kj::Array<capnp::word>& message = messages.front();
       while (offset < message.size()) {
-        offset += stream->write(message.data() + offset, message.size() - offset);
+        offset += stream->write(message.asBytes().begin() + offset,
+                                message.asBytes().size() - offset);
       }
       offset = 0;
       messages.pop();

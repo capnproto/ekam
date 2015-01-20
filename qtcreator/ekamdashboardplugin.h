@@ -36,7 +36,9 @@
 #include <QHash>
 #include <QList>
 
-#include "dashboard.pb.h"
+#include <kj/vector.h>
+#include <kj/async.h>
+#include "dashboard.capnp.h"
 
 namespace ProjectExplorer {
 class TaskHub;
@@ -51,15 +53,15 @@ class ActionState: public QObject {
   Q_OBJECT
 
 public:
-  ActionState(EkamDashboardPlugin* plugin, const ekam::proto::TaskUpdate& initialUpdate);
-  ~ActionState();
+  ActionState(EkamDashboardPlugin* plugin, ekam::proto::TaskUpdate::Reader initialUpdate);
+  ~ActionState() noexcept;
 
   // Returns true if the action went from silent to non-silent, and thus a newAction event should
   // be fired.
-  void applyUpdate(const ekam::proto::TaskUpdate& update);
+  void applyUpdate(ekam::proto::TaskUpdate::Reader update);
 
   bool isDead() {
-    return state == ekam::proto::TaskUpdate::DELETED;
+    return state == ekam::proto::TaskUpdate::State::DELETED;
   }
 
   ekam::proto::TaskUpdate::State getState() { return state; }
@@ -67,7 +69,7 @@ public:
   const QString& getNoun() { return noun; }
   const QString& getPath() { return path; }
   bool isHidden() {
-    return silent && state != ekam::proto::TaskUpdate::FAILED;
+    return silent && state != ekam::proto::TaskUpdate::State::FAILED;
   }
   ProjectExplorer::Task* firstTask() { return tasks.empty() ? 0 : &tasks.first(); }
 
@@ -84,11 +86,11 @@ private:
   QString noun;
   QString path;
   bool silent;
-  std::string leftoverLog;
+  kj::Vector<char> leftoverLog;
   QList<ProjectExplorer::Task> tasks;
 
   void clearTasks();
-  void consumeLog(const std::string& log);
+  void consumeLog(kj::StringPtr log);
   void parseLogLine(QString line);
 };
 
@@ -98,7 +100,7 @@ class EkamDashboardPlugin : public ExtensionSystem::IPlugin {
     
 public:
   EkamDashboardPlugin();
-  ~EkamDashboardPlugin();
+  ~EkamDashboardPlugin() noexcept;
 
   bool initialize(const QStringList &arguments, QString *errorString);
   void extensionsInitialized();
@@ -123,15 +125,21 @@ private slots:
   void socketReady();
 
 private:
+  class FakeAsyncInput;
+
   ProjectExplorer::TaskHub* hub;
   QTcpSocket* socket;
-  QByteArray buffer;
   bool seenHeader;
   QString projectRoot;
   QHash<int, ActionState*> actions;
+  kj::EventLoop eventLoop;
+  kj::WaitScope waitScope;
+  kj::Own<FakeAsyncInput> fakeInput;
+  kj::Promise<void> readTask;
 
+  void reset();
   void tryConnect();
-  void consumeMessage(const void* data, int size);
+  kj::Promise<void> messageLoop();
   void clearActions();
 };
 

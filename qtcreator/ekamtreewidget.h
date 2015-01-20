@@ -25,7 +25,7 @@
 
 #include <projectexplorer/task.h>
 
-#include "dashboard.pb.h"
+#include "dashboard.capnp.h"
 
 namespace EkamDashboard {
 namespace Internal {
@@ -73,10 +73,10 @@ private:
   QList<EkamTreeNode*> childNodes;
 
   ActionState* action;
-  int state;
+  ekam::proto::TaskUpdate::State state;
 
   void setAction(ActionState* newAction);
-  void stateChanged(int newState);
+  void stateChanged(ekam::proto::TaskUpdate::State newState);
   void childStateChanged();
   void removeChild(EkamTreeNode* child);
 };

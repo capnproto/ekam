@@ -18,8 +18,9 @@
 #include "ekamdashboardconstants.h"
 #include "ekamtreewidget.h"
 
-#include <google/protobuf/io/zero_copy_stream.h>
-#include <google/protobuf/io/coded_stream.h>
+#include <capnp/serialize-async.h>
+#include <kj/debug.h>
+#include <deque>
 
 #include <extensionsystem/pluginmanager.h>
 
@@ -39,16 +40,104 @@
 namespace EkamDashboard {
 namespace Internal {
 
-QString toQString(const std::string& str) {
-  return QString::fromUtf8(str.data(), str.size());
+QString toQString(kj::ArrayPtr<const char> str) {
+  return QString::fromUtf8(str.begin(), str.size());
 }
+
+class EkamDashboardPlugin::FakeAsyncInput final: public kj::AsyncInputStream {
+public:
+  kj::Promise<size_t> read(void* buffer, size_t minBytes, size_t maxBytes) override {
+    return tryRead(buffer, minBytes, maxBytes).then([=](size_t result) {
+      KJ_REQUIRE(result >= minBytes, "Premature EOF") {
+        // Pretend we read zeros from the input.
+        memset(reinterpret_cast<kj::byte*>(buffer) + result, 0, minBytes - result);
+        return minBytes;
+      }
+      return result;
+    });
+  }
+
+  kj::Promise<size_t> tryRead(void* buffer, size_t minBytes, size_t maxBytes) override {
+    Request request(buffer, minBytes, maxBytes);
+
+    if (byteQueue.size() > 0) {
+      KJ_IF_MAYBE(size, request.consumeFrom(byteQueue)) {
+        return *size;
+      }
+    }
+
+    requests.push_back(kj::mv(request));
+    return requests.back().finishLater();
+  }
+
+  void add(QByteArray bytes) {
+    while (!requests.empty()) {
+      auto& request = requests.front();
+
+      KJ_IF_MAYBE(size, request.consumeFrom(bytes)) {
+        request.fulfill(*size);
+        requests.pop_front();
+      } else {
+        // Not enough bytes to satisfy the request.
+        return;
+      }
+    }
+
+    byteQueue.append(bytes);
+  }
+
+private:
+  class Request {
+  public:
+    Request(void* buffer, size_t minBytes, size_t maxBytes)
+        : pos(reinterpret_cast<kj::byte*>(buffer)),
+          minLeft(minBytes), maxLeft(maxBytes),
+          alreadyRead(0) {}
+
+    kj::Maybe<size_t> consumeFrom(QByteArray& bytes) {
+      size_t n = kj::min(maxLeft, bytes.size());
+      memcpy(pos, bytes.data(), n);
+
+      bytes.remove(0, n);
+
+      if (n >= minLeft) {
+        return alreadyRead + n;
+      } else {
+        pos += n;
+        minLeft -= n;
+        maxLeft -= n;
+        alreadyRead += n;
+        return nullptr;
+      }
+    }
+
+    kj::Promise<size_t> finishLater() {
+      auto paf = kj::newPromiseAndFulfiller<size_t>();
+      fulfiller = kj::mv(paf.fulfiller);
+      return kj::mv(paf.promise);
+    }
+
+    void fulfill(size_t amount) {
+      fulfiller->fulfill(kj::mv(amount));
+    }
+
+  private:
+    kj::byte* pos;
+    size_t minLeft;
+    size_t maxLeft;
+    size_t alreadyRead;
+    kj::Own<kj::PromiseFulfiller<size_t>> fulfiller;
+  };
+
+  std::deque<Request> requests;
+  QByteArray byteQueue;
+};
 
 EkamDashboardPlugin::EkamDashboardPlugin()
-  : hub(0), socket(0), seenHeader(false) {
-  // Create your members
-}
+    : hub(0), socket(0), seenHeader(false), waitScope(eventLoop),
+    fakeInput(kj::heap<FakeAsyncInput>()), readTask(nullptr) {}
 
-EkamDashboardPlugin::~EkamDashboardPlugin() {
+EkamDashboardPlugin::~EkamDashboardPlugin() noexcept {
   // Unregister objects from the plugin manager's object pool
   // Delete members
 }
@@ -125,6 +214,10 @@ void EkamDashboardPlugin::triggerAction() {
 
 void EkamDashboardPlugin::socketError(QAbstractSocket::SocketError error) {
 //  qDebug() << "Socket error: " << error;
+  reset();
+}
+
+void EkamDashboardPlugin::reset() {
   clearActions();
   QTimer::singleShot(5000, this, SLOT(retryConnection()));
 }
@@ -134,69 +227,45 @@ void EkamDashboardPlugin::retryConnection() {
 }
 
 void EkamDashboardPlugin::socketReady() {
-  buffer += socket->readAll();
-//  qDebug() << "Received data.  buffer.size() = " << buffer.size();
-
-  while (true) {
-    int i = 0;
-    int size = 0;
-
-    // Parse the size.
-    while (true) {
-      if (i >= buffer.size()) {
-        // Size is incomplete.
-        return;
-      }
-
-      unsigned char b = buffer.at(i);
-      size |= (b & 0x7f) << (7 * i);
-      ++i;
-      if ((b & 0x80) == 0) {
-        break;
-      }
-    }
-
-    if (i + size > buffer.size()) {
-      // Message is incomplete.
-      return;
-    }
-
-    consumeMessage(buffer.data() + i, size);
-    buffer.remove(0, i + size);
-  }
+  fakeInput->add(socket->readAll());
+  eventLoop.run();
 }
 
 void EkamDashboardPlugin::tryConnect() {
   seenHeader = false;
 //  qDebug() << "Trying to connect...";
   socket->connectToHost(QLatin1String("localhost"), 41315);
+  readTask = messageLoop().eagerlyEvaluate(
+      [this](kj::Exception&& e){ KJ_LOG(ERROR, e); reset(); });
 }
 
-void EkamDashboardPlugin::consumeMessage(const void* data, int size) {
-  if (!seenHeader) {
-    seenHeader = true;
+kj::Promise<void> EkamDashboardPlugin::messageLoop() {
+  return capnp::readMessage(*fakeInput).then([this](kj::Own<capnp::MessageReader>&& message) {
+    if (!seenHeader) {
+      seenHeader = true;
 
-    ekam::proto::Header header;
-    header.ParseFromArray(data, size);
-  //  qDebug() << "Received header: " << header.DebugString().c_str();
-    projectRoot = toQString(header.project_root());
-  } else {
-    ekam::proto::TaskUpdate update;
-    update.ParseFromArray(data, size);
-  //  qDebug() << "Received task update: " << update.DebugString().c_str();
-
-    ActionState*& slot = actions[update.id()];
-    if (slot == 0) {
-      slot = new ActionState(this, update);
+      ekam::proto::Header::Reader header = message->getRoot<ekam::proto::Header>();
+    //  qDebug() << "Received header: " << kj::str(header).cStr();
+      projectRoot = toQString(header.getProjectRoot());
     } else {
-      slot->applyUpdate(update);
+      ekam::proto::TaskUpdate::Reader update = message->getRoot<ekam::proto::TaskUpdate>();
+    //  qDebug() << "Received task update: " << kj::str(update).cStr();
+
+      ActionState*& slot = actions[update.getId()];
+      if (slot == 0) {
+        slot = new ActionState(this, update);
+      } else {
+        slot->applyUpdate(update);
+      }
+
+      if (slot->isDead()) {
+        delete slot;
+        actions.remove(update.getId());
+      }
     }
 
-    if (slot->isDead()) {
-      delete slot;
-      actions.remove(update.id());
-    }
-  }
+    return messageLoop();
+  });
 }
 
 QString EkamDashboardPlugin::findFile(const QString& canonicalPath) {
@@ -233,37 +302,39 @@ void EkamDashboardPlugin::clearActions() {
 // =======================================================================================
 
 ActionState::ActionState(
-    EkamDashboardPlugin *plugin, const ekam::proto::TaskUpdate &initialUpdate)
-  : plugin(plugin), state(initialUpdate.state()),
-    verb(toQString(initialUpdate.verb())),
-    noun(toQString(initialUpdate.noun())),
+    EkamDashboardPlugin *plugin, ekam::proto::TaskUpdate::Reader initialUpdate)
+  : plugin(plugin), state(initialUpdate.getState()),
+    verb(toQString(initialUpdate.getVerb())),
+    noun(toQString(initialUpdate.getNoun())),
     path(plugin->findFile(noun)),
-    silent(initialUpdate.silent()) {
-  if (!initialUpdate.log().empty()) {
-    consumeLog(initialUpdate.log());
+    silent(initialUpdate.getSilent()) {
+  auto log = initialUpdate.getLog();
+  if (log != nullptr) {
+    consumeLog(log);
   }
   if (!isHidden()) {
     plugin->unhideAction(this);
   }
 }
 
-ActionState::~ActionState() {
+ActionState::~ActionState() noexcept {
   emit removed();
   clearTasks();
 }
 
-void ActionState::applyUpdate(const ekam::proto::TaskUpdate& update) {
-  if (update.has_state() && update.state() != state) {
+void ActionState::applyUpdate(ekam::proto::TaskUpdate::Reader update) {
+  if (update.getState() != ekam::proto::TaskUpdate::State::UNCHANGED &&
+      update.getState() != state) {
     bool wasHidden = isHidden();
 
     // Invalidate log when the task is deleted or it is re-running or scheduled to re-run.
-    if (update.state() == ekam::proto::TaskUpdate::PENDING ||
-        update.state() == ekam::proto::TaskUpdate::RUNNING ||
-        update.state() == ekam::proto::TaskUpdate::DELETED) {
+    if (update.getState() == ekam::proto::TaskUpdate::State::PENDING ||
+        update.getState() == ekam::proto::TaskUpdate::State::RUNNING ||
+        update.getState() == ekam::proto::TaskUpdate::State::DELETED) {
       clearTasks();
     }
 
-    state = update.state();
+    state = update.getState();
 
     if (isHidden()) {
       if (wasHidden) {
@@ -277,12 +348,13 @@ void ActionState::applyUpdate(const ekam::proto::TaskUpdate& update) {
       }
     }
   }
-  if (!update.log().empty()) {
-    consumeLog(update.log());
+  auto log = update.getLog();
+  if (log != nullptr) {
+    consumeLog(log);
   }
-  if (state != ekam::proto::TaskUpdate::RUNNING && !leftoverLog.empty()) {
+  if (state != ekam::proto::TaskUpdate::State::RUNNING && !leftoverLog.empty()) {
     parseLogLine(toQString(leftoverLog));
-    leftoverLog.clear();
+    leftoverLog.resize(0);
   }
 }
 
@@ -292,23 +364,20 @@ void ActionState::clearTasks() {
     plugin->taskHub()->removeTask(task);
   }
   tasks.clear();
-  leftoverLog.clear();
+  leftoverLog.resize(0);
 }
 
-void ActionState::consumeLog(const std::string& log) {
-  std::string::size_type pos = 0;
+void ActionState::consumeLog(kj::StringPtr log) {
   while (true) {
-    std::string::size_type next = log.find_first_of('\n', pos);
-    if (next == std::string::npos) {
-      leftoverLog += log.substr(pos);
+    KJ_IF_MAYBE(pos, log.findFirst('\n')) {
+      leftoverLog.addAll(log.begin(), log.begin() + *pos);
+      log = log.slice(*pos + 1);
+      parseLogLine(toQString(leftoverLog));
+      leftoverLog.resize(0);
+    } else {
+      leftoverLog.addAll(log);
       return;
     }
-
-    leftoverLog += log.substr(pos, next - pos);
-    pos = next + 1;
-
-    parseLogLine(toQString(leftoverLog));
-    leftoverLog.clear();
   }
 }
 

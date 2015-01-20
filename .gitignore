@@ -1,5 +1,6 @@
 tmp
-src/protobuf
+src/kj
+src/capnp
 eclipse/bin
 .cproject
 .project

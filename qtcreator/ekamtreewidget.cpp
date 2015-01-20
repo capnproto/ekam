@@ -26,22 +26,23 @@
 namespace EkamDashboard {
 namespace Internal {
 
-static const int DEFAULT_STATE = ekam::proto::TaskUpdate::State_MAX + 1;
+static constexpr ekam::proto::TaskUpdate::State DEFAULT_STATE =
+    ekam::proto::TaskUpdate::State::UNCHANGED;
 
 // This defines the priority ordering of states.  The state (and icon) for a directory will be
 // chosen based on the highest-priority state of its children.
-static const int ORDERED_STATES[] = {
+static const ekam::proto::TaskUpdate::State ORDERED_STATES[] = {
   DEFAULT_STATE,
-  ekam::proto::TaskUpdate::DELETED,
-  ekam::proto::TaskUpdate::DONE,
-  ekam::proto::TaskUpdate::PASSED,
-  ekam::proto::TaskUpdate::FAILED,
-  ekam::proto::TaskUpdate::PENDING,
-  ekam::proto::TaskUpdate::BLOCKED,
-  ekam::proto::TaskUpdate::RUNNING,
+  ekam::proto::TaskUpdate::State::DELETED,
+  ekam::proto::TaskUpdate::State::DONE,
+  ekam::proto::TaskUpdate::State::PASSED,
+  ekam::proto::TaskUpdate::State::FAILED,
+  ekam::proto::TaskUpdate::State::PENDING,
+  ekam::proto::TaskUpdate::State::BLOCKED,
+  ekam::proto::TaskUpdate::State::RUNNING,
 };
 
-static int STATE_PRIORITIES[DEFAULT_STATE + 1];
+static int STATE_PRIORITIES[16];
 
 struct StatePrioritiesInitializer {
   StatePrioritiesInitializer() {
@@ -49,7 +50,7 @@ struct StatePrioritiesInitializer {
       STATE_PRIORITIES[i] = -1;
     }
     for (size_t i = 0; i < (sizeof(ORDERED_STATES) / sizeof(ORDERED_STATES[0])); i++) {
-      STATE_PRIORITIES[ORDERED_STATES[i]] = i;
+      STATE_PRIORITIES[static_cast<uint>(ORDERED_STATES[i])] = i;
     }
   }
 };
@@ -158,19 +159,19 @@ QVariant EkamTreeNode::data(int role) {
       // icon
       if (isDirectory) {
         switch (state) {
-          case ekam::proto::TaskUpdate::DELETED:
+          case ekam::proto::TaskUpdate::State::DELETED:
             return QIcon(QLatin1String(":/ekamdashboard/images/dir-deleted.png"));
-          case ekam::proto::TaskUpdate::PENDING:
+          case ekam::proto::TaskUpdate::State::PENDING:
             return QIcon(QLatin1String(":/ekamdashboard/images/dir-pending.png"));
-          case ekam::proto::TaskUpdate::RUNNING:
+          case ekam::proto::TaskUpdate::State::RUNNING:
             return QIcon(QLatin1String(":/ekamdashboard/images/dir-running.png"));
-          case ekam::proto::TaskUpdate::DONE:
+          case ekam::proto::TaskUpdate::State::DONE:
             return QIcon(QLatin1String(":/ekamdashboard/images/dir-done.png"));
-          case ekam::proto::TaskUpdate::PASSED:
+          case ekam::proto::TaskUpdate::State::PASSED:
             return QIcon(QLatin1String(":/ekamdashboard/images/dir-passed.png"));
-          case ekam::proto::TaskUpdate::FAILED:
+          case ekam::proto::TaskUpdate::State::FAILED:
             return QIcon(QLatin1String(":/ekamdashboard/images/dir-failed.png"));
-          case ekam::proto::TaskUpdate::BLOCKED:
+          case ekam::proto::TaskUpdate::State::BLOCKED:
             // Use pending icon for blocked.
             return QIcon(QLatin1String(":/ekamdashboard/images/dir-pending.png"));
           case DEFAULT_STATE:
@@ -179,19 +180,19 @@ QVariant EkamTreeNode::data(int role) {
       } else {
         switch (state) {
           case DEFAULT_STATE:
-          case ekam::proto::TaskUpdate::DELETED:
+          case ekam::proto::TaskUpdate::State::DELETED:
             return QIcon(QLatin1String(":/ekamdashboard/images/state-deleted.png"));
-          case ekam::proto::TaskUpdate::PENDING:
+          case ekam::proto::TaskUpdate::State::PENDING:
             return QIcon(QLatin1String(":/ekamdashboard/images/state-pending.png"));
-          case ekam::proto::TaskUpdate::RUNNING:
+          case ekam::proto::TaskUpdate::State::RUNNING:
             return QIcon(QLatin1String(":/ekamdashboard/images/state-running.png"));
-          case ekam::proto::TaskUpdate::DONE:
+          case ekam::proto::TaskUpdate::State::DONE:
             return QIcon(QLatin1String(":/ekamdashboard/images/state-done.png"));
-          case ekam::proto::TaskUpdate::PASSED:
+          case ekam::proto::TaskUpdate::State::PASSED:
             return QIcon(QLatin1String(":/ekamdashboard/images/state-passed.png"));
-          case ekam::proto::TaskUpdate::FAILED:
+          case ekam::proto::TaskUpdate::State::FAILED:
             return QIcon(QLatin1String(":/ekamdashboard/images/state-failed.png"));
-          case ekam::proto::TaskUpdate::BLOCKED:
+          case ekam::proto::TaskUpdate::State::BLOCKED:
             // Use pending icon for blocked.
             return QIcon(QLatin1String(":/ekamdashboard/images/state-pending.png"));
         }
@@ -228,7 +229,7 @@ void EkamTreeNode::setAction(ActionState* newAction) {
   }
 }
 
-void EkamTreeNode::stateChanged(int newState) {
+void EkamTreeNode::stateChanged(ekam::proto::TaskUpdate::State newState) {
   if (state != newState) {
     state = newState;
     QModelIndex myIndex = index();
@@ -240,11 +241,11 @@ void EkamTreeNode::stateChanged(int newState) {
 }
 
 void EkamTreeNode::childStateChanged() {
-  int maxState = DEFAULT_STATE;
-  int maxStatePriority = STATE_PRIORITIES[maxState];
+  ekam::proto::TaskUpdate::State maxState = DEFAULT_STATE;
+  int maxStatePriority = STATE_PRIORITIES[static_cast<uint>(maxState)];
 
   foreach (EkamTreeNode* child, childNodes) {
-    int childPriority = STATE_PRIORITIES[child->state];
+    int childPriority = STATE_PRIORITIES[static_cast<uint>(child->state)];
     if (childPriority > maxStatePriority) {
       maxState = child->state;
       maxStatePriority = childPriority;

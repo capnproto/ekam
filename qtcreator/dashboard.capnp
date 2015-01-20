@@ -1,0 +1,1 @@
+../src/ekam/dashboard.capnp

@@ -19,16 +19,11 @@
 
 #include <queue>
 #include <string>
+#include <capnp/common.h>
 
 #include "Dashboard.h"
 #include "os/ByteStream.h"
 #include "os/EventManager.h"
-
-namespace google {
-  namespace protobuf {
-    class MessageLite;
-  }
-}
 
 namespace ekam {
 
@@ -50,14 +45,14 @@ private:
     WriteBuffer(EventManager* eventManager, OwnedPtr<ByteStream> stream);
     ~WriteBuffer();
 
-    void write(const google::protobuf::MessageLite& data);
+    void write(kj::ArrayPtr<const kj::ArrayPtr<const capnp::word>> data);
     Promise<void> onDisconnect();
 
   private:
     EventManager* eventManager;
     OwnedPtr<ByteStream> stream;
     OwnedPtr<EventManager::IoWatcher> ioWatcher;
-    std::queue<std::string> messages;
+    std::queue<kj::Array<capnp::word>> messages;
     std::string::size_type offset;
     Promise<void> waitWritablePromise;
 

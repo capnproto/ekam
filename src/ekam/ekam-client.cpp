@@ -14,10 +14,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "dashboard.pb.h"
-#include <google/protobuf/io/zero_copy_stream_impl.h>
-#include <google/protobuf/io/coded_stream.h>
-#include <google/protobuf/text_format.h>
+#include "dashboard.capnp.h"
+#include <capnp/schema.h>
+#include <capnp/serialize.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <iostream>
@@ -27,39 +26,32 @@
 
 namespace ekam {
 
-using google::protobuf::io::ZeroCopyInputStream;
-using google::protobuf::io::FileInputStream;
-using google::protobuf::io::FileOutputStream;
-using google::protobuf::io::CodedInputStream;
-using google::protobuf::uint32;
-using google::protobuf::TextFormat;
-using google::protobuf::Message;
-
-void dump(const proto::TaskUpdate& message) {
+void dump(proto::TaskUpdate::Reader message) {
   using std::cerr;
   using std::cout;
   using std::endl;
 
   cout << "================================================================================\n";
 
-  cout << message.id() << ":";
-  if (message.has_state()) {
-    cout << " " << proto::TaskUpdate::State_Name(message.state());
+  cout << message.getId() << ":";
+  if (message.getState() != proto::TaskUpdate::State::UNCHANGED) {
+    cout << " " << kj::str(message.getState()).cStr();
   }
-  if (message.has_verb()) {
-    cout << " " << message.verb();
+  if (message.hasVerb()) {
+    cout << " " << message.getVerb().cStr();
   }
-  if (message.has_noun()) {
-    cout << " " << message.noun();
+  if (message.hasNoun()) {
+    cout << " " << message.getNoun().cStr();
   }
-  if (message.silent()) {
+  if (message.getSilent()) {
     cout << " (silent)";
   }
   cout << '\n';
 
-  if (message.has_log()) {
-    cout << message.log();
-    if (message.log()[message.log().size() - 1] != '\n') {
+  if (message.hasLog()) {
+    auto log = message.getLog();
+    cout << log.cStr();
+    if (!log.endsWith("\n")) {
       cout << '\n';
     }
   }
@@ -69,85 +61,65 @@ void dump(const proto::TaskUpdate& message) {
 
 Dashboard::TaskState toDashboardState(proto::TaskUpdate::State state) {
   switch (state) {
-    case proto::TaskUpdate::PENDING:
+    case proto::TaskUpdate::State::PENDING:
       return Dashboard::PENDING;
-    case proto::TaskUpdate::RUNNING:
+    case proto::TaskUpdate::State::RUNNING:
       return Dashboard::RUNNING;
-    case proto::TaskUpdate::DONE:
+    case proto::TaskUpdate::State::DONE:
       return Dashboard::DONE;
-    case proto::TaskUpdate::PASSED:
+    case proto::TaskUpdate::State::PASSED:
       return Dashboard::PASSED;
-    case proto::TaskUpdate::FAILED:
+    case proto::TaskUpdate::State::FAILED:
       return Dashboard::FAILED;
-    case proto::TaskUpdate::BLOCKED:
+    case proto::TaskUpdate::State::BLOCKED:
       return Dashboard::BLOCKED;
     default:
-      throw std::invalid_argument("Invalid state: " + proto::TaskUpdate::State_Name(state));
+      throw std::invalid_argument(kj::str("Invalid state: ", state).cStr());
   }
-}
-
-bool readDelimited(ZeroCopyInputStream* rawInput, Message* message) {
-  CodedInputStream input(rawInput);
-
-  uint32 size;
-  if (!input.ReadVarint32(&size)) {
-    return false;
-  }
-
-  CodedInputStream::Limit limit = input.PushLimit(size);
-
-  if (!message->MergePartialFromCodedStream(&input) ||
-      !input.ConsumedEntireMessage()) {
-    fprintf(stderr, "Read error.\n");
-    exit(1);
-  }
-
-  input.PopLimit(limit);
-
-  return true;
 }
 
 int main(int argc, char* argv[]) {
-  FileInputStream rawInput(STDIN_FILENO);
+  kj::FdInputStream rawInput(STDIN_FILENO);
+  kj::BufferedInputStreamWrapper bufferedInput(rawInput);
 
-  proto::Header header;
-  if (!readDelimited(&rawInput, &header)) {
-    return 0;
+  {
+    capnp::InputStreamMessageReader message(bufferedInput);
+    proto::Header::Reader header = message.getRoot<proto::Header>();
+    printf("Project root: %s\n", header.getProjectRoot().cStr());
   }
-
-  printf("Project root: %s\n", header.project_root().c_str());
 
   ConsoleDashboard dashboard(stdout);
   OwnedPtrMap<int, Dashboard::Task> tasks;
 
-  while (true) {
-    proto::TaskUpdate message;
-    if (!readDelimited(&rawInput, &message)) {
-      return 0;
-    }
+  while (bufferedInput.tryGetReadBuffer() != nullptr) {
+    capnp::InputStreamMessageReader messageReader(bufferedInput);
+    proto::TaskUpdate::Reader message = messageReader.getRoot<proto::TaskUpdate>();
 
-    if (message.has_state() && message.state() == proto::TaskUpdate::DELETED) {
-      tasks.erase(message.id());
-    } else if (Dashboard::Task* task = tasks.get(message.id())) {
-      if (message.has_log()) {
-        task->addOutput(message.log());
+    if (message.getState() == proto::TaskUpdate::State::DELETED) {
+      tasks.erase(message.getId());
+    } else if (Dashboard::Task* task = tasks.get(message.getId())) {
+      if (message.hasLog()) {
+        task->addOutput(message.getLog());
       }
-      if (message.has_state()) {
-        task->setState(toDashboardState(message.state()));
+      if (message.getState() != proto::TaskUpdate::State::UNCHANGED) {
+        task->setState(toDashboardState(message.getState()));
       }
     } else {
       OwnedPtr<Dashboard::Task> newTask = dashboard.beginTask(
-          message.verb(), message.noun(),
-          message.silent() ? Dashboard::SILENT : Dashboard::NORMAL);
-      if (message.has_log()) {
-        newTask->addOutput(message.log());
+          message.getVerb(), message.getNoun(),
+          message.getSilent() ? Dashboard::SILENT : Dashboard::NORMAL);
+      if (message.hasLog()) {
+        newTask->addOutput(message.getLog());
       }
-      if (message.has_state() && message.state() != proto::TaskUpdate::PENDING) {
-        newTask->setState(toDashboardState(message.state()));
+      if (message.getState() != proto::TaskUpdate::State::UNCHANGED &&
+          message.getState() != proto::TaskUpdate::State::PENDING) {
+        newTask->setState(toDashboardState(message.getState()));
       }
-      tasks.add(message.id(), newTask.release());
+      tasks.add(message.getId(), newTask.release());
     }
   }
+
+  return 0;
 }
 
 }  // namespace ekam

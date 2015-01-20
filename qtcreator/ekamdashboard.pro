@@ -14,6 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+QMAKE_CXXFLAGS += -std=c++11 `pkg-config --cflags capnp`
+QMAKE_EXT_CPP += .c++
+
 TARGET = EkamDashboard
 TEMPLATE = lib
 
@@ -29,24 +32,26 @@ HEADERS += ekamdashboardplugin.h\
         ekamdashboardconstants.h \
     ekamtreewidget.h
 
-PROTOS += dashboard.proto
+CAPNPS += dashboard.capnp
 
 INCLUDEPATH += .
 
-protobuf_header.name = protobuf header
-protobuf_header.input = PROTOS
-protobuf_header.output  = ${QMAKE_FILE_BASE}.pb.h
-protobuf_header.commands = protoc --cpp_out="." -I`dirname ${QMAKE_FILE_NAME}` ${QMAKE_FILE_NAME}
-protobuf_header.variable_out = GENERATED_FILES
-QMAKE_EXTRA_COMPILERS += protobuf_header
+capnp_header.name = capnproto header
+capnp_header.input = CAPNPS
+capnp_header.output  = ${QMAKE_FILE_BASE}.capnp.h
+capnp_header.commands = \
+    capnp compile -oc++ --src-prefix=`dirname ${QMAKE_FILE_NAME}` ${QMAKE_FILE_NAME}; \
+    mv ${QMAKE_FILE_BASE}.capnp.c++ ${QMAKE_FILE_BASE}.capnp-noautolink.c++
+capnp_header.variable_out = GENERATED_FILES
+QMAKE_EXTRA_COMPILERS += capnp_header
 
-protobuf_src.name  = protobuf src
-protobuf_src.input = PROTOS
-protobuf_src.output  = ${QMAKE_FILE_BASE}.pb.cc
-protobuf_src.depends  = ${QMAKE_FILE_BASE}.pb.h
-protobuf_src.commands = true
-protobuf_src.variable_out = GENERATED_SOURCES
-QMAKE_EXTRA_COMPILERS += protobuf_src
+capnp_src.name  = capnproto src
+capnp_src.input = CAPNPS
+capnp_src.output  = ${QMAKE_FILE_BASE}.capnp-noautolink.c++
+capnp_src.depends  = ${QMAKE_FILE_BASE}.capnp.h
+capnp_src.commands = true
+capnp_src.variable_out = GENERATED_SOURCES
+QMAKE_EXTRA_COMPILERS += capnp_src
 
 # Qt Creator linking
 
@@ -91,7 +96,7 @@ QT += network
 
 include($$QTCREATOR_SOURCES/src/qtcreatorplugin.pri)
 
-LIBS += -L$$IDE_PLUGIN_PATH/Nokia -lprotobuf
+LIBS += -L$$IDE_PLUGIN_PATH/Nokia `pkg-config --libs capnp-rpc`
 
 RESOURCES += \
     ekamdashboard.qrc
