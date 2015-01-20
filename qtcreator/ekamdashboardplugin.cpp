@@ -169,7 +169,7 @@ void EkamDashboardPlugin::socketReady() {
 void EkamDashboardPlugin::tryConnect() {
   seenHeader = false;
 //  qDebug() << "Trying to connect...";
-  socket->connectToHost(QLatin1String("localhost"), 51315);
+  socket->connectToHost(QLatin1String("localhost"), 41315);
 }
 
 void EkamDashboardPlugin::consumeMessage(const void* data, int size) {

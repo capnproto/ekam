@@ -1,0 +1,12 @@
+{
+  \"Name\" : \"EkamDashboard\",
+  \"Version\" : \"0.0.1\",
+  \"CompatVersion\" : \"0.0.1\",
+  \"Vendor\" : \"KentonVarda\",
+  \"Copyright\" : \"(C) Kenton Varda and Google Inc.\",
+  \"License\" : \"Apache License v2.0\",
+  \"Category\" : \"Qt Creator\",
+  \"Description\" : \"Connects to the Ekam continuous build daemon and displays error markers.\",
+  \"Url\" : \"http://ekam.googlecode.com\",
+  $$dependencyList
+}

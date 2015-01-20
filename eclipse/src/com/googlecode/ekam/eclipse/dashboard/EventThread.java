@@ -28,7 +28,7 @@ public class EventThread implements Runnable {
   }
 
   private void reconnect() throws IOException {
-    Socket socket = new Socket("localhost", 51315);
+    Socket socket = new Socket("localhost", 41315);
     input = socket.getInputStream();
   }
 

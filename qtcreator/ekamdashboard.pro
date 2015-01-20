@@ -52,11 +52,11 @@ QMAKE_EXTRA_COMPILERS += protobuf_src
 
 ## set the QTC_SOURCE environment variable to override the setting here
 QTCREATOR_SOURCES = $$(QTC_SOURCE)
-isEmpty(QTCREATOR_SOURCES):QTCREATOR_SOURCES=/home/kenton/src/qt-creator-opensource-src-3.3.0
+isEmpty(QTCREATOR_SOURCES):error("Please set QTC_SOURCE to your Qt Creator source directory.")
 
 ## set the QTC_BUILD environment variable to override the setting here
 IDE_BUILD_TREE = $$(QTC_BUILD)
-isEmpty(IDE_BUILD_TREE):IDE_BUILD_TREE=/home/kenton/src/qt-creator-opensource-src-3.3.0
+isEmpty(IDE_BUILD_TREE):IDE_BUILD_TREE=$$(QTC_SOURCE)
 
 ## uncomment to build plugin into user config directory
 ## <localappdata>/plugins/<ideversion>
