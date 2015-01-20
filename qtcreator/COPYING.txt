@@ -3,5 +3,5 @@ Code in this directory is licensed under Apache 2.0 like normal.
 However, the icons under images/ are from the Qt Creator source code, and are thus
 subject to Qt Creator's copyright and license.  This probably means that the compiled
 plugin cannot legally be redistributed because it combines incompatible licenses
-(Apache vs. LGPL).  I support I should either replace the icons or relicense the code.
+(Apache vs. LGPL).  I suppose I should either replace the icons or relicense the code.
 Let me know if anyone actually cares.

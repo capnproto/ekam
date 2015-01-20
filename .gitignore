@@ -1,4 +1,3 @@
-syntax: glob
 tmp
 src/protobuf
 eclipse/bin
