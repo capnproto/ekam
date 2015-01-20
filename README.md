@@ -28,7 +28,7 @@ We'd like to see other platforms supported, but Ekam's primary user and maintain
 
 Download and compile Ekam like so:
 
-    git pull https://github.com/sandstorm-io/ekam.git
+    git clone https://github.com/sandstorm-io/ekam.git
     cd ekam
     ./bootstrap.sh
 
