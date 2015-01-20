@@ -12,7 +12,9 @@ Ekam is a work in progress.
 
 ### Warning
 
-Ekam is an experimental project that is not ready for wide use.  These instructions are frequently out-of-date, and sometimes the code in the repository doesn't even build.  The bootstrap script in particular tends not to get updated when it should.  You may need to go back a few revisions to make things work, or do some debugging, or complain to me about it.  :)
+Ekam is an experimental project that is not ready for wide use.
+
+That said, I (Kenton) have successfully used Ekam as my primary build system throughout the development of Cap'n Proto and Sandstorm.
 
 ### Supported Platforms
 
@@ -40,7 +42,7 @@ For example, if Cap'n Proto is not available (see below), you will see errors ab
 
 ### Compiling Ekam with Ekam
 
-Compiling Ekam requires the GCC flag -std=gnu++0x to enable C++11 features, but currently there is no way for the code itself to specify compiler flags that it requires.  You can only specify them via environment variable.  So, to build Ekam with Ekam, type this command at the top of the Ekam repository:
+Compiling Ekam requires the GCC flag `-std=gnu++0x` to enable C++11 features, but currently there is no way for the code itself to specify compiler flags that it requires.  You can only specify them via environment variable.  So, to build Ekam with Ekam, type this command at the top of the Ekam repository:
 
     CXXFLAGS=-std=gnu++0x ekam -j4
 
@@ -54,8 +56,6 @@ Ekam places its output in siblings of `src` called `tmp` (for intermediate files
 
 If you invoke Ekam with the `-c` option, it will watch the source tree for changes and rebuild derived files as needed.  In this way, you can simply leave Ekam running while you work on your code, and get information about errors almost immediately on saving.
 
-Note that this feature works best on Linux.  FreeBSD and OSX lack a scalable way to watch large directory trees.  Ekam will use `kqueue`'s `EVFILT_VNODE` on these systems, but this can be problematic because it requires opening a file descriptor for every file watched.  Particularly on OSX, this can quickly exhaust the per-process file descriptor limit.
-
 ## IDE plugins and other external clients
 
 Ekam can, while running, export a network interface which allows other programs to query the state of the build, including receiving the task tree and error logs. To support this, you must compile Ekam with Cap'n Proto.
@@ -68,11 +68,11 @@ If you clone the [Cap'n Proto](https://capnproto.org) git repository next to Eka
 
 If you compile Ekam with Cap'n Proto, then Ekam's `ProtoDashboard.cpp` and `ekam-client` should compile correctly.  This enables the `-n` flag to Ekam, which tells it to allow clients to query its state over the network.  Invoke like:
 
-  ekam -n :41315
+    ekam -n :41315
 
 Then attach the client like so:
 
-  nc localhost 41315 | ekam-client
+    nc localhost 41315 | ekam-client
 
 (A future version of the client will be able to connect directly rather than use netcat in this way.)
 
@@ -90,7 +90,7 @@ This should build the plugin and install it directly into your Qt Creator build.
 
 Now you can start Qt Creator and choose the "Ekam Actions" view in the navigation frame. The plugin connects to a local Ekam instance running on port 41315; so, start ekam like this:
 
-  ekam -c -n :41315
+    ekam -c -n :41315
 
 The plugin will also add error markers to you source code, visible in the issue tracker. Double-clicking on a failed rule in the tree view will navigate the issues view to the first message from that action, which you can in turn use to navigate to the source location of the error.
 
@@ -147,6 +147,8 @@ If Ekam builds a binary which ends in `-test` or `_test`, it will run that binar
 Ekam has additional built-in support for two test frameworks: Google Test and KJ tests. When Ekam compiles a source file which declares test cases using one of these frameworks (e.g. using Google Test's `TEST` or `TEST_F` macros, or KJ's `KJ_TEST` macro) but without a `main` function, it will automatically link against the respective framework's test runner (which supplies `main`) in order to produce a test binary. Note that the detection of test declarations is based on linker symbols, not on scanning the source code, so don't worry if you've declared your own wrapper macros.
 
 In order for Google Test or KJ test integration to work, the respective test framework's code must be in your source tree as a dependency (see below).
+
+Note that tests are run with `intercept.so` injected, which has implications if your test does any filesystem access. See the explanation of `intercept.so` later in this document.
 
 ### Dependencies
 
@@ -220,3 +222,9 @@ When filesystem calls are being intercepted, an attempt to open a regular filena
 If you want to open a file by tag, the special virtual path `/ekam-provider/<tag-type>/<tag-value>` can be used. For example, since the `include.ekam-rule` rule tags all C++ header files with `c++header:<include-path>`, when we invoke the compiler using the inteceptor, we pass the flag `-I/ekam-provider/c++header`.
 
 If you want to open a file purely by its whole canonical path (not using the heuristic that finds nearby files), you may do so by opening `/ekam-provider/canonical/<canonical-name>`, since as described above every file gets tagged with `canonical:<canonical-name>`.
+
+## Get Involved
+
+Have a question about Ekam, or want to contribute? Talk to us on the [Ekam discussion group](https://groups.google.com/group/ekam-tool).
+
+Ekam is currently developed as part of the [Sandstorm.io](https://sandstorm.io) project and is primarily used by Sandstorm. If you like Ekam, consider [getting involved with Sandstorm](https://github.com/sandstorm-io/sandstorm/wiki/Get-Involved).
