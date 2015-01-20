@@ -50,7 +50,7 @@ The `-j4` tells Ekam to run up to four tasks at once.  You may want to adjust th
 
 Note that Ekam looks for a directory called `src` within the current directory, and scans it for source code.  The Ekam source repository is already set up with such a `src` subdirectory containing the Ekam code.  You could, however, place the entire Ekam repository _inside_ some other directory called `src`, and then run Ekam from the directory above that, and it will still find the code.  The Protocol Buffers instructions below will take advantage of this to create a directory tree containing both Ekam and protobufs.
 
-Ekam places its output in siblings of `src` called `tmp` (for intermediate files), `bin` (for output binaries), `lib` (for output libraries), etc.  These are intended to model Unix directory tree conventions.
+Ekam places its output in siblings of `src` called `tmp` (for intermediate files), `bin` (for output binaries), `lib` (for output libraries, although currently Ekam doesn't support building libraries), etc.  These are intended to model Unix directory tree conventions.
 
 ## Continuous Building
 
@@ -129,6 +129,12 @@ You can also choose to rename the file when installing:
     bar bin/baz
 
 This says: "Once you've built `bar` (within this directory), copy it to `bin/baz`."
+
+### Building libraries
+
+Currently, Ekam does not support building libraries. This seems complicated to support since there's no automated way for Ekam to decide what makes a good library. You'd need to declare some set of modules representing the public interface, which is a bit sad.
+
+For now, Ekam is suitable for projects where the final output is a binary. A "library" in Ekam is just a directory that contains some code. It does not build to a `.a` or `.so` file; instead, the objects may be directly linked into binaries found in other directories as needed.
 
 ### Handling Magic Singleton Registries
 
