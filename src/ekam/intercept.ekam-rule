@@ -1,8 +1,8 @@
 #! /bin/sh
 
-# Kenton's Code Playground -- http://code.google.com/p/kentons-code
-# Author: Kenton Varda (temporal@gmail.com)
-# Copyright (c) 2010 Google, Inc. and contributors.
+# Ekam Build System
+# Author: Kenton Varda (kenton@sandstorm.io)
+# Copyright (c) 2010-2015 Kenton Varda, Google Inc., and contributors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
