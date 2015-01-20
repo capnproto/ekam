@@ -130,6 +130,18 @@ You can also choose to rename the file when installing:
 
 This says: "Once you've built `bar` (within this directory), copy it to `bin/baz`."
 
+### Handling Magic Singleton Registries
+
+There is a common pattern in C++ code in which a particular file's symbols are not referenced from other files, but instead the file registers itself in some global registry at program startup which makes its functionality discoverable to the rest of the program.
+
+By default, this pattern does not work with Ekam, because Ekam has no way to tell which of these magic self-registering files should be linked into which binaries, since their symbols are not referenced from other `.o` files.
+
+To solve this problem, don't. This design pattern sucks and you should not use it. Rewrite your code so that its functionality is not dependent on what objects were specified on the link line. For example, have your `main()` function explicitly call `registerFoo()`, `registerBar()`, etc., for all the magic modules you want registered, ideally passing a registry object to each function so you don't need a singleton registry.
+
+See [Singletons Considered Harmful](http://www.object-oriented-security.org/lets-argue/singletons) for extended discussion.
+
+(We make a special exception for test frameworks, described below.)
+
 ### Debugging
 
 If you want `gdb` to be able to find your code when debugging Ekam-built binaries, you should set up a couple symlinks as follows:
