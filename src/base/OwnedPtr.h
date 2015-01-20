@@ -18,11 +18,11 @@
 #define KENTONSCODE_BASE_OWNEDPTR_H_
 
 #include <stddef.h>
-#include <tr1/type_traits>
+#include <type_traits>
 #include <vector>
 #include <deque>
 #include <queue>
-#include <tr1/unordered_map>
+#include <unordered_map>
 #include <assert.h>
 
 #ifdef __CDT_PARSER__
@@ -617,10 +617,10 @@ private:
 };
 
 template <typename Key, typename T,
-          typename HashFunc = std::tr1::hash<Key>,
+          typename HashFunc = std::hash<Key>,
           typename EqualsFunc = std::equal_to<Key> >
 class OwnedPtrMap {
-  typedef std::tr1::unordered_map<Key, T*, HashFunc, EqualsFunc> InnerMap;
+  typedef std::unordered_map<Key, T*, HashFunc, EqualsFunc> InnerMap;
 
 public:
   OwnedPtrMap() {}

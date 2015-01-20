@@ -17,7 +17,7 @@
 #ifndef KENTONSCODE_OS_EVENTGROUP_H_
 #define KENTONSCODE_OS_EVENTGROUP_H_
 
-#include <tr1/unordered_set>
+#include <unordered_set>
 
 #include "EventManager.h"
 
@@ -32,7 +32,7 @@ class EventGroup: public EventManager {
 public:
   class ExceptionHandler {
   public:
-    virtual ~ExceptionHandler();
+    virtual ~ExceptionHandler() noexcept(false);
 
     // An event callback threw an exception.  The ExceptionHandler is expected to immediately
     // cancel the event group such that no further events are received by it.

@@ -61,14 +61,14 @@ private:
 
 class EventManager : public Executor {
 public:
-  virtual ~EventManager();
+  virtual ~EventManager() noexcept(false);
 
   // Fulfills the promise when the process exits.
   virtual Promise<ProcessExitCode> onProcessExit(pid_t pid) = 0;
 
   class IoWatcher {
   public:
-    virtual ~IoWatcher();
+    virtual ~IoWatcher() noexcept(false);
 
     // Fulfills the promise when the file descriptor is readable.
     virtual Promise<void> onReadable() = 0;
@@ -97,7 +97,7 @@ public:
 
 class RunnableEventManager : public EventManager {
 public:
-  virtual ~RunnableEventManager();
+  virtual ~RunnableEventManager() noexcept(false);
 
   virtual void loop() = 0;
 };

@@ -25,7 +25,7 @@
 #include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <tr1/unordered_map>
+#include <unordered_map>
 
 #include "base/Debug.h"
 #include "os/OsHandle.h"
@@ -149,7 +149,7 @@ bool DiskFile::equals(File* other) {
 }
 
 size_t DiskFile::identityHash() {
-  return std::tr1::hash<std::string>()(path);
+  return std::hash<std::string>()(path);
 }
 
 class DiskFile::DiskRefImpl : public File::DiskRef {

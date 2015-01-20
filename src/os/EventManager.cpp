@@ -22,10 +22,10 @@
 
 namespace ekam {
 
-EventManager::~EventManager() {}
-EventManager::IoWatcher::~IoWatcher() {}
+EventManager::~EventManager() noexcept(false) {}
+EventManager::IoWatcher::~IoWatcher() noexcept(false) {}
 EventManager::FileWatcher::~FileWatcher() {}
-RunnableEventManager::~RunnableEventManager() {}
+RunnableEventManager::~RunnableEventManager() noexcept(false) {}
 
 void ProcessExitCode::throwError() {
   if (signaled) {

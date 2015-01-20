@@ -20,7 +20,7 @@
 
 namespace ekam {
 
-EventGroup::ExceptionHandler::~ExceptionHandler() {}
+EventGroup::ExceptionHandler::~ExceptionHandler() noexcept(false) {}
 
 class EventGroup::PendingEvent {
 public:

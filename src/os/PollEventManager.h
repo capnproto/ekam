@@ -21,7 +21,7 @@
 #include <stdint.h>
 #include <signal.h>
 #include <deque>
-#include <tr1/unordered_map>
+#include <unordered_map>
 
 #include "EventManager.h"
 #include "base/OwnedPtr.h"
@@ -54,9 +54,9 @@ private:
   class WriteHandler;
 
   std::deque<AsyncCallbackHandler*> asyncCallbacks;
-  std::tr1::unordered_map<pid_t, ProcessExitHandler*> processExitHandlerMap;
-  std::tr1::unordered_map<int, IoHandler*> readHandlerMap;
-  std::tr1::unordered_map<int, IoHandler*> writeHandlerMap;
+  std::unordered_map<pid_t, ProcessExitHandler*> processExitHandlerMap;
+  std::unordered_map<int, IoHandler*> readHandlerMap;
+  std::unordered_map<int, IoHandler*> writeHandlerMap;
 
   bool handleEvent();
   void handleSignal(const siginfo_t& siginfo);

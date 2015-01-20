@@ -149,7 +149,7 @@ public:
 
 class Executor {
 public:
-  virtual ~Executor();
+  virtual ~Executor() noexcept(false);
 
   virtual OwnedPtr<PendingRunnable> runLater(OwnedPtr<Runnable> runnable) = 0;
 

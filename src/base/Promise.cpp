@@ -20,6 +20,6 @@ namespace ekam {
 
 Runnable::~Runnable() {}
 PendingRunnable::~PendingRunnable() {}
-Executor::~Executor() {}
+Executor::~Executor() noexcept(false) {}
 
 }  // namespace ekam

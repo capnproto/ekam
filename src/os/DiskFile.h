@@ -18,6 +18,7 @@
 #define KENTONSCODE_OS_DISKFILE_H_
 
 #include "File.h"
+#include <string>
 
 namespace ekam {
 

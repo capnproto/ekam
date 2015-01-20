@@ -15,6 +15,7 @@
 // limitations under the License.
 
 #include "File.h"
+#include <string>
 
 namespace ekam {
 

@@ -56,7 +56,7 @@ private:
 
   class IoHandler {
   public:
-    virtual ~IoHandler() {}
+    virtual ~IoHandler() noexcept(false) {}
 
     virtual void handle(uint32_t events) = 0;
   };
@@ -113,7 +113,7 @@ private:
 
     ByteStream signalStream;
     Epoller::Watch watch;
-    std::tr1::unordered_map<pid_t, ProcessExitHandler*> processExitHandlerMap;
+    std::unordered_map<pid_t, ProcessExitHandler*> processExitHandlerMap;
 
     void handleProcessExit();
     void maybeStopExpecting();
@@ -137,9 +137,9 @@ private:
     Epoller::Watch watch;
 
     OwnedPtrMap<WatchedDirectory*, WatchedDirectory> ownedWatchDirectories;
-    typedef std::tr1::unordered_map<int, WatchedDirectory*> WatchMap;
+    typedef std::unordered_map<int, WatchedDirectory*> WatchMap;
     WatchMap watchMap;
-    typedef std::tr1::unordered_map<std::string, WatchedDirectory*> WatchByNameMap;
+    typedef std::unordered_map<std::string, WatchedDirectory*> WatchByNameMap;
     WatchByNameMap watchByNameMap;
   };
 

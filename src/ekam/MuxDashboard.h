@@ -17,7 +17,7 @@
 #ifndef KENTONSCODE_EKAM_MUXDASHBOARD_H_
 #define KENTONSCODE_EKAM_MUXDASHBOARD_H_
 
-#include <tr1/unordered_set>
+#include <unordered_set>
 
 #include "Dashboard.h"
 
@@ -44,8 +44,8 @@ public:
 private:
   class TaskImpl;
 
-  std::tr1::unordered_set<TaskImpl*> tasks;
-  std::tr1::unordered_set<Dashboard*> wrappedDashboards;
+  std::unordered_set<TaskImpl*> tasks;
+  std::unordered_set<Dashboard*> wrappedDashboards;
 };
 
 }  // namespace ekam

@@ -35,7 +35,7 @@ public:
   ByteStream(const std::string& path, int flags);
   ByteStream(const std::string& path, int flags, int mode);
   ByteStream(int fd, const std::string& name);
-  ~ByteStream();
+  ~ByteStream() noexcept(false);
 
   inline OsHandle* getHandle() { return &handle; }
 

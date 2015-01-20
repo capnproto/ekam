@@ -18,7 +18,7 @@
 #define KENTONSCODE_OS_KQUEUEEVENTMANAGER_H_
 
 #include <sys/types.h>
-#include <tr1/unordered_set>
+#include <unordered_set>
 #include <deque>
 
 #include "EventManager.h"

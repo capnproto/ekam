@@ -17,7 +17,7 @@
 #ifndef KENTONSCODE_BASE_TABLE_H_
 #define KENTONSCODE_BASE_TABLE_H_
 
-#include <tr1/unordered_map>
+#include <unordered_map>
 #include <vector>
 #include <stdlib.h>
 
@@ -56,19 +56,19 @@ struct ChooseType<Choices, 2> : public Choices::Choice2 {};
 
 // =======================================================================================
 
-template <typename T, typename Hasher = std::tr1::hash<T>, typename Eq = std::equal_to<T> >
+template <typename T, typename Hasher = std::hash<T>, typename Eq = std::equal_to<T> >
 struct IndexedColumn {
   typedef T Value;
-  typedef std::tr1::unordered_multimap<T, int, Hasher, Eq> Index;
+  typedef std::unordered_multimap<T, int, Hasher, Eq> Index;
 };
 
-template <typename T, typename Hasher = std::tr1::hash<T>, typename Eq = std::equal_to<T> >
+template <typename T, typename Hasher = std::hash<T>, typename Eq = std::equal_to<T> >
 struct UniqueColumn {
   typedef T Value;
-  typedef std::tr1::unordered_map<T, int, Hasher, Eq> Index;
+  typedef std::unordered_map<T, int, Hasher, Eq> Index;
 };
 
-template <typename T, typename Hasher = std::tr1::hash<T>, typename Eq = std::equal_to<T> >
+template <typename T, typename Hasher = std::hash<T>, typename Eq = std::equal_to<T> >
 struct Column {
   typedef T Value;
   typedef DummyMap<T, int> Index;

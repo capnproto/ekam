@@ -36,7 +36,7 @@ ByteStream::ByteStream(const std::string& path, int flags, int mode)
 ByteStream::ByteStream(int fd, const std::string& name)
     : handle(name, fd) {}
 
-ByteStream::~ByteStream() {}
+ByteStream::~ByteStream() noexcept(false) {}
 
 size_t ByteStream::read(void* buffer, size_t size) {
   return WRAP_SYSCALL(read, handle, buffer, size);

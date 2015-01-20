@@ -370,7 +370,7 @@ void EpollEventManager::SignalHandler::handleProcessExit() {
     }
 
     // Get the handler associated with this PID.
-    std::tr1::unordered_map<pid_t, ProcessExitHandler*>::iterator iter =
+    std::unordered_map<pid_t, ProcessExitHandler*>::iterator iter =
         processExitHandlerMap.find(pid);
     if (iter == processExitHandlerMap.end()) {
       // It is actually important that any code creating a subprocess call onProcessExit()

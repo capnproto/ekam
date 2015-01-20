@@ -17,7 +17,7 @@
 #include "Promise.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include "gtest.h"
+#include <kj/compat/gtest.h>
 
 namespace ekam {
 namespace {

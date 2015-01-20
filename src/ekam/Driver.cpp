@@ -17,7 +17,7 @@
 #include "Driver.h"
 
 #include <queue>
-#include <tr1/memory>
+#include <memory>
 #include <stdexcept>
 #include <errno.h>
 #include <string.h>
@@ -680,7 +680,7 @@ void Driver::registerProvider(Provision* provision, const std::vector<Tag>& tags
 
 void Driver::resetDependentActions(const Tag& tag,
                                    const std::unordered_set<ActionDriver*>& dependencies) {
-  std::tr1::unordered_set<Provision*> provisionsToReset;
+  std::unordered_set<Provision*> provisionsToReset;
 
   std::vector<ActionDriver*> actionsToReset;
 

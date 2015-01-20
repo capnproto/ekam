@@ -40,7 +40,7 @@ public:
 
 class BuildContext {
 public:
-  virtual ~BuildContext();
+  virtual ~BuildContext() noexcept(false);
 
   virtual File* findProvider(Tag id) = 0;
   virtual File* findInput(const std::string& path) = 0;

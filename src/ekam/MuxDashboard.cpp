@@ -55,7 +55,7 @@ MuxDashboard::TaskImpl::TaskImpl(MuxDashboard* mux, const std::string& verb,
     : mux(mux), state(PENDING), silence(silence), verb(verb), noun(noun) {
   mux->tasks.insert(this);
 
-  for (std::tr1::unordered_set<Dashboard*>::iterator iter = mux->wrappedDashboards.begin();
+  for (std::unordered_set<Dashboard*>::iterator iter = mux->wrappedDashboards.begin();
        iter != mux->wrappedDashboards.end(); ++iter) {
     wrappedTasks.add(*iter, (*iter)->beginTask(verb, noun, silence));
   }
@@ -126,7 +126,7 @@ MuxDashboard::Connector::Connector(MuxDashboard* mux, Dashboard* dashboard)
     throw std::invalid_argument("Mux is already attached to this dashboard.");
   }
 
-  for (std::tr1::unordered_set<TaskImpl*>::iterator iter = mux->tasks.begin();
+  for (std::unordered_set<TaskImpl*>::iterator iter = mux->tasks.begin();
        iter != mux->tasks.end(); ++iter) {
     (*iter)->attach(dashboard);
   }
@@ -137,7 +137,7 @@ MuxDashboard::Connector::~Connector() {
     DEBUG_ERROR << "Deleting MuxDashboard connection that was never made?";
   }
 
-  for (std::tr1::unordered_set<TaskImpl*>::iterator iter = mux->tasks.begin();
+  for (std::unordered_set<TaskImpl*>::iterator iter = mux->tasks.begin();
        iter != mux->tasks.end(); ++iter) {
     (*iter)->detach(dashboard);
   }

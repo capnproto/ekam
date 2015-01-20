@@ -18,7 +18,7 @@
 
 namespace ekam {
 
-BuildContext::~BuildContext() {}
+BuildContext::~BuildContext() noexcept(false) {}
 Action::~Action() {}
 ActionFactory::~ActionFactory() {}
 

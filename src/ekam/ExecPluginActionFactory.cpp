@@ -277,7 +277,7 @@ private:
 
   OwnedPtrMap<std::string, File> knownFiles;
 
-  typedef std::tr1::unordered_map<std::string, File::DiskRef*> CacheMap;
+  typedef std::unordered_map<std::string, File::DiskRef*> CacheMap;
   CacheMap cache;
   OwnedPtrVector<File::DiskRef> diskRefs;
 

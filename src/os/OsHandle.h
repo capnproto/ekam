@@ -19,6 +19,7 @@
 
 #include <stdexcept>
 #include <errno.h>
+#include <string>
 
 #include "base/OwnedPtr.h"
 
