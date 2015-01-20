@@ -256,11 +256,10 @@ void ActionState::applyUpdate(const ekam::proto::TaskUpdate& update) {
   if (update.has_state() && update.state() != state) {
     bool wasHidden = isHidden();
 
-    // If state was previously BLOCKED, and we managed to un-block, then we don't care about the
-    // reason why we were blocked, so clear the text.
-    if (state == ekam::proto::TaskUpdate::BLOCKED &&
-        (update.state() == ekam::proto::TaskUpdate::PENDING ||
-         update.state() == ekam::proto::TaskUpdate::RUNNING)) {
+    // Invalidate log when the task is deleted or it is re-running or scheduled to re-run.
+    if (update.state() == ekam::proto::TaskUpdate::PENDING ||
+        update.state() == ekam::proto::TaskUpdate::RUNNING ||
+        update.state() == ekam::proto::TaskUpdate::DELETED) {
       clearTasks();
     }
 
