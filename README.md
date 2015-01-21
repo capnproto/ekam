@@ -30,15 +30,11 @@ Download and compile Ekam like so:
 
     git clone https://github.com/sandstorm-io/ekam.git
     cd ekam
-    ./bootstrap.sh
+    make
 
 If successful, Ekam should have built itself, with the output binary at "bin/ekam".
 
-### You will see errors
-
-When Ekam builds itself, some errors will be produced, but the build will be successful overall.  Pay attention to the final message printed by the bootstrap script to determine whether there was a real problem.
-
-For example, if Cap'n Proto is not available (see below), you will see errors about `ProtoDashboard.cpp`, `dashboard.capnp`, and `ekam-client.cpp`. Building these files are optional (they enable the network protocol); Ekam will still work without them.
+Yes, we use make in order bootstrap Ekam, mostly just because it's slighly nicer than a shell script.
 
 ### Compiling Ekam with Ekam
 
@@ -56,25 +52,25 @@ Ekam places its output in siblings of `src` called `tmp` (for intermediate files
 
 If you invoke Ekam with the `-c` option, it will watch the source tree for changes and rebuild derived files as needed.  In this way, you can simply leave Ekam running while you work on your code, and get information about errors almost immediately on saving.
 
+Note that continuous building is the only way to do incremental builds with Ekam -- any time you run a new Ekam process, it always starts from scratch. I generally just leave Ekam running in a console window 24/7.
+
 ## IDE plugins and other external clients
 
-Ekam can, while running, export a network interface which allows other programs to query the state of the build, including receiving the task tree and error logs. To support this, you must compile Ekam with Cap'n Proto.
+Ekam can, while running, export a network interface which allows other programs to query the state of the build, including receiving the task tree and error logs.
 
-### Compiling with Cap'n Proto
+### Ekam Server
 
-If you clone the [Cap'n Proto](https://capnproto.org) git repository next to Ekam's, i.e. so that it is found at `../capnproto`, then Ekam will be built with Cap'n Proto. Note that you do not have to build or install Cap'n Proto separately; Cap'n Proto's sources are merged into Ekam's build and built by Ekam. (If you look in the `src` directory, you'll see this is accomplished through some sneaky symlinks.)
-
-### Ekam Client
-
-If you compile Ekam with Cap'n Proto, then Ekam's `ProtoDashboard.cpp` and `ekam-client` should compile correctly.  This enables the `-n` flag to Ekam, which tells it to allow clients to query its state over the network.  Invoke like:
+If you pass the `-n` flag to Ekam, it will listen for connections on a port and stream build status updates to anyone who connects. Invoke like:
 
     ekam -n :41315
 
-Then attach the client like so:
+### Ekam Client
+
+`ekam-client` is a very simple program that prints an Ekam build status stream to the console exactly as Ekam itself does. Currently `ekam-client` doesn't actually know how to create a network connection but instead reads the stream from standard input, so you can invoke it like this:
 
     nc localhost 41315 | ekam-client
 
-(A future version of the client will be able to connect directly rather than use netcat in this way.)
+`ekam-client` is mostly just a tech demo, since it displays the same info that is already visible in the console where Ekam itself is running.
 
 ### Qt Creator Plugin
 
@@ -170,13 +166,24 @@ Note that tests are run with `intercept.so` injected, which has implications if 
 
 ### Dependencies
 
-If your project depends on other projects, and you want to build those other projects as part of your own build (rather than require the user to install the libraries on their system), you should follow the pattern that Ekam itself does: tell the user to download the dependencies into sibling directories of your own repo, and then use symlinks to pull their source directories into your own.
+If your project depends on other projects, and you want to build those other projects as part of your own build (rather than require the user to install the libraries on their system), you should follow the pattern that Ekam itself does.
 
-For example, to symlink Cap'n Proto into your project:
+The basic idea is to have a directory called `deps` into which you download the repositories of your external dependencies. Then, under `src`, place symlinks that deep-link into `deps` and pull out the code you want.
 
-    ln -s ../../capnproto/c++/src/{kj,capnp} src
+For example, to depend on Cap'n Proto, you would do something like:
 
-We may develop tools to automate this in the future.
+    mkdir deps
+    git clone https://github.com/sandstorm-io/capnproto.git deps/capnproto
+    ln -s ../deps/capnproto/c++/src/{kj,capnp} src
+
+Note that `deps` should not be checked into your repository. Instead, you should provide a script that people run after cloning your repo that downloads dependencies. For Ekam's own build, we handle this in the Makefile, so you can look at that for an example. We may eventually add functionality to Ekam to handle dependencies so that you no longer need a Makefile for this.
+
+**Now, here's the fun part:** If you work on a lot of different projects, instead of nesting dependencies as described above, you can symlink `deps` to `..`, such that all your git clones are siblings:
+
+    rm -rf deps
+    ln -s .. deps
+
+You can do this with Ekam, for instance, if you happen to have Cap'n Proto cloned as a sybling to Ekam.
 
 ### Non-Ekam-clean Dependencies
 
