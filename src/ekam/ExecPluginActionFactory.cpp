@@ -169,6 +169,32 @@ private:
         knownFiles.add(path, provider->clone());
       }
       responseStream->writeAll("\n", 1);
+    } else if (command == "findModifiers") {
+      auto dir = input->parent();
+      std::vector<File*> results;
+      for (;;) {
+        File* provider = context->findProvider(Tag::fromName(
+            "canonical:" + dir->relative(args)->canonicalName()));
+        if (provider != NULL) {
+          results.push_back(provider);
+        }
+        if (!dir->hasParent()) {
+          break;
+        }
+        dir = dir->parent();
+      }
+
+      for (auto iter = results.rbegin(); iter != results.rend(); ++iter) {
+        File* provider = *iter;
+        OwnedPtr<File::DiskRef> diskRef = provider->getOnDisk(File::READ);
+        std::string path = diskRef->path();
+        diskRefs.add(diskRef.release());
+        responseStream->writeAll(path.data(), path.size());
+        knownFiles.add(path, provider->clone());
+        responseStream->writeAll("\n", 1);
+      }
+
+      responseStream->writeAll("\n", 1);
     } else if (command == "newProvider") {
       // TODO:  Create a new output file and register it as a provider.
       context->log("newProvider not implemented");

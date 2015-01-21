@@ -30,9 +30,22 @@ if test $# = 0; then
 fi
 
 INPUT=$1
+shift
 
 CXX=${CXX:-c++}
 CXXFLAGS=${CXXFLAGS:-}
+CC=${CC:-cc}
+CFLAGS=${CFLAGS:-}
+
+# Look up modifiers.
+echo findModifiers compile.ekam-flags
+while true; do
+  read MODIFIER
+  if test -z "$MODIFIER"; then
+    break
+  fi
+  . "$MODIFIER" 1>&2
+done
 
 case "$INPUT" in
   *.cpp )
@@ -58,8 +71,8 @@ case "$INPUT" in
     ;;
   *.c )
     MODULE_NAME=${INPUT%.c}
-    CXX=${CC:-cc}
-    CXXFLAGS=${CFLAGS:-}
+    CXX=${CC}
+    CXXFLAGS=${CFLAGS}
     ;;
   * )
     echo "Wrong file type: $INPUT" >&2

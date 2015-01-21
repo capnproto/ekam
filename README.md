@@ -188,11 +188,20 @@ When Ekam sees a directory named `include`, it adds that directory to the includ
 
 Note that projects imported this way will usually have a bunch of errors reported since they are not Ekam-clean. However, often (such as in the case of Google Test) the important parts will compile well enough to use.
 
+### Per-directory compile options
+
+To specify some additional compiler options that should apply within a particular directory (and all children, recursively), you may create a file called `compile.ekam-flags` and populate it with simple variable assignments in shell syntax. For example:
+
+    # Define FOO to 1 when compiling code in this directory.
+    CXXFLAGS=$CXXFLAGS -DFOO=1
+
+`.ekam-flags` files are actually executed using `/bin/sh` just before invoking the compiler. When multiple flags files are in-scope, the flags file in the outermost directory runs first.
+
 ## Custom Rules
 
 You may teach Ekam how to handle a new type of file -- or introduce a one-off build rule not triggered by any file -- by creating a rule file. A rule file is any executable with the extension `.ekam-rule`. Often, they are shell scripts, but this is not a requirement. Rule files can themselves be the output of other rules, so you could compile a C++ program that acts as a rule.
 
-Ekam executes custom rules and then communicates with them on stdin/stdout using a simple line-based text protocol described below.
+Ekam executes custom rules and then communicates with them on stdin/stdout using a simple line-based text protocol described below. The rule may also write error logs intended for the user to stderr.
 
 When Ekam encounters an executable with the `.ekam-rule` extension, it first runs it with no arguments in order to "learn" it. At that time, the program may tell ekam what kinds of files it should trigger on using the `trigger` command (below). When Ekam encounters a trigger file, it will execute the rule again with the trigger file's canonical name as the argument. Alternatively, if you just want to implement a one-off action, then the rule may simply perform that action at "learn" time without registering any triggers.
 
@@ -219,8 +228,9 @@ A rule may perform the following commands by writing them to standard output.
 * `trigger <tag>`: Used during the learning phase to tell Ekam that the rule should be executed on any file tagged with `<tag>`.
 * `verb <text>`: Use during the learning phase to tell Ekam the rule's "verb", which is what is displayed to the user when the rule later runs. This should be a simple, descriptive word. For instance, for a C++ compile action, the verb is `compile`.
 * `silent`: Use during the learning phase to indicate that when this command later runs, it should not be reported to the user unless it fails. Use this to reduce noise caused by very simple commands that perform trivial actions.
-* `findInput <file>`: Obtains the canonical name of the given file. Ekam will reply by writing one line to the rule's standard input containing the full disk path of the file (e.g. including `src/` or `tmp/`). Ekam will remember that the build action depended on this file, so if the file changes, the action will be re-run.
+* `findInput <file>`: Obtains the canonical name of the given file. Ekam will reply by writing one line to the rule's standard input containing the full disk path of the file (e.g. including `src/` or `tmp/`). Ekam will remember that the build action depended on this file, so if the file changes, the action will be re-run. If no match was found, Ekam will return a blank line.
 * `findProvider <tag>`: Find a file tagged with `<tag>`. If there are multiple matches, Ekam heuristically chooses the "preferred" one, which generally means the one closest in the directory tree to the file which triggered the rule. The path is returned as with `findInput`. Also as with `findInput`, the file is considered a dependency of the action. Ekam will re-run this action if the file changes *or* if the file Ekam chose to match `<tag>` changes.
+* `findModifiers <name>`: Search for the file `<name>` in the trigger file's directory and every parent up to the source root. For each place that it is found (in order starting from the greatest ancestor), return the full disk path and mark it as an input. After returning all results, return a blank line to indicate the end of the list. This command is intended for finding "modifier" files which specify options that should apply within a particular directory. For instance, `compile.ekam-flags` is implemented this way.
 * `noteInput <external-file>`: Tells Ekam that the action depends on `<external-file>`, which is a path outside of the project's source tree. For instance, `/usr/include/stdlib.h`. Currently Ekam ignores this, but in theory it could watch these files and re-run the action if they change.
 * `newOutput <canonical-name>`: Create a new output file with the given canonical name. Ekam replies by writing the on-disk path where the file should be created to the rule's standard input.
 * `provide <filename> <tag>`: Tag `<filename>` (a canonical name) with `<tag>`. The file must be a known input our output of this rule; i.e. it must have been the subeject of a previous call to `findInput`, `findProvider`, or `newOutput`.
