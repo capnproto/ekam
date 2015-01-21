@@ -25,10 +25,14 @@ if test $# = 0; then
   echo trigger filetype:.C
   echo trigger filetype:.cxx
   echo trigger filetype:.c++
+  echo trigger filetype:.c
   exit 0
 fi
 
 INPUT=$1
+
+CXX=${CXX:-c++}
+CXXFLAGS=${CXXFLAGS:-}
 
 case "$INPUT" in
   *.cpp )
@@ -45,6 +49,17 @@ case "$INPUT" in
     ;;
   *.c++ )
     MODULE_NAME=${INPUT%.c++}
+    ;;
+  intercept.c | */intercept.c )
+    # Hack: Skip interceptor. It screws everything up since it appears to define syscalls like
+    #   write().
+    # TODO(cleanup): Do a better job detecting this.
+    exit 0
+    ;;
+  *.c )
+    MODULE_NAME=${INPUT%.c}
+    CXX=${CC:-cc}
+    CXXFLAGS=${CFLAGS:-}
     ;;
   * )
     echo "Wrong file type: $INPUT" >&2
@@ -65,9 +80,6 @@ fi
 OUTPUT=${MODULE_NAME}.o
 echo newOutput "$OUTPUT"
 read OUTPUT_DISK_PATH
-
-CXX=${CXX:-c++}
-CXXFLAGS=${CXXFLAGS:-}
 
 # Remove -Wglobal-constructors in tests because the test framework depends on registering global
 # objects, and we only care about global constructors in runtime code anyway.
