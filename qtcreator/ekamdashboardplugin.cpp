@@ -218,11 +218,22 @@ void EkamDashboardPlugin::socketError(QAbstractSocket::SocketError error) {
 }
 
 void EkamDashboardPlugin::reset() {
-  clearActions();
-  QTimer::singleShot(5000, this, SLOT(retryConnection()));
+  if (!resetting) {
+    resetting = true;
+    clearActions();
+    QTimer::singleShot(5000, this, SLOT(retryConnection()));
+  }
 }
 
 void EkamDashboardPlugin::retryConnection() {
+  resetting = false;
+
+  // Cancel any async parsing still happening.
+  readTask = nullptr;
+
+  // Reset the fake input to clear out its buffers.
+  fakeInput = kj::heap<FakeAsyncInput>();
+
   tryConnect();
 }
 

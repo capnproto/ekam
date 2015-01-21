@@ -136,6 +136,7 @@ private:
   kj::WaitScope waitScope;
   kj::Own<FakeAsyncInput> fakeInput;
   kj::Promise<void> readTask;
+  bool resetting = false;
 
   void reset();
   void tryConnect();
