@@ -32,10 +32,13 @@ fi
 INPUT=$1
 shift
 
+# Set defaults. We use -O2 -DNDEBUG as default flags because the users that are most likely not
+# to specify flags are people who are just compiling someone else's code to use it, and those
+# people do not want debug builds.
 CXX=${CXX:-c++}
-CXXFLAGS=${CXXFLAGS:-}
+CXXFLAGS=${CXXFLAGS:--O2 -DNDEBUG}
 CC=${CC:-cc}
-CFLAGS=${CFLAGS:-}
+CFLAGS=${CFLAGS:--O2 -DNDEBUG}
 
 # Look up modifiers.
 echo findModifiers compile.ekam-flags
