@@ -47,9 +47,10 @@ public:
 
   enum InstallLocation {
     BIN,
-    LIB
+    LIB,
+    NODE_MODULES
   };
-  static const int INSTALL_LOCATION_COUNT = 2;
+  static const int INSTALL_LOCATION_COUNT = 3;
 
   static const char* const INSTALL_LOCATION_NAMES[INSTALL_LOCATION_COUNT];
 

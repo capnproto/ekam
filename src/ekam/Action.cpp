@@ -24,7 +24,7 @@ ActionFactory::~ActionFactory() {}
 
 const int BuildContext::INSTALL_LOCATION_COUNT;
 const char* const BuildContext::INSTALL_LOCATION_NAMES[INSTALL_LOCATION_COUNT] = {
-  "bin", "lib"
+  "bin", "lib", "node_modules"
 };
 
 }  // namespace ekam

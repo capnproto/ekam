@@ -487,7 +487,8 @@ int main(int argc, char* argv[]) {
   DiskFile tmp("tmp", NULL);
   DiskFile bin("bin", NULL);
   DiskFile lib("lib", NULL);
-  File* installDirs[BuildContext::INSTALL_LOCATION_COUNT] = { &bin, &lib };
+  DiskFile nodeModules("node_modules", NULL);
+  File* installDirs[BuildContext::INSTALL_LOCATION_COUNT] = { &bin, &lib, &nodeModules };
 
   if (!tmp.isDirectory()) {
     tmp.createDirectory();
