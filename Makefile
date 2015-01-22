@@ -15,7 +15,7 @@
 # limitations under the License.
 
 .SUFFIXES:
-.PHONY: all install clean
+.PHONY: all install clean deps
 
 # You may override the following vars on the command line to suit
 # your config.
@@ -27,11 +27,13 @@ define color
   @printf '\033[0;34m==== $1 ====\033[0m\n'
 endef
 
-all: bin/ekam-bootstrap deps/capnproto
+all: bin/ekam-bootstrap deps
 	$(call color,building ekam with ekam)
 	@rm -f bin/ekam
 	@CXX="$(CXX)" CXXFLAGS="-std=c++11 $(CXXFLAGS) -pthread" LIBS="-pthread" bin/ekam-bootstrap -j$(PARALLEL)
 	@test -e bin/ekam && echo "=====================================================\nSUCCESS\nOutput is at bin/ekam\n====================================================="
+
+deps: deps/capnproto
 
 deps/capnproto:
 	$(call color,downloading capnproto)

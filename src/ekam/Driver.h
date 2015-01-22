@@ -33,8 +33,15 @@ namespace ekam {
 
 class Driver {
 public:
+  class ActivityObserver {
+  public:
+    virtual void startingAction() = 0;
+    virtual void idle() = 0;
+  };
+
   Driver(EventManager* eventManager, Dashboard* dashboard, File* tmp,
-         File* installDirs[BuildContext::INSTALL_LOCATION_COUNT], int maxConcurrentActions);
+         File* installDirs[BuildContext::INSTALL_LOCATION_COUNT], int maxConcurrentActions,
+         ActivityObserver* activityObserver = nullptr);
   ~Driver();
 
   void addActionFactory(ActionFactory* factory);
@@ -52,6 +59,8 @@ private:
   File* installDirs[BuildContext::INSTALL_LOCATION_COUNT];
 
   int maxConcurrentActions;
+
+  ActivityObserver* activityObserver;
 
   class TriggerTable : public Table<IndexedColumn<Tag, Tag::HashFunc>,
                                     IndexedColumn<ActionFactory*> > {

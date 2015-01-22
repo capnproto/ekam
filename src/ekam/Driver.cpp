@@ -542,9 +542,10 @@ Driver::Provision* Driver::ActionDriver::choosePreferredProvider(const Tag& tag)
 // =======================================================================================
 
 Driver::Driver(EventManager* eventManager, Dashboard* dashboard, File* tmp,
-               File* installDirs[BuildContext::INSTALL_LOCATION_COUNT], int maxConcurrentActions)
+               File* installDirs[BuildContext::INSTALL_LOCATION_COUNT], int maxConcurrentActions,
+               ActivityObserver* activityObserver)
     : eventManager(eventManager), dashboard(dashboard), tmp(tmp),
-      maxConcurrentActions(maxConcurrentActions) {
+      maxConcurrentActions(maxConcurrentActions), activityObserver(activityObserver) {
   if (!tmp->isDirectory()) {
     tmp->createDirectory();
   }
@@ -599,6 +600,7 @@ void Driver::removeSourceFile(File* file) {
 
 void Driver::startSomeActions() {
   while (activeActions.size() < maxConcurrentActions && !pendingActions.empty()) {
+    if (activityObserver != nullptr) activityObserver->startingAction();
     OwnedPtr<ActionDriver> actionDriver = pendingActions.popFront();
     ActionDriver* ptr = actionDriver.get();
     activeActions.add(actionDriver.release());
@@ -612,6 +614,7 @@ void Driver::startSomeActions() {
   }
 
   if (activeActions.size() == 0) {
+    if (activityObserver != nullptr) activityObserver->idle();
     dumpErrors();
   }
 }

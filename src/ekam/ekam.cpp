@@ -23,6 +23,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <sys/file.h>
 
 #include "Driver.h"
 #include "base/Debug.h"
@@ -329,6 +331,59 @@ private:
 
 // =======================================================================================
 
+class EkamLocks final: public Driver::ActivityObserver {
+public:
+  EkamLocks(File* tmp)
+      : mainLock("tmp/.ekam-lock",
+            openLockfile(tmp->relative(".ekam-lock").get())),
+        activeLock("tmp/.ekam-lock-active",
+            openLockfile(tmp->relative(".ekam-lock-active").get())) {}
+
+  bool tryTakeMainLock() {
+    while (flock(mainLock.get(), LOCK_EX | LOCK_NB) < 0) {
+      if (errno == EWOULDBLOCK) {
+        return false;
+      } else if (errno != EAGAIN) {
+        throw OsError("flock(mainLock)", errno);
+      }
+    }
+
+    return true;
+  }
+
+  void waitForOther() {
+    wrapSyscall("flock(activeLock)", [&]() { return flock(activeLock.get(), LOCK_SH); });
+    wrapSyscall("flock(activeLock)", [&]() { return flock(activeLock.get(), LOCK_UN); });
+  }
+
+  void startingAction() override {
+    if (!running) {
+      running = true;
+      flock(activeLock.get(), LOCK_EX);
+    }
+  }
+
+  void idle() override {
+    if (running) {
+      running = false;
+      flock(activeLock.get(), LOCK_UN);
+    }
+  }
+
+private:
+  OsHandle mainLock;
+  OsHandle activeLock;
+  bool running = false;
+
+  static int openLockfile(File* lockfile) {
+    auto diskfile = lockfile->getOnDisk(File::UPDATE);
+    return wrapSyscall("open(lockfile)", [&]() {
+        return open(diskfile->path().c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0666); });
+  }
+};
+
+// =======================================================================================
+
 void scanSourceTree(File* src, Driver* driver) {
   OwnedPtrVector<File> fileQueue;
 
@@ -409,12 +464,28 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-
   DiskFile src("src", NULL);
   DiskFile tmp("tmp", NULL);
   DiskFile bin("bin", NULL);
   DiskFile lib("lib", NULL);
   File* installDirs[BuildContext::INSTALL_LOCATION_COUNT] = { &bin, &lib };
+
+  if (!tmp.isDirectory()) {
+    tmp.createDirectory();
+  }
+
+  EkamLocks locks(&tmp);
+  if (!locks.tryTakeMainLock()) {
+    if (continuous) {
+      fprintf(stderr, "ERROR: Ekam is already running in this directory.\n");
+      return 1;
+    } else {
+      fprintf(stderr, "Another Ekam is already running in this directory.\n"
+                      "Waiting for build to complete...\n");
+      locks.waitForOther();
+      return 0;
+    }
+  }
 
   OwnedPtr<RunnableEventManager> eventManager = newPreferredEventManager();
 
@@ -429,7 +500,8 @@ int main(int argc, char* argv[]) {
                                      dashboard.release());
   }
 
-  Driver driver(eventManager.get(), dashboard.get(), &tmp, installDirs, maxConcurrentActions);
+  Driver driver(eventManager.get(), dashboard.get(), &tmp, installDirs, maxConcurrentActions,
+                &locks);
 
   ExtractTypeActionFactory extractTypeActionFactcory;
   driver.addActionFactory(&extractTypeActionFactcory);
