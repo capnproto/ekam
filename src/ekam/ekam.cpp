@@ -352,8 +352,24 @@ public:
   }
 
   void waitForOther() {
-    wrapSyscall("flock(activeLock)", [&]() { return flock(activeLock.get(), LOCK_SH); });
-    wrapSyscall("flock(activeLock)", [&]() { return flock(activeLock.get(), LOCK_UN); });
+    wrapSyscall("flock(activeLock)", flock, activeLock.get(), LOCK_SH);
+
+    char c = 0;
+    ssize_t n = wrapSyscall("read(activeLock)", read, activeLock, &c, 1);
+    if (n == 1 && c == 'p') {
+      failed = false;
+    } else if (n == 1 && c == 'f') {
+      failed = true;
+    } else {
+      throw std::logic_error("lock file contents invalid");
+    }
+
+    wrapSyscall("flock(activeLock)", flock, activeLock.get(), LOCK_UN);
+  }
+
+  bool hasFailures() {
+    if (running) throw std::logic_error("can't check filures while still running");
+    return failed;
   }
 
   void startingAction() override {
@@ -363,22 +379,25 @@ public:
     }
   }
 
-  void idle() override {
+  void idle(bool hasFailures) override {
     if (running) {
       running = false;
-      flock(activeLock.get(), LOCK_UN);
+      wrapSyscall("write(activeLock)", write, activeLock.get(), hasFailures ? "fail" : "pass", 4);
+      wrapSyscall("flock(activeLock, LOCK_UN)", flock, activeLock.get(), LOCK_UN);
     }
+    failed = hasFailures;
   }
 
 private:
   OsHandle mainLock;
   OsHandle activeLock;
   bool running = false;
+  bool failed = false;
 
   static int openLockfile(File* lockfile) {
     auto diskfile = lockfile->getOnDisk(File::UPDATE);
-    return wrapSyscall("open(lockfile)", [&]() {
-        return open(diskfile->path().c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0666); });
+    return wrapSyscall("open(lockfile)", open,
+        diskfile->path().c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0666);
   }
 };
 
@@ -483,7 +502,7 @@ int main(int argc, char* argv[]) {
       fprintf(stderr, "Another Ekam is already running in this directory.\n"
                       "Waiting for build to complete...\n");
       locks.waitForOther();
-      return 0;
+      return locks.hasFailures() ? 1 : 0;
     }
   }
 
@@ -544,7 +563,7 @@ int main(int argc, char* argv[]) {
     return 1;
   } else {
     DEBUG_INFO << "No zombie processes detected.  Hooray.";
-    return 0;
+    return locks.hasFailures() ? 1 : 0;
   }
 }
 

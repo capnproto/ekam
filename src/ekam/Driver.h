@@ -36,7 +36,7 @@ public:
   class ActivityObserver {
   public:
     virtual void startingAction() = 0;
-    virtual void idle() = 0;
+    virtual void idle(bool hasFailures) = 0;
   };
 
   Driver(EventManager* eventManager, Dashboard* dashboard, File* tmp,
@@ -125,7 +125,7 @@ private:
   void resetDependentActions(Provision* provision);
   void fireTriggers(const Tag& tag, Provision* provision);
 
-  void dumpErrors();
+  bool dumpErrors();
 };
 
 }  // namespace ekam

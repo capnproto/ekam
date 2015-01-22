@@ -614,8 +614,8 @@ void Driver::startSomeActions() {
   }
 
   if (activeActions.size() == 0) {
-    if (activityObserver != nullptr) activityObserver->idle();
-    dumpErrors();
+    bool hasFailures = dumpErrors();
+    if (activityObserver != nullptr) activityObserver->idle(hasFailures);
   }
 }
 
@@ -776,12 +776,15 @@ void Driver::fireTriggers(const Tag& tag, Provision* provision) {
   }
 }
 
-void Driver::dumpErrors() {
+bool Driver::dumpErrors() {
+  bool hasFailures = false;
   for (OwnedPtrMap<ActionDriver*, ActionDriver>::Iterator iter(completedActionPtrs); iter.next();) {
     if (iter.key()->state == ActionDriver::FAILED) {
       iter.value()->dashboardTask->setState(Dashboard::FAILED);
+      hasFailures = true;
     }
   }
+  return hasFailures;
 }
 
 }  // namespace ekam
