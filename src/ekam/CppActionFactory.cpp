@@ -171,6 +171,9 @@ Promise<void> LinkAction::start(EventManager* eventManager, BuildContext* contex
   if (mode == NODEJS) {
     subprocess->addArgument("-shared");
     base += ".node";
+  } else if (context->findProvider(Tag::fromName("canonical:" + base + ".link-static")) !=
+             nullptr) {
+    subprocess->addArgument("-static");
   }
 
   subprocess->addArgument("-o");
