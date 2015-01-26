@@ -1,1 +1,1 @@
-../../capnproto/c++/src/capnp
+../deps/capnproto/c++/src/capnp
