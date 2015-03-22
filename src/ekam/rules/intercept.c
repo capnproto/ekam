@@ -255,8 +255,12 @@ static void canonicalizePath(char* path) {
 static const char* remap_file(const char* syscall_name, const char* pathname,
                               char* buffer, usage_t usage) {
   char* pos;
+  int debug = EKAM_DEBUG;
 
-  if (EKAM_DEBUG) {
+  /* Ad-hoc debugging can be accomplished by setting debug = 1 when a particular file pattern
+   * is matched. */
+
+  if (debug) {
     fprintf(stderr, "remap for %s (%s): %s\n",
             syscall_name, (usage == READ ? "read" : "write"), pathname);
   }
@@ -265,13 +269,13 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
 
   if (strlen(pathname) >= PATH_MAX) {
     /* Too long. */
-    if (EKAM_DEBUG) fprintf(stderr, "  name too long\n");
+    if (debug) fprintf(stderr, "  name too long\n");
     errno = ENAMETOOLONG;
     return NULL;
   }
 
   if (get_cached_result(pathname, buffer, usage)) {
-    if (EKAM_DEBUG) fprintf(stderr, "  cached: %s\n", buffer);
+    if (debug) fprintf(stderr, "  cached: %s\n", buffer);
     return buffer;
   }
 
@@ -290,7 +294,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
          * We can use the current directory.  TODO:  Return some fake empty directory instead. */
         funlockfile(ekam_call_stream);
         strcpy(buffer, ".");
-        if (EKAM_DEBUG) fprintf(stderr, "  is directory\n");
+        if (debug) fprintf(stderr, "  is directory\n");
         return buffer;
       }
       *pos = ':';
@@ -299,7 +303,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
       if (strcmp(buffer, "canonical:.") == 0) {
         /* HACK:  Don't try to remap top directory. */
         funlockfile(ekam_call_stream);
-        if (EKAM_DEBUG) fprintf(stderr, "  current directory\n");
+        if (debug) fprintf(stderr, "  current directory\n");
         return "src";
       }
     }
@@ -314,7 +318,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
              strncmp(pathname, VAR_TMP_PREFIX, strlen(VAR_TMP_PREFIX)) == 0) {
     /* Temp file.  Ignore. */
     funlockfile(ekam_call_stream);
-    if (EKAM_DEBUG) fprintf(stderr, "  temp file: %s\n", pathname);
+    if (debug) fprintf(stderr, "  temp file: %s\n", pathname);
     return pathname;
   } else {
     if (strncmp(pathname, current_dir, strlen(current_dir)) == 0) {
@@ -327,7 +331,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
         /* Cannot write to absolute paths. */
         funlockfile(ekam_call_stream);
         errno = EACCES;
-        if (EKAM_DEBUG) fprintf(stderr, "  absolute path, can't write\n");
+        if (debug) fprintf(stderr, "  absolute path, can't write\n");
         return NULL;
       }
 
@@ -342,7 +346,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
       }
       cache_result(pathname, pathname, usage);
       funlockfile(ekam_call_stream);
-      if (EKAM_DEBUG) fprintf(stderr, "  absolute path: %s\n", pathname);
+      if (debug) fprintf(stderr, "  absolute path: %s\n", pathname);
       return pathname;
     }
 
@@ -352,7 +356,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
     if (strcmp(buffer, ".") == 0) {
       /* HACK:  Don't try to remap current directory. */
       funlockfile(ekam_call_stream);
-      if (EKAM_DEBUG) fprintf(stderr, "  current directory\n");
+      if (debug) fprintf(stderr, "  current directory\n");
       return "src";
     } else {
       /* Ask ekam to remap the file name. */
@@ -395,13 +399,13 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
   if (*buffer == '\0') {
     /* Not found. */
     errno = ENOENT;
-    if (EKAM_DEBUG) fprintf(stderr, "  ekam says no such file\n");
+    if (debug) fprintf(stderr, "  ekam says no such file\n");
     return NULL;
   }
 
   cache_result(pathname, buffer, usage);
 
-  if (EKAM_DEBUG) fprintf(stderr, "  remapped to: %s\n", buffer);
+  if (debug) fprintf(stderr, "  remapped to: %s\n", buffer);
   return buffer;
 }
 
@@ -469,6 +473,9 @@ WRAP(FILE*, fopen, (const char* path, const char* mode), (path, mode),
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
 WRAP(FILE*, freopen, (const char* path, const char* mode, FILE* file), (path, mode, file),
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
+
+/* And remove(). */
+WRAP(int, remove, (const char* path), (path), WRITE, -1)
 
 /* Called by access(), below. */
 static int direct_stat(const char* path, struct stat* sb) {
@@ -558,6 +565,9 @@ WRAP(FILE*, freopen, (const char* path, const char* mode, FILE* file), (path, mo
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
 WRAP(FILE*, freopen64, (const char* path, const char* mode, FILE* file), (path, mode, file),
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
+
+/* And remove(). */
+WRAP(int, remove, (const char* path), (path), WRITE, -1)
 
 /* And dlopen(). */
 WRAP(void*, dlopen, (const char* path, int flag), (path, flag), READ, NULL)
