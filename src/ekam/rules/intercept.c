@@ -724,24 +724,92 @@ int _open64(const char * pathname, int flags, ...) {
   return intercepted_open64(pathname, flags, args);
 }
 
-int openat(int dirfd, const char * pathname, int flags, ...) {
+static int intercepted_openat(int dirfd, const char * pathname, int flags, va_list args) {
+#if __linux__
+  /* We're going to emulate openat() on top of open() by finding out the full path of the directory
+   * via /proc/self/fd. */
+  char procfile[128];
+  char buffer[PATH_MAX];
+  ssize_t n;
+
+  if (pathname[0] == '/') {
+    return intercepted_open(pathname, flags, args);
+  }
+
+  sprintf(procfile, "/proc/self/fd/%d", dirfd);
+  n = readlink(procfile, buffer, sizeof(buffer));
+  if (n < 0) {
+    return n;
+  }
+  if (n + strlen(pathname) + 2 >= sizeof(buffer)) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+
+  buffer[n] = '/';
+  strcpy(buffer + n + 1, pathname);
+  return intercepted_open(buffer, flags, args);
+#else
   fprintf(stderr, "openat(%s) not intercepted\n", pathname);
+  errno = ENOSYS;
   return -1;
+#endif
+}
+
+int openat(int dirfd, const char * pathname, int flags, ...) {
+  va_list args;
+  va_start(args, flags);
+  return intercepted_openat(dirfd, pathname, flags, args);
 }
 
 int _openat(int dirfd, const char * pathname, int flags, ...) {
-  fprintf(stderr, "_openat(%s) not intercepted\n", pathname);
+  va_list args;
+  va_start(args, flags);
+  return intercepted_openat(dirfd, pathname, flags, args);
+}
+
+static int intercepted_openat64(int dirfd, const char * pathname, int flags, va_list args) {
+#if __linux__
+  /* We're going to emulate openat() on top of open() by finding out the full path of the directory
+   * via /proc/self/fd. */
+  char procfile[128];
+  char buffer[PATH_MAX];
+  ssize_t n;
+
+  if (pathname[0] == '/') {
+    return intercepted_open64(pathname, flags, args);
+  }
+
+  sprintf(procfile, "/proc/self/fd/%d", dirfd);
+  n = readlink(procfile, buffer, sizeof(buffer));
+  if (n < 0) {
+    return n;
+  }
+  if (n + strlen(pathname) + 2 >= sizeof(buffer)) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+
+  buffer[n] = '/';
+  strcpy(buffer + n + 1, pathname);
+  return intercepted_open64(buffer, flags, args);
+#else
+  fprintf(stderr, "openat(%s) not intercepted\n", pathname);
+  errno = ENOSYS;
   return -1;
+#endif
 }
 
 int openat64(int dirfd, const char * pathname, int flags, ...) {
-  fprintf(stderr, "openat64(%s) not intercepted\n", pathname);
-  return -1;
+  va_list args;
+  va_start(args, flags);
+  return intercepted_openat64(dirfd, pathname, flags, args);
 }
 
 int _openat64(int dirfd, const char * pathname, int flags, ...) {
-  fprintf(stderr, "_openat64(%s) not intercepted\n", pathname);
-  return -1;
+  va_list args;
+  va_start(args, flags);
+  return intercepted_openat64(dirfd, pathname, flags, args);
 }
 
 /* For rename(), we consider both locations to be outputs, since both are modified. */
