@@ -588,7 +588,7 @@ int execvpe(const char* path, char* const argv[], char* const envp[]) {
   /* If the path does not contain a '/', PATH resolution will be done, so we don't want to
    * remap.
    */
-  if (strchr(path, '/') == NULL) {
+  if (strchr(path, '/') != NULL) {
     path = remap_file("execvpe", path, buffer, READ);
     if (path == NULL) return -1;
   }
