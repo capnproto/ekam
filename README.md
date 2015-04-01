@@ -14,7 +14,7 @@ Ekam is a work in progress.
 
 Ekam is an experimental project that is not ready for wide use.
 
-That said, I (Kenton) have successfully used Ekam as my primary build system throughout the development of Cap'n Proto and Sandstorm.
+That said, I (Kenton) have successfully used Ekam as my primary build system throughout the development of [Cap'n Proto](https://capnproto.org) and [Sandstorm](https://sandstorm.io).
 
 ### Supported Platforms
 
@@ -22,7 +22,7 @@ At this time, Ekam only runs on Linux.  It requires GCC 4.8+ or Clang 3.3+, as i
 
 In the past, Ekam worked on FreeBSD and Max OSX, but the code to support that atrophied and was eventually deleted. Ekam uses a lot of OS-specific hacks and so is unlikely to work on any platform which is not explicitly supported.
 
-We'd like to see other platforms supported, but Ekam's primary user and maintainer right now (Sandstorm.io) is itself highly Linux-specific, so there is not much pressure. (Let us know if you want to help.)
+We'd like to see other platforms supported, but Ekam's primary user and maintainer right now ([Sandstorm.io](https://sandstorm.io)) is itself highly Linux-specific, so there is not much pressure. (Let us know if you want to help.)
 
 ### Bootstrapping the build
 
