@@ -183,7 +183,7 @@ Note that `deps` should not be checked into your repository. Instead, you should
     rm -rf deps
     ln -s .. deps
 
-You can do this with Ekam, for instance, if you happen to have Cap'n Proto cloned as a sybling to Ekam.
+You can do this with Ekam, for instance, if you happen to have Cap'n Proto cloned as a sibling to Ekam.
 
 ### Non-Ekam-clean Dependencies
 
