@@ -31,7 +31,7 @@ all: bin/ekam-bootstrap deps
 	$(call color,building ekam with ekam)
 	@rm -f bin/ekam
 	@CXX="$(CXX)" CXXFLAGS="-std=c++11 $(CXXFLAGS) -pthread" LIBS="-pthread" bin/ekam-bootstrap -j$(PARALLEL)
-	@test -e bin/ekam && echo "=====================================================\nSUCCESS\nOutput is at bin/ekam\n====================================================="
+	@test -e bin/ekam && printf "=====================================================\nSUCCESS\nOutput is at bin/ekam\n=====================================================\n"
 
 deps: deps/capnproto
 
