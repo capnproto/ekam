@@ -2,7 +2,7 @@
 
 Ekam ("make" backwards) is a build system which automatically figures out what to build and how to build it purely based on the source code. No separate "makefile" is needed.
 
-Ekam works by exploration. For example, when it encounters a file ending in ".cpp", it tries to compile the file. If there are missing includes, Ekam continues to explore until it finds headers matching them. When Ekam builds an object file and discovers that it contains a "main" symbol, it tries to link it, searching for other object files to satisfy all symbol references therein.
+Ekam works by exploration. For example, when it encounters a file ending in ".cpp", it tries to compile the file, intercepting system calls to find out its dependencies (e.g. included headers). If some of these are missing, Ekam continues to explore until it finds headers matching them. When Ekam builds an object file and discovers that it contains a "main" symbol, it tries to link it, searching for other object files to satisfy all symbol references therein. When Ekam sees a test, it runs the test, again intercepting system calls to dynamically discover what inputs the test needs (which may not have been built yet). Ekam can be extended to understand new file types by writing simple shell scripts telling it what to do with them.
 
 Thus Ekam is, in fact, Make in reverse. Make starts by reading a Makefile, sees what executables it wants to build, then from there figures out what source files need to be compiled to link into them, then compiles them. Ekam starts by looking for source files to compile, then determines what executables it can build from them, and, in the end, might output a Makefile describing what it did.
 
