@@ -34,7 +34,7 @@ Download and compile Ekam like so:
 
 If successful, Ekam should have built itself, with the output binary at "bin/ekam".
 
-Yes, we use make in order bootstrap Ekam, mostly just because it's slighly nicer than a shell script.
+Yes, we use make in order bootstrap Ekam, mostly just because it's slightly nicer than a shell script.
 
 ### Compiling Ekam with Ekam
 
