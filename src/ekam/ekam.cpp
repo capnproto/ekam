@@ -110,7 +110,7 @@ void usage(const char* command, FILE* out) {
     "  -n [<addr>]:<port>  Accept network connections on the given address/port\n"
     "                and give real-time build status and logs to anyone who\n"
     "                connects. This enables e.g. `ekam-client` and various IDE\n"
-    "                plugins."
+    "                plugins.\n"
     "  -l <count>    Set max number of log lines to display per action. This is\n"
     "                kept relatively short by default because it makes the build\n"
     "                output noisy, but you may need to increase it if you need\n"
