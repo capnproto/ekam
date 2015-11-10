@@ -82,8 +82,13 @@ int main(int argc, char* argv[]) {
   int maxDisplayedLogLines = 30;
   
   for (int i = 1; i < argc; i++) {
-    if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
-      maxDisplayedLogLines = strtoul(argv[i+1], nullptr, 0);
+    if (strcmp(argv[i], "-l") == 0) {
+      char* endptr;
+      if (i + 1 >= argc ||
+          (maxDisplayedLogLines = strtoul(argv[++i], &endptr, 0), *endptr != '\0')) {
+        fprintf(stderr, "Expected number after -l.\n");
+        return 1;
+      }
     } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
       printf(
           "usage: nc <host> <port> | %s [-l <count>]\n"
