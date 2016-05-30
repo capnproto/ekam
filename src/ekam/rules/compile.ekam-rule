@@ -117,7 +117,7 @@ esac
 # The DYLD_ vars are the Mac OSX equivalent of LD_PRELOAD.  We don't bother checking which OS we're
 # on since the other vars will just be ignored anyway.
 LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
-    $CXX $CXXFLAGS -I/ekam-provider/c++header -c "/ekam-provider/canonical/$INPUT" \
+    $CXX -I/ekam-provider/c++header $CXXFLAGS -c "/ekam-provider/canonical/$INPUT" \
     -o "${MODULE_NAME}.o" 3>&1 4<&0 >&2
 
 # Ask Ekam where to put the symbol and deps lists.
