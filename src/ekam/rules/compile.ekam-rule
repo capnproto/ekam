@@ -167,8 +167,20 @@ case $OUTPUT in
     fi
     ;;
   * )
+    # Node v0.10 exports a symbol like so:
+    # NODE_MODULE_EXPORT node::node_module_struct modname ## _module = ...
+    #
+    # The HandleScope constructor is v8::HandleScope::HandleScope().
     if egrep -q ' D [a-z0-9]+_module' $SYMFILE && \
        grep -q _ZN2v811HandleScopeC1Ev $DEPFILE; then
+            echo provide "$OUTPUT_DISK_PATH" nodejs:module
+    fi
+    # Node v4 exports a symbol like so:
+    # static node::node_module _module = ...
+    #
+    # The HandleScope constructor is v8::HandleScope::HandleScope(v8::Isolate*)
+    if grep -q ' d _Z7_module' $SYMFILE && \
+       grep -q _ZN2v811HandleScopeC1EPNS_7IsolateE $DEPFILE; then
             echo provide "$OUTPUT_DISK_PATH" nodejs:module
     fi
     ;;
