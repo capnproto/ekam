@@ -140,12 +140,11 @@ readsyms() {
 # Construct the deps file by listing all undefined symbols.
 readsyms U < $SYMFILE > $DEPFILE
 
-# Tell Ekam about the symbols provided by this file.
-readsyms ABCDGRSTV "provide $OUTPUT_DISK_PATH c++symbol:" < $SYMFILE
-
 # ========================================================================================
 # Detect gtest-based tests and test support while we're here.
 # TODO(kenton):  Probably should be a separate rule.
+
+IS_TEST=no
 
 case $OUTPUT in
   */gtest_main.o )
@@ -159,11 +158,13 @@ case $OUTPUT in
     if grep -q 7testing8internal23MakeAndRegisterTestInfo $DEPFILE && \
        ! egrep -q '[^U] _?main$' $SYMFILE; then
       echo provide "$OUTPUT_DISK_PATH" gtest:test
+      IS_TEST=yes
     fi
 
     # Is this a KJ test that needs to link against kj/test.o?
     if grep -q N2kj8TestCaseC $DEPFILE; then
       echo provide "$OUTPUT_DISK_PATH" kjtest:test
+      IS_TEST=yes
     fi
     ;;
   * )
@@ -185,3 +186,9 @@ case $OUTPUT in
     fi
     ;;
 esac
+
+if [ "$IS_TEST" = no ]; then
+  # Tell Ekam about the symbols provided by this file. But not for tests, because we don't want
+  # other things to accidentally link against tests.
+  readsyms ABCDGRSTV "provide $OUTPUT_DISK_PATH c++symbol:" < $SYMFILE
+fi
