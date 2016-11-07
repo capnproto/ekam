@@ -178,8 +178,11 @@ case $OUTPUT in
     # Node v4 exports a symbol like so:
     # static node::node_module _module = ...
     #
+    # Symbols may bear an "L" prefix to indicate constness, but not all compiler versions
+    # mangle this way, so we tolerate the presence or absence of the qualifier.
+    #
     # The HandleScope constructor is v8::HandleScope::HandleScope(v8::Isolate*)
-    if grep -q ' d _Z7_module' $SYMFILE && \
+    if grep -q -E ' d _ZL?7_module' $SYMFILE && \
        grep -q _ZN2v811HandleScopeC1EPNS_7IsolateE $DEPFILE; then
             echo provide "$OUTPUT_DISK_PATH" nodejs:module
     fi
