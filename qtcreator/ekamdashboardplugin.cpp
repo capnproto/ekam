@@ -393,6 +393,8 @@ void ActionState::consumeLog(kj::StringPtr log) {
 }
 
 void ActionState::parseLogLine(QString line) {
+  if (tasks.size() > 100) return;  // avoid performance problems with too many tasks
+
   static const QRegExp FILE(QLatin1String("^([^ :]+):(.*)"));
   static const QRegExp INDEX(QLatin1String("^([0-9]+):(.*)"));
   static const QRegExp WARNING(QLatin1String("(.*[^a-zA-Z0-9])?warning:(.*)"), Qt::CaseInsensitive);
