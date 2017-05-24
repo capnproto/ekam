@@ -26,12 +26,17 @@ fi
 echo findInput "$1"
 read TEST_PROG
 
-echo findProvider special:ekam-interceptor
-read INTERCEPTOR
+if grep -q EKAM_TEST_DISABLE_INTERCEPTOR "$TEST_PROG"; then
+  # Test requested no interceptor.
+  INTERCEPTOR=
+else
+  echo findProvider special:ekam-interceptor
+  read INTERCEPTOR
 
-if test "$INTERCEPTOR" = ""; then
-  echo "error:  couldn't find intercept.so." >&2
-  exit 1
+  if test "$INTERCEPTOR" = ""; then
+    echo "error:  couldn't find intercept.so." >&2
+    exit 1
+  fi
 fi
 
 # TODO:  Run in sandbox.
