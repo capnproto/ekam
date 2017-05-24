@@ -148,6 +148,7 @@ static const char TMP[] = "/tmp";
 static const char VAR_TMP[] = "/var/tmp";
 static const char TMP_PREFIX[] = "/tmp/";
 static const char VAR_TMP_PREFIX[] = "/var/tmp/";
+static const char PROC_PREFIX[] = "/proc/";
 
 static usage_t last_usage = READ;
 static char last_path[PATH_MAX] = "";
@@ -315,8 +316,9 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
   } else if (strcmp(pathname, TMP) == 0 ||
              strcmp(pathname, VAR_TMP) == 0 ||
              strncmp(pathname, TMP_PREFIX, strlen(TMP_PREFIX)) == 0 ||
-             strncmp(pathname, VAR_TMP_PREFIX, strlen(VAR_TMP_PREFIX)) == 0) {
-    /* Temp file.  Ignore. */
+             strncmp(pathname, VAR_TMP_PREFIX, strlen(VAR_TMP_PREFIX)) == 0 ||
+             strncmp(pathname, PROC_PREFIX, strlen(PROC_PREFIX)) == 0) {
+    /* Temp file or /proc.  Ignore. */
     funlockfile(ekam_call_stream);
     if (debug) fprintf(stderr, "  temp file: %s\n", pathname);
     return pathname;
