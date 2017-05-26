@@ -343,6 +343,11 @@ public:
     while (flock(mainLock.get(), LOCK_EX | LOCK_NB) < 0) {
       if (errno == EWOULDBLOCK) {
         return false;
+      } else if (errno == ENOLCK) {
+        // Filesystem doesn't support locking.
+        fprintf(stderr, "WARNING: Filesystem doesn't support locking. Do not run two Ekam instances concurrently.\n");
+        noLocking = true;
+        return true;
       } else if (errno != EAGAIN) {
         throw OsError("flock(mainLock)", errno);
       }
@@ -375,7 +380,7 @@ public:
   void startingAction() override {
     if (!running) {
       running = true;
-      flock(activeLock.get(), LOCK_EX);
+      if (!noLocking) flock(activeLock.get(), LOCK_EX);
     }
   }
 
@@ -383,7 +388,7 @@ public:
     if (running) {
       running = false;
       wrapSyscall("write(activeLock)", write, activeLock.get(), hasFailures ? "fail" : "pass", 4);
-      wrapSyscall("flock(activeLock, LOCK_UN)", flock, activeLock.get(), LOCK_UN);
+      if (!noLocking) wrapSyscall("flock(activeLock, LOCK_UN)", flock, activeLock.get(), LOCK_UN);
     }
     failed = hasFailures;
   }
@@ -393,6 +398,7 @@ private:
   OsHandle activeLock;
   bool running = false;
   bool failed = false;
+  bool noLocking = false;
 
   static int openLockfile(File* lockfile) {
     auto diskfile = lockfile->getOnDisk(File::UPDATE);
