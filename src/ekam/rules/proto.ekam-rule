@@ -16,8 +16,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO:  Move this rule into the protobuf source code.
-
 set -eu
 
 if test $# = 0; then
@@ -58,15 +56,17 @@ if test "$INTERCEPTOR" = ""; then
   exit 1
 fi
 
-echo findProvider file:google/protobuf/compiler/main
-read PROTOC
+if test "${PROTOC:-}" = ""; then
+  # No PROTOC specified; try to find one built from the source tree.
+  echo findProvider file:google/protobuf/compiler/main
+  read PROTOC
 
-if test "$PROTOC" = ""; then
-  echo "error:  couldn't find protoc." >&2
-  exit 1
+  if test "$PROTOC" = ""; then
+    echo "error:  couldn't find protoc." >&2
+    exit 1
+  fi
 fi
 
-# TODO:  Use protoc build from the source tree, if any.
 LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
 $PROTOC -I"$SOURCE_ROOT" -I/ekam-provider/protobuf --cpp_out="$SOURCE_ROOT" "$INPUT" 3>&1 4<&0 >&2
 
