@@ -35,7 +35,8 @@ Subprocess::Subprocess() : doPathLookup(false), pid(-1) {}
 Subprocess::~Subprocess() {
   if (pid >= 0) {
     DEBUG_INFO << "Killing pid: " << pid;
-    kill(pid, SIGKILL);
+    // Kill entire progress group.
+    kill(-pid, SIGKILL);
     int dummy;
     waitpid(pid, &dummy, 0);
   }
@@ -122,6 +123,14 @@ Promise<ProcessExitCode> Subprocess::start(EventManager* eventManager) {
       stdoutAndStderrPipe->attachWriteEndForExec(STDOUT_FILENO);
       dup2(STDOUT_FILENO, STDERR_FILENO);
     }
+
+    // Start a new progress group so that we can kill it all at once.
+    // TODO(someday): This means if you ctrl+C ekam itself, the SIGINT is not distributed to jobs
+    //   running under it. Can we fix that? Another thing we could do is put the job into a PID
+    //   namespace but that's a lot more work and requires user namespaces and only works on Linux.
+    //   Probably what we have to do is handle sigint ourselves and redistribute it to all
+    //   children, bleh.
+    setpgid(0, 0);
 
     if (doPathLookup) {
       execvp(executableName.c_str(), &argv[0]);
