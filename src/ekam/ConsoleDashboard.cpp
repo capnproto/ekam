@@ -192,7 +192,7 @@ private:
   std::string outputText;
 
   void removeFromRunning();
-  void writeFinalLog(Color verbColor);
+  void writeFinalLog(Color verbColor, const char* icon);
 
   friend class ConsoleDashboard;
 };
@@ -232,13 +232,13 @@ void ConsoleDashboard::TaskImpl::setState(TaskState state) {
       if (silence != SILENT) dashboard->runningTasks.push_back(this);
       break;
     case DONE:
-      writeFinalLog(DONE_COLOR);
+      writeFinalLog(DONE_COLOR, " ");
       break;
     case PASSED:
-      writeFinalLog(PASSED_COLOR);
+      writeFinalLog(PASSED_COLOR, "✔");
       break;
     case FAILED:
-      writeFinalLog(FAILED_COLOR);
+      writeFinalLog(FAILED_COLOR, "✘");
       break;
     case BLOCKED:
       // Don't display.
@@ -262,11 +262,11 @@ void ConsoleDashboard::TaskImpl::removeFromRunning() {
   }
 }
 
-void ConsoleDashboard::TaskImpl::writeFinalLog(Color verbColor) {
+void ConsoleDashboard::TaskImpl::writeFinalLog(Color verbColor, const char* icon) {
   // Silent tasks should not be written to the log, unless they had error messages.
   if (silence != SILENT || !outputText.empty()) {
-    fprintf(dashboard->out, "%s%s:%s %s\n",
-            ANSI_COLOR_CODES[verbColor], verb.c_str(), ANSI_CLEAR_COLOR, noun.c_str());
+    fprintf(dashboard->out, "%s%s %s:%s %s\n",
+            ANSI_COLOR_CODES[verbColor], icon, verb.c_str(), ANSI_CLEAR_COLOR, noun.c_str());
 
     // Write any output we have buffered.
     if (!outputText.empty()) {
@@ -275,12 +275,12 @@ void ConsoleDashboard::TaskImpl::writeFinalLog(Color verbColor) {
       ioctl(dashboard->fd, TIOCGWINSZ, &windowSize);
 
       for (int i = 0; i < dashboard->maxDisplayedLogLines && !formatter.atEnd(); i++) {
-        std::string line = formatter.getLine(2, windowSize.ws_col);
-        fprintf(dashboard->out, "  %s\n", line.c_str());
+        std::string line = formatter.getLine(4, windowSize.ws_col);
+        fprintf(dashboard->out, "    %s\n", line.c_str());
       }
 
       if (!formatter.atEnd()) {
-        fprintf(dashboard->out, "  ...(log truncated; use -l to increase log limit)...\n");
+        fprintf(dashboard->out, "    ...(log truncated; use -l to increase log limit)...\n");
       }
 
       outputText.clear();
@@ -359,7 +359,8 @@ void ConsoleDashboard::drawRunning() {
     TaskImpl* task = runningTasks[i];
     int spaceForNoun = windowSize.ws_col - task->verb.size() - 2;
 
-    fprintf(out, "%s%s:%s ", ANSI_COLOR_CODES[RUNNING_COLOR], task->verb.c_str(), ANSI_CLEAR_COLOR);
+    fprintf(out, "%s↺ %s:%s ", ANSI_COLOR_CODES[RUNNING_COLOR],
+        task->verb.c_str(), ANSI_CLEAR_COLOR);
 
     if (static_cast<int>(task->noun.size()) > spaceForNoun) {
       std::string shortenedNoun = task->noun.substr(task->noun.size() - spaceForNoun + 3);
