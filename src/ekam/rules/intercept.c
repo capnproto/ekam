@@ -142,7 +142,6 @@ typedef enum usage {
   WRITE
 } usage_t;
 
-static const char TAG_PROVIDER_DIR[] = "/ekam-provider";
 static const char TAG_PROVIDER_PREFIX[] = "/ekam-provider/";
 static const char TMP[] = "/tmp";
 static const char VAR_TMP[] = "/var/tmp";
