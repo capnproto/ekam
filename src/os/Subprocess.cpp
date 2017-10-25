@@ -154,6 +154,14 @@ Promise<ProcessExitCode> Subprocess::start(EventManager* eventManager) {
       stdoutAndStderrPipe.clear();
     }
 
+    // Set the child's process group ID. The child also does this to itself (see above), but we
+    // need to do it in the parent as well to prevent a race condition in which we end up killing
+    // the child before it manages to call setpgid(). If that happens, then the child will keep
+    // going and the parent process will end up blockend on waitpid(). But the child process will
+    // almost certainly make an RPC to the parent process and wait for a reply, leading to
+    // deadlock.
+    setpgid(pid, 0);
+
     return eventManager->when(eventManager->onProcessExit(pid))(
       [this](ProcessExitCode exitCode) -> ProcessExitCode {
         pid = -1;
