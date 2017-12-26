@@ -358,7 +358,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
       /* HACK:  Don't try to remap current directory. */
       funlockfile(ekam_call_stream);
       if (debug) fprintf(stderr, "  current directory\n");
-      return "src";
+      return ".";
     } else {
       /* Ask ekam to remap the file name. */
       fputs(usage == READ ? "findInput " : "newOutput ", ekam_call_stream);
