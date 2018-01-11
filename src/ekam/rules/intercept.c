@@ -322,12 +322,16 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
     if (debug) fprintf(stderr, "  temp file: %s\n", pathname);
     return pathname;
   } else {
-    if (strncmp(pathname, current_dir, strlen(current_dir)) == 0) {
+    if (strncmp(pathname, current_dir, strlen(current_dir)) == 0 &&
+        strncmp(pathname + strlen(current_dir), "deps/", 5) != 0) {
       /* The app is trying to open files in the current directory by absolute path.  Treat it
-       * exactly as if it had used a relative path. */
+       * exactly as if it had used a relative path.  We make a special exception for the directory
+       * `deps`, to allow e.g. executing binaries found there without mapping them into the
+       * common source tree. */
       pathname = pathname + strlen(current_dir);
-    } else if (pathname[0] == '/') {
-      /* Absolute path.  Note the access but don't remap. */
+    } else if (pathname[0] == '/' ||
+               strncmp(pathname, "deps/", 5) == 0) {
+      /* Absolute path or under `deps`.  Note the access but don't remap. */
       if (usage == WRITE) {
         /* Cannot write to absolute paths. */
         funlockfile(ekam_call_stream);
