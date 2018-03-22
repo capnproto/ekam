@@ -26,11 +26,20 @@ fi
 echo findInput "$1"
 read TEST_PROG
 
+INTERCEPTOR_TAG=special:ekam-interceptor
+
+for TARGET in ${CROSS_TARGETS:-}; do
+  if test "${1%.$TARGET}" != "$1"; then
+    INTERCEPTOR_TAG="special:ekam-interceptor-$TARGET"
+    export QEMU_LD_PREFIX=/usr/$TARGET
+  fi
+done
+
 if grep -q EKAM_TEST_DISABLE_INTERCEPTOR "$TEST_PROG"; then
   # Test requested no interceptor.
   INTERCEPTOR=
 else
-  echo findProvider special:ekam-interceptor
+  echo findProvider "$INTERCEPTOR_TAG"
   read INTERCEPTOR
 
   if test "$INTERCEPTOR" = ""; then
