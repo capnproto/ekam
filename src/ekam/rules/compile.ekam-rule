@@ -135,7 +135,7 @@ for TARGET in ${CROSS_TARGETS:-}; do
   SUFFIX="$(echo "$TARGET" | tr - _)"
   case "$(basename "$CXX")" in
     *clang* )
-      compile "$CXX" ".$TARGET.o" "$SUFFIX" -target "$TARGET" "-I/usr/$TARGET/include"
+      compile "$CXX" ".$TARGET.o" "$SUFFIX" -target "$TARGET" "-isystem/usr/$TARGET/include"
       ;;
     * )
       compile "$TARGET-$CXX" ".$TARGET.o" "$SUFFIX"
