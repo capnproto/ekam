@@ -505,8 +505,8 @@ public:
   WatchedDirectory(InotifyHandler* inotifyHandler, const std::string& path)
       : inotifyHandler(inotifyHandler), path(path) {
     wd = WRAP_SYSCALL(inotify_add_watch, *inotifyHandler->inotifyStream.getHandle(), path.c_str(),
-                      IN_CREATE | IN_DELETE | IN_DELETE_SELF | IN_MODIFY | IN_MOVE_SELF |
-                      IN_MOVED_FROM | IN_MOVED_TO);
+                      IN_ATTRIB | IN_CLOSE_WRITE | IN_CREATE | IN_DELETE | IN_DELETE_SELF |
+                      IN_MODIFY | IN_MOVE_SELF | IN_MOVED_FROM | IN_MOVED_TO);
     DEBUG_INFO << "inotify_add_watch(" << path << ") [" << wd << "]";
     inotifyHandler->watchMap[wd] = this;
     inotifyHandler->watchByNameMap[path] = this;
@@ -710,6 +710,8 @@ void EpollEventManager::InotifyHandler::WatchedDirectory::handle(struct inotify_
   }
 
   DEBUG_INFO << "inotify event on: " << path << "\n  basename: " << basename << "\n  flags:"
+             << ((event->mask & IN_ATTRIB     ) ? " IN_ATTRIB"      : "")
+             << ((event->mask & IN_CLOSE_WRITE) ? " IN_CLOSE_WRITE" : "")
              << ((event->mask & IN_CREATE     ) ? " IN_CREATE"      : "")
              << ((event->mask & IN_DELETE     ) ? " IN_DELETE"      : "")
              << ((event->mask & IN_DELETE_SELF) ? " IN_DELETE_SELF" : "")
@@ -798,6 +800,8 @@ void EpollEventManager::InotifyHandler::handle(uint32_t epollEvents) {
     pos += sizeof(struct inotify_event) + event->len;
 
     DEBUG_INFO << "inotify " << event->wd << ":"
+               << ((event->mask & IN_ATTRIB     ) ? " IN_ATTRIB"      : "")
+               << ((event->mask & IN_CLOSE_WRITE) ? " IN_CLOSE_WRITE" : "")
                << ((event->mask & IN_CREATE     ) ? " IN_CREATE"      : "")
                << ((event->mask & IN_DELETE     ) ? " IN_DELETE"      : "")
                << ((event->mask & IN_DELETE_SELF) ? " IN_DELETE_SELF" : "")
