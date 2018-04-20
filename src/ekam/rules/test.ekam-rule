@@ -27,11 +27,13 @@ echo findInput "$1"
 read TEST_PROG
 
 INTERCEPTOR_TAG=special:ekam-interceptor
+INTERPRETER=
 
 for TARGET in ${CROSS_TARGETS:-}; do
   if test "${1%.$TARGET}" != "$1"; then
     INTERCEPTOR_TAG="special:ekam-interceptor-$TARGET"
     export QEMU_LD_PREFIX=/usr/$TARGET
+    INTERPRETER="qemu-${TARGET%-linux-gnu}-static"
   fi
 done
 
@@ -54,7 +56,7 @@ echo newOutput "${1}.log"
 read TEST_LOG
 
 if LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
-   $TEST_PROG 3>&1 4<&0 2>"$TEST_LOG" >&2; then
+   $INTERPRETER $TEST_PROG 3>&1 4<&0 2>"$TEST_LOG" >&2; then
 	echo passed
 	exit 0
 else
