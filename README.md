@@ -204,6 +204,19 @@ To specify some additional compiler options that should apply within a particula
 
 `.ekam-flags` files are actually executed using `/bin/sh` just before invoking the compiler. When multiple flags files are in-scope, the flags file in the outermost directory runs first.
 
+### Cross-compiling
+
+Ekam currently supports cross-compiling to multiple target architectures at once, by listing additional (non-host) architectures in the `CROSS_TARGETS` environment variable:
+
+    CROSS_TARGETS="aarch64-linux-gnu" ekam
+
+Notes:
+* This is designed to work e.g. with the `crossbuild-essential-*` Debian packages.
+* Ekam always compiles for the host architecture in addition to these targets. This is to support building tools like the Cap'n Proto compiler and then immediately using them in the same build.
+* Ekam assumes the inter-object dependencies are the same on all targets. This tends to mean that it work well for targetting alternate CPU architectures, but not as well for targeting other operating systems.
+* You may specify target-specific CXXFLAS and LIBS like `CXXFLAGS_aarch64_linux_gnu` and `LIBS_aarch64_linux_gnu`. If present, these completely replace the default `CXXFLAGS` and `LIBS`.
+* If any unit tests are built, Ekam will try to use qemu to run them.
+
 ## Custom Rules
 
 You may teach Ekam how to handle a new type of file -- or introduce a one-off build rule not triggered by any file -- by creating a rule file. A rule file is any executable with the extension `.ekam-rule`. Often, they are shell scripts, but this is not a requirement. Rule files can themselves be the output of other rules, so you could compile a C++ program that acts as a rule.

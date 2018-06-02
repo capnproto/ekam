@@ -24,14 +24,22 @@ INPUT=intercept.c
 echo findProvider file:intercept.c
 read INPUT_DISK_PATH
 
-OUTPUT="${INPUT%.c}.so"
-echo newOutput "$OUTPUT"
-read OUTPUT_DISK_PATH
+handle_target() {
+  OUTPUT="${INPUT%.c}$1.so"
+  echo newOutput "$OUTPUT"
+  read OUTPUT_DISK_PATH
 
-if test `uname` = Linux; then
-  gcc -g -shared -Wall -Wl,-no-undefined -fPIC -o "$OUTPUT_DISK_PATH" "$INPUT_DISK_PATH" -ldl
-else
-  gcc -g -shared -Wall -fPIC -o "$OUTPUT_DISK_PATH" "$INPUT_DISK_PATH"
-fi
+  if test `uname` = Linux; then
+    ${2}gcc -g -shared -Wall -Wl,-no-undefined -fPIC -o "$OUTPUT_DISK_PATH" "$INPUT_DISK_PATH" -ldl
+  else
+    ${2}gcc -g -shared -Wall -fPIC -o "$OUTPUT_DISK_PATH" "$INPUT_DISK_PATH"
+  fi
 
-echo provide $OUTPUT_DISK_PATH special:ekam-interceptor
+  echo provide $OUTPUT_DISK_PATH special:ekam-interceptor$3
+}
+
+handle_target "" "" ""
+
+for TARGET in ${CROSS_TARGETS:-}; do
+  handle_target .${TARGET} ${TARGET}- -${TARGET}
+done

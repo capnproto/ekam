@@ -591,7 +591,7 @@ template <typename ReturnType>
 struct CallAndFulfillFunctor {
   template <typename Callback, typename Func2, typename... Params>
   void operator()(WeakLink* linkToFulfiller, Callback* callback,
-                  const Func2& func, Params&&... params) const {
+                  Func2& func, Params&&... params) const {
     try {
       auto result = func(std::forward<Params>(params)...);
       if (linkToFulfiller->isEntangled()) {
@@ -607,7 +607,7 @@ template <>
 struct CallAndFulfillFunctor<void> {
   template <typename Callback, typename Func2, typename... Params>
   void operator()(WeakLink* linkToFulfiller, Callback* callback,
-                  const Func2& func, Params&&... params) const {
+                  Func2& func, Params&&... params) const {
     try {
       func(std::forward<Params>(params)...);
       if (linkToFulfiller->isEntangled()) {
@@ -701,7 +701,7 @@ private:
   struct DoReadyFunctor {
     template <typename... Params>
     void operator()(WeakLink* linkToFulfiller, Callback* callback,
-                    const Func& func, Params&&... params) const {
+                    Func& func, Params&&... params) const {
       CallAndFulfillFunctor<decltype(func(unpack(std::forward<Params>(params))...))>()(
           linkToFulfiller, callback, func, unpack(std::forward<Params>(params))...);
     }

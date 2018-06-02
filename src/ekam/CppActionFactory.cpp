@@ -85,6 +85,10 @@ private:
 
   OwnedPtr<File> file;
   Mode mode;
+
+  Promise<void> startTarget(EventManager* eventManager, BuildContext* context,
+                            const std::string& base, OwnedPtrVector<File>& flatDeps,
+                            const std::string& target);
 };
 
 const Tag LinkAction::GTEST_MAIN = Tag::fromName("gtest:main");
@@ -162,15 +166,64 @@ Promise<void> LinkAction::start(EventManager* eventManager, BuildContext* contex
   std::string base, ext;
   splitExtension(file->canonicalName(), &base, &ext);
 
+  if (mode == NODEJS) {
+    base += ".node";
+  }
+
+  auto promise = startTarget(eventManager, context, base, flatDeps, "");
+
+  const char* targets = getenv("CROSS_TARGETS");
+  if (targets != NULL) {
+    auto addTarget = [&](std::string target) {
+      OwnedPtrVector<File> targetDeps;
+      for (int i = 0; i < flatDeps.size(); i++) {
+        std::string name, ext;
+        splitExtension(flatDeps.get(i)->basename(), &name, &ext);
+        targetDeps.add(flatDeps.get(i)->parent()->relative(name + '.' + target + ext));
+      }
+
+      promise = eventManager->when(std::move(promise))(
+          [this, target = std::move(target), targetDeps = std::move(targetDeps),
+           eventManager, context, base](Void) mutable {
+        return startTarget(eventManager, context, base, targetDeps, target);
+      });
+    };
+
+    while (const char* spacepos = strchr(targets, ' ')) {
+      addTarget(std::string(targets, spacepos));
+      targets = spacepos + 1;
+    }
+    addTarget(targets);
+  }
+
+  return promise;
+}
+
+Promise<void> LinkAction::startTarget(
+    EventManager* eventManager, BuildContext* context,
+    const std::string& base, OwnedPtrVector<File>& flatDeps,
+    const std::string& target) {
   const char* cxx = getenv("CXX");
 
   auto subprocess = newOwned<Subprocess>();
 
-  subprocess->addArgument(cxx == NULL ? "c++" : cxx);
+  std::string compiler = cxx == NULL ? "c++" : cxx;
+
+  auto slashpos = compiler.find_last_of('/');
+  std::string compilerName = slashpos < 0 ? compiler : compiler.substr(slashpos + 1);
+
+  if (target.empty()) {
+    subprocess->addArgument(std::move(compiler));
+  } else if (strstr(compilerName.c_str(), "clang")) {
+    subprocess->addArgument(std::move(compiler));
+    subprocess->addArgument("-target");
+    subprocess->addArgument(target);
+  } else {
+    subprocess->addArgument(target + '-' + compiler);
+  }
 
   if (mode == NODEJS) {
     subprocess->addArgument("-shared");
-    base += ".node";
   } else if (context->findProvider(Tag::fromName("canonical:" + base + ".link-static")) !=
              nullptr) {
     subprocess->addArgument("-static");
@@ -178,7 +231,7 @@ Promise<void> LinkAction::start(EventManager* eventManager, BuildContext* contex
 
   subprocess->addArgument("-o");
 
-  auto executableFile = context->newOutput(base);
+  auto executableFile = context->newOutput(target.empty() ? base : (base + "." + target));
   subprocess->addArgument(executableFile.get(), File::WRITE);
 
   if (isTestName(base)) {
@@ -191,7 +244,20 @@ Promise<void> LinkAction::start(EventManager* eventManager, BuildContext* contex
     subprocess->addArgument(flatDeps.get(i), File::READ);
   }
 
-  const char* libs = getenv("LIBS");
+  const char* libs = nullptr;
+  if (!target.empty()) {
+    // Look for arch-specific libs.
+    std::string targetLibsName = "LIBS_" + target;
+    for (char& c: targetLibsName) {
+      if (c == '-') c = '_';
+    }
+    libs = getenv(targetLibsName.c_str());
+  }
+
+  if (libs == nullptr) {
+    libs = getenv("LIBS");
+  }
+
   if (libs != NULL) {
     while (const char* spacepos = strchr(libs, ' ')) {
       subprocess->addArgument(std::string(libs, spacepos));
