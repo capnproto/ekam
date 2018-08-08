@@ -33,7 +33,7 @@ for TARGET in ${CROSS_TARGETS:-}; do
   if test "${1%.$TARGET}" != "$1"; then
     INTERCEPTOR_TAG="special:ekam-interceptor-$TARGET"
     export QEMU_LD_PREFIX=/usr/$TARGET
-    INTERPRETER="qemu-${TARGET%-linux-gnu}-static"
+    INTERPRETER="qemu-${TARGET%-linux-gnu}"
   fi
 done
 
