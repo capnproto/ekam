@@ -1,0 +1,62 @@
+{
+    "name": "vscode-ekam",
+    "displayName": "vscode-ekam",
+    "description": "Ekam Language Server",
+    "version": "0.1.0",
+    "publisher": "kentonv",
+    "homepage": "https://github.com/sandstorm-io/ekam",
+    "engines": {
+        "vscode": "^1.27.0"
+    },
+    "keywords": [
+        "LSP",
+        "Ekam"
+    ],
+    "activationEvents": [
+        "onLanguage:cpp"
+    ],
+    "main": "./out/src/extension",
+    "scripts": {
+        "vscode:prepublish": "tsc -p ./",
+        "compile": "tsc -watch -p ./",
+        "postinstall": "node ./node_modules/vscode/bin/install",
+        "package": "vsce package"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^4.0.0",
+        "vscode-languageserver": "^4.0.0"
+    },
+    "devDependencies": {
+        "typescript": "^2.0.3",
+        "vscode": "^1.1.0",
+        "@types/node": "^6.0.40",
+        "vsce": "^1.51.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "http://github.com/sandstorm-io/ekam"
+    },
+    "contributes": {
+        "configuration": {
+            "type": "object",
+            "title": "ekam configuration",
+            "properties": {
+                "ekam.path": {
+                    "type": "string",
+                    "default": "ekam-langserve",
+                    "description": "The path to ekam-langserve executable, e.g.: /usr/bin/ekam-langserve"
+                },
+                "ekam.arguments": {
+                    "type": "array",
+                    "default": [
+                        "localhost:41315"
+                    ],
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Arguments for ekam-lsp server; should specify host:port of Ekam"
+                }
+            }
+        }
+    }
+}

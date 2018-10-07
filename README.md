@@ -14,11 +14,11 @@ Ekam is a work in progress.
 
 Ekam is an experimental project that is not ready for wide use.
 
-That said, I (Kenton) have successfully used Ekam as my primary build system throughout the development of [Cap'n Proto](https://capnproto.org) and [Sandstorm](https://sandstorm.io).
+That said, I (Kenton) have successfully used Ekam as my primary build system throughout the development of [Cap'n Proto](https://capnproto.org), [Sandstorm](https://sandstorm.io), and the [Cloudflare Workers](https://developers.cloudflare.com/workers/about/) runtime.
 
 ### Supported Platforms
 
-At this time, Ekam only runs on Linux.  It requires GCC 4.8+ or Clang 3.3+, as it uses C++11 features.
+At this time, Ekam only runs on Linux.  It requires GCC 5+ or Clang 4+, as it uses C++14 features.
 
 In the past, Ekam worked on FreeBSD and Max OSX, but the code to support that atrophied and was eventually deleted. Ekam uses a lot of OS-specific hacks and so is unlikely to work on any platform which is not explicitly supported.
 
@@ -71,6 +71,10 @@ If you pass the `-n` flag to Ekam, it will listen for connections on a port and 
     nc localhost 41315 | ekam-client
 
 `ekam-client` is mostly just a tech demo, since it displays the same info that is already visible in the console where Ekam itself is running.
+
+### Visual Studio Code Plugin
+
+The `vscode` directory in your Ekam repository contains source code for a [Visual Studio Code](https://code.visualstudio.com/) plugin. [See its README for more info.](vscode/README.md)
 
 ### Qt Creator Plugin
 
