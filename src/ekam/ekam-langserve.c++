@@ -86,23 +86,28 @@ struct Message {
   SourceFile* file;
   uint line;
   uint column;
+  uint endColumn;
   kj::String text;
 
   inline bool operator==(const Message& other) const {
     return file == other.file &&
            line == other.line &&
            column == other.column &&
+           endColumn == other.endColumn &&
            text == other.text;
   }
   inline uint hashCode() const {
-    return kj::hashCode(file, line, column, text);
+    return kj::hashCode(file, line, column, endColumn, text);
   }
 
   void exportRange(lsp::Range::Builder range) {
     auto start = range.initStart();
     start.setLine(line == 0 ? 0 : line - 1);
     start.setCharacter(column == 0 ? 0 : column - 1);
-    range.setEnd(start.asReader());
+
+    auto end = range.initEnd();
+    end.setLine(line == 0 ? 0 : line - 1);
+    end.setCharacter(endColumn == 0 ? (column == 0 ? 65536 : column - 1) : endColumn - 1);
   }
 };
 
@@ -305,6 +310,36 @@ kj::Maybe<uint> tryConsumeNumberColon(kj::StringPtr& str) {
   return nullptr;
 }
 
+struct ColumnRange {
+  uint start;
+  uint end;
+};
+
+kj::Maybe<ColumnRange> tryConsumeRangeColon(kj::StringPtr& str) {
+  if (str.startsWith(":")) return nullptr;
+
+  kj::Maybe<uint> start;
+  size_t startPos = 0;
+  for (size_t i = 0; i < str.size(); i++) {
+    if (str[i] == ':') {
+      uint result = strtoul(str.cStr() + startPos, nullptr, 10);
+      str = str.slice(i + 1);
+      KJ_IF_MAYBE(s, start) {
+        return ColumnRange { *s, result };
+      } else {
+        return ColumnRange { result, result };
+      }
+    } else if (str[i] == '-' && start == nullptr) {
+      start = strtoul(str.cStr(), nullptr, 10);
+      startPos = i + 1;
+    } else if (str[i] < '0' || str[i] > '9') {
+      return nullptr;
+    }
+  }
+
+  return nullptr;
+}
+
 void trimLeadingSpace(kj::StringPtr& str) {
   while (str.startsWith(" ")) { str = str.slice(1); }
 }
@@ -411,7 +446,7 @@ public:
         line = line.slice(pos + 1);
 
         kj::Maybe<uint> lineNo = tryConsumeNumberColon(line);
-        kj::Maybe<uint> columnNo = tryConsumeNumberColon(line);
+        kj::Maybe<ColumnRange> columnRange = tryConsumeRangeColon(line);
 
         trimLeadingSpace(line);
 
@@ -420,7 +455,8 @@ public:
         Message message {
           file,
           lineNo.orDefault(0),
-          columnNo.orDefault(0),
+          columnRange.map([](ColumnRange c) { return c.start; }).orDefault(0),
+          columnRange.map([](ColumnRange c) { return c.end; }).orDefault(0),
           kj::str(line)
         };
 
