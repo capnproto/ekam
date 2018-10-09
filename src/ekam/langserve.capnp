@@ -69,10 +69,10 @@ struct Diagnostic {
     message @1 :Text;
   }
 
-  const serevirtyError :UInt32 = 1;
-  const serevirtyWarning :UInt32 = 2;
-  const serevirtyInformation :UInt32 = 3;
-  const serevirtyHint :UInt64 = 4;
+  const severityError :UInt32 = 1;
+  const severityWarning :UInt32 = 2;
+  const severityInformation :UInt32 = 3;
+  const severityHint :UInt64 = 4;
 }
 
 struct Command {

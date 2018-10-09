@@ -17,7 +17,7 @@ its location in your config like:
 To obtain `ekam-langserve` binary, build [Ekam](https://github.com/capnproto/ekam).
 The binary will end up in `bin/ekam-langserve` after the build completes.
 
-The language server experts to connect to a local Ekam run. You'll need to tell
+The language server expects to connect to a local Ekam run. You'll need to tell
 Ekam to publish logs on a local port by running it like:
 
     ekam -c -n :41315
