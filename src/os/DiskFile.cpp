@@ -56,10 +56,10 @@ public:
   }
 
   bool next(std::string* output) {
-    struct dirent entry, *entryPointer;
-    int error = readdir_r(dir, &entry, &entryPointer);
-    if (error != 0) {
-      throw OsError(path, "readdir", error);
+    errno = 0;
+    struct dirent *entryPointer = readdir(dir);
+    if (errno != 0) {
+      throw OsError(path, "readdir", errno);
     }
 
     if (entryPointer == NULL) {

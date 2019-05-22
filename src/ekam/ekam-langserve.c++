@@ -14,7 +14,7 @@ namespace ekam {
 
 typedef unsigned int uint;
 
-class AsyncIoStreamPair: public kj::AsyncIoStream {
+class AsyncIoStreamPair final: public kj::AsyncIoStream {
 public:
   AsyncIoStreamPair(kj::Own<kj::AsyncInputStream> input,
                     kj::Own<kj::AsyncOutputStream> output)
@@ -60,7 +60,7 @@ private:
   kj::Own<kj::AsyncOutputStream> output;
 };
 
-class LanguageServerImpl: public lsp::LanguageServer::Server {
+class LanguageServerImpl final: public lsp::LanguageServer::Server {
 public:
   LanguageServerImpl(kj::Own<kj::PromiseFulfiller<void>> initializedFulfiller)
       : initializedFulfiller(kj::mv(initializedFulfiller)) {}

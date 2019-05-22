@@ -71,8 +71,8 @@ std::string epollEventsToString(uint32_t events) {
     result.append(" EPOLLONESHOT");
   }
 
-  if (events & ~(EPOLLIN || EPOLLOUT || EPOLLRDHUP || EPOLLPRI || EPOLLERR || EPOLLHUP ||
-                 EPOLLET || EPOLLONESHOT)) {
+  if (events & ~(EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLPRI | EPOLLERR | EPOLLHUP |
+                 EPOLLET | EPOLLONESHOT)) {
     result.append(" (others)");
   }
 
@@ -228,8 +228,6 @@ sigset_t getHandledSignals() {
 }
 
 const sigset_t HANDLED_SIGNALS = getHandledSignals();
-
-void dummyHandler(int i) {}
 
 }  // namespace
 

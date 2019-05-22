@@ -47,7 +47,7 @@ SOURCES=$(shell find src/base src/os src/ekam -name '*.cpp' | \
 bin/ekam-bootstrap: $(SOURCES)
 	$(call color,compiling bootstrap ekam)
 	@mkdir -p bin
-	$(CXX) -Isrc -std=c++11 $(SOURCES) -pthread -o $@
+	$(CXX) -Isrc -std=c++14 $(SOURCES) -pthread -o $@
 
 clean:
 	rm -rf bin lib tmp
