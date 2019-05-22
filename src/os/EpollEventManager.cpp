@@ -229,8 +229,6 @@ sigset_t getHandledSignals() {
 
 const sigset_t HANDLED_SIGNALS = getHandledSignals();
 
-void dummyHandler(int i) {}
-
 }  // namespace
 
 EpollEventManager::SignalHandler::SignalHandler(Epoller* epoller)
