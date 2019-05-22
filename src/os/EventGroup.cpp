@@ -80,7 +80,7 @@ OwnedPtr<PendingRunnable> EventGroup::runLater(OwnedPtr<Runnable> runnable) {
 Promise<ProcessExitCode> EventGroup::onProcessExit(pid_t pid) {
   Promise<ProcessExitCode> innerPromise = inner->onProcessExit(pid);
   return when(innerPromise, newPendingEvent())(
-    [this](ProcessExitCode exitCode, OwnedPtr<PendingEvent>) -> ProcessExitCode {
+    [](ProcessExitCode exitCode, OwnedPtr<PendingEvent>) -> ProcessExitCode {
       return exitCode;
     });
 }
@@ -95,14 +95,14 @@ public:
   Promise<void> onReadable() {
     Promise<void> innerPromise = inner->onReadable();
     return group->when(innerPromise, group->newPendingEvent())(
-      [this](Void, OwnedPtr<PendingEvent>) {
+      [](Void, OwnedPtr<PendingEvent>) {
         // Let PendingEvent die.
       });
   }
   Promise<void> onWritable() {
     Promise<void> innerPromise = inner->onWritable();
     return group->when(innerPromise, group->newPendingEvent())(
-      [this](Void, OwnedPtr<PendingEvent>) {
+      [](Void, OwnedPtr<PendingEvent>) {
         // Let PendingEvent die.
       });
   }
@@ -126,7 +126,7 @@ public:
   Promise<FileChangeType> onChange() {
     Promise<FileChangeType> innerPromise = inner->onChange();
     return group->when(innerPromise, group->newPendingEvent())(
-      [this](FileChangeType changeType, OwnedPtr<PendingEvent>) -> FileChangeType {
+      [](FileChangeType changeType, OwnedPtr<PendingEvent>) -> FileChangeType {
         // Let PendingEvent die.
         return changeType;
       });
