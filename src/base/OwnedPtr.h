@@ -148,15 +148,15 @@ public:
   Refcount(const Refcount& other) = delete;
   Refcount& operator=(const Refcount& other) = delete;
 
-  void inc() {
-    if (this != NULL) ++strong;
+  static void inc(Refcount* r) {
+    if (r != NULL) ++r->strong;
   }
-  bool dec() {
-    if (this == NULL) {
+  static bool dec(Refcount* r) {
+    if (r == NULL) {
       return false;
-    } else if (--strong == 0) {
-      if (weak == 0) {
-        delete this;
+    } else if (--r->strong == 0) {
+      if (r->weak == 0) {
+        delete r;
       }
       return true;
     } else {
@@ -164,30 +164,26 @@ public:
     }
   }
 
-  void incWeak() {
-    if (this != NULL) ++weak;
+  static void incWeak(Refcount* r) {
+    if (r != NULL) ++r->weak;
   }
-  void decWeak() {
-    if (this != NULL && --weak == 0 && strong == 0) {
-      delete this;
+  static void decWeak(Refcount* r) {
+    if (r != NULL && --r->weak == 0 && r->strong == 0) {
+      delete r;
     }
   }
 
-  bool release() {
-    if (this != NULL && strong == 1) {
-      dec();
+  static bool release(Refcount* r) {
+    if (r != NULL && r->strong == 1) {
+      dec(r);
       return true;
     } else {
       return false;
     }
   }
 
-  bool isLive() {
-    return this != NULL && strong > 0;
-  }
-
-  bool isOnlyReference() {
-    return strong == 1;
+  static bool isLive(Refcount* r) {
+    return r != NULL && r->strong > 0;
   }
 
 private:
@@ -201,17 +197,17 @@ public:
   SmartPtr() : ptr(NULL), refcount(NULL) {}
   SmartPtr(std::nullptr_t) : ptr(NULL), refcount(NULL) {}
   ~SmartPtr() {
-    if (refcount->dec()) {
+    if (Refcount::dec(refcount)) {
       deleteEnsuringCompleteType(ptr);
     }
   }
 
   SmartPtr(const SmartPtr& other) : ptr(other.ptr), refcount(other.refcount) {
-    refcount->inc();
+    Refcount::inc(refcount);
   }
   template <typename U>
   SmartPtr(const SmartPtr<U>& other) : ptr(other.ptr), refcount(other.refcount) {
-    refcount->inc();
+    Refcount::inc(refcount);
   }
   SmartPtr& operator=(const SmartPtr& other) {
     reset(other.ptr, other.refcount);
@@ -276,17 +272,13 @@ public:
 
   template <typename U>
   bool release(OwnedPtr<U>* other) {
-    if (refcount->release()) {
+    if (Refcount::release(refcount)) {
       other->reset(ptr);
       ptr = NULL;
       return true;
     } else {
       return false;
     }
-  }
-
-  bool isOnlyReference() {
-    return refcount->isOnlyReference();
   }
 
   void clear() {
@@ -345,7 +337,7 @@ private:
 
   inline void reset(T* newValue) {
     reset(newValue, newValue == NULL ? NULL : new Refcount());
-    refcount->dec();
+    Refcount::dec(refcount);
   }
 
   void reset(T* newValue, Refcount* newRefcount) {
@@ -353,8 +345,8 @@ private:
     Refcount* oldRefcount = refcount;
     ptr = newValue;
     refcount = newRefcount;
-    refcount->inc();
-    if (oldRefcount->dec()) {
+    Refcount::inc(refcount);
+    if (Refcount::dec(oldRefcount)) {
       deleteEnsuringCompleteType(oldValue);
     }
   }
@@ -378,22 +370,22 @@ class WeakPtr {
 public:
   WeakPtr(): ptr(NULL), refcount(NULL) {}
   WeakPtr(const WeakPtr& other): ptr(other.ptr), refcount(other.refcount) {
-    refcount->incWeak();
+    Refcount::incWeak(refcount);
   }
   WeakPtr(const SmartPtr<T>& other): ptr(other.ptr), refcount(other.refcount) {
-    refcount->incWeak();
+    Refcount::incWeak(refcount);
   }
   WeakPtr(std::nullptr_t): ptr(nullptr), refcount(nullptr) {}
   ~WeakPtr() {
-    refcount->decWeak();
+    Refcount::decWeak(refcount);
   }
 
   WeakPtr& operator=(const WeakPtr& other) {
     Refcount* oldRefcount = refcount;
     ptr = other.ptr;
     refcount = other.refcount;
-    refcount->incWeak();
-    oldRefcount->decWeak();
+    Refcount::incWeak(refcount);
+    Refcount::decWeak(oldRefcount);
     return *this;
   }
   template <typename U>
@@ -401,8 +393,8 @@ public:
     Refcount* oldRefcount = refcount;
     ptr = other.ptr;
     refcount = other.refcount;
-    refcount->incWeak();
-    oldRefcount->decWeak();
+    Refcount::incWeak(refcount);
+    Refcount::decWeak(oldRefcount);
     return *this;
   }
   template <typename U>
@@ -410,12 +402,12 @@ public:
     Refcount* oldRefcount = refcount;
     ptr = other.ptr;
     refcount = other.refcount;
-    refcount->incWeak();
-    oldRefcount->decWeak();
+    Refcount::incWeak(refcount);
+    Refcount::decWeak(oldRefcount);
     return *this;
   }
   WeakPtr& operator=(std::nullptr_t) {
-    refcount->decWeak();
+    Refcount::decWeak(refcount);
     ptr = nullptr;
     refcount = nullptr;
     return *this;
@@ -424,7 +416,7 @@ public:
   template <typename U>
   operator SmartPtr<U>() const {
     SmartPtr<U> result;
-    if (refcount->isLive()) {
+    if (Refcount::isLive(refcount)) {
       result.reset(ptr, refcount);
     }
     return result;
