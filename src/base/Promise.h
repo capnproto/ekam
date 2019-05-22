@@ -360,7 +360,7 @@ public:
   Promise<T>* owner;
   OwnedPtr<PromiseState> chainedPromise;
 
-private:
+  // (effectively) private:
   PromiseListener* listener;
   bool fulfilled;
   bool failed;
@@ -418,8 +418,6 @@ private:
     return std::move(value);
   }
 
-  template <typename U>
-  friend class PromiseFulfiller<U>::Callback;
   template <typename U, typename Func, typename ExceptionHandler, typename ParamPack>
   friend class DependentPromiseFulfiller;
   friend struct PromiseConstructors;
