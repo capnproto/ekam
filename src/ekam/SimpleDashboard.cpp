@@ -75,6 +75,8 @@ void SimpleDashboard::TaskImpl::setState(TaskState state) {
       }
       outputText.clear();
     }
+
+    fflush(outputStream);
   }
 }
 
