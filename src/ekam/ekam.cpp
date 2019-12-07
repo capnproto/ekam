@@ -373,7 +373,7 @@ public:
   }
 
   bool hasFailures() {
-    if (running) throw std::logic_error("can't check filures while still running");
+    if (running) throw std::logic_error("can't check failures while still running");
     return failed;
   }
 
