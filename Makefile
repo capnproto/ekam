@@ -40,15 +40,25 @@ deps/capnproto:
 	@mkdir -p deps
 	git clone https://github.com/sandstorm-io/capnproto.git deps/capnproto
 
-SOURCES=$(shell find src/base src/os src/ekam -name '*.cpp' | \
+SOURCES=$(shell cd src; find base os ekam -name '*.cpp' | \
     grep -v KqueueEventManager | grep -v PollEventManager | \
     grep -v ProtoDashboard | grep -v ekam-client | grep -v _test)
 
-bin/ekam-bootstrap: $(SOURCES)
+HEADERS=$(shell find src/base src/os src/ekam -name '*.h')
+
+OBJ_DIR := tmp
+OBJECTS=$(addprefix $(OBJ_DIR)/, $(SOURCES:.cpp=.o))
+
+$(OBJ_DIR)/%.o: src/%.cpp $(HEADERS)
+	@echo $(HEADERS)
+	@mkdir -p $(@D)
+	$(CXX) -Isrc -fPIC -std=c++14 -pthread -o $@ -c $<
+
+bin/ekam-bootstrap: $(OBJECTS)
 	$(call color,compiling bootstrap ekam)
 	@mkdir -p bin
-	$(CXX) -Isrc -std=c++14 $(SOURCES) -pthread -o $@
+	$(CXX) -Isrc -std=c++14 -pthread $(OBJECTS) -o $@
 
 clean:
-	rm -rf bin lib tmp
+	rm -rf bin lib tmp $(OBJ_DIR)
 
