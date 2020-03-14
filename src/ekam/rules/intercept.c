@@ -31,6 +31,13 @@
 #include <sys/stat.h>
 #include <pthread.h>
 
+#if __linux__
+#include <linux/seccomp.h>
+#include <linux/filter.h>
+#include <sys/prctl.h>
+#include <syscall.h>
+#endif
+
 static const int EKAM_DEBUG = 0;
 
 typedef int open_t(const char * pathname, int flags, ...);
@@ -50,6 +57,32 @@ void __attribute__((constructor)) start_interceptor() {
     write(STDERR_FILENO, buffer, n);
     write(STDERR_FILENO, "\n", 1);
   }
+
+#if __linux__
+  /* Block the statx syscall which node 12 uses which we're unable to intercept because it doesn't
+   * actually have a glibc wrapper, ugh. */
+
+#if 0  /* source of the seccomp filter below */
+  ld [0]                  /* offsetof(struct seccomp_data, nr) */
+  jeq #332, nosys         /* __NR_statx */
+  jmp good
+
+nosys:  ret #0x00050026  /* SECCOMP_RET_ERRNO | ENOSYS */
+good:   ret #0x7fff0000  /* SECCOMP_RET_ALLOW */
+#endif
+
+  static struct sock_filter filter[] = {
+    { 0x20,  0,  0, 0000000000 },
+    { 0x15,  1,  0, 0x0000014c },
+    { 0x05,  0,  0, 0x00000001 },
+    { 0x06,  0,  0, 0x00050026 },
+    { 0x06,  0,  0, 0x7fff0000 },
+  };
+  static struct sock_fprog prog = { sizeof(filter) / sizeof(filter[0]), filter };
+
+  prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+  syscall(__NR_seccomp, SECCOMP_SET_MODE_FILTER, 0, &prog);
+#endif
 }
 
 /****************************************************************************************/
