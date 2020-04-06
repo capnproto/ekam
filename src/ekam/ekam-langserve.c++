@@ -60,29 +60,6 @@ private:
   kj::Own<kj::AsyncOutputStream> output;
 };
 
-class LanguageServerImpl final: public lsp::LanguageServer::Server {
-public:
-  LanguageServerImpl(kj::Own<kj::PromiseFulfiller<void>> initializedFulfiller)
-      : initializedFulfiller(kj::mv(initializedFulfiller)) {}
-  KJ_DISALLOW_COPY(LanguageServerImpl);
-
-protected:
-  kj::Promise<void> initialize(InitializeContext context) override {
-    initializedFulfiller->fulfill();
-    context.initResults().initCapabilities();
-    return kj::READY_NOW;
-  }
-  kj::Promise<void> shutdown(ShutdownContext context) override {
-    return kj::READY_NOW;
-  }
-  kj::Promise<void> exit(ExitContext context) override {
-    _exit(0);
-  }
-
-private:
-  kj::Own<kj::PromiseFulfiller<void>> initializedFulfiller;
-};
-
 class SourceFile;
 
 struct Message {
@@ -498,6 +475,29 @@ private:
     diagnostics.clear();
     addNotesToBack = false;
   }
+};
+
+class LanguageServerImpl final: public lsp::LanguageServer::Server {
+public:
+  LanguageServerImpl(kj::Own<kj::PromiseFulfiller<void>> initializedFulfiller)
+      : initializedFulfiller(kj::mv(initializedFulfiller)) {}
+  KJ_DISALLOW_COPY(LanguageServerImpl);
+
+protected:
+  kj::Promise<void> initialize(InitializeContext context) override {
+    initializedFulfiller->fulfill();
+    context.initResults().initCapabilities();
+    return kj::READY_NOW;
+  }
+  kj::Promise<void> shutdown(ShutdownContext context) override {
+    return kj::READY_NOW;
+  }
+  kj::Promise<void> exit(ExitContext context) override {
+    _exit(0);
+  }
+
+private:
+  kj::Own<kj::PromiseFulfiller<void>> initializedFulfiller;
 };
 
 class LanguageServerMain {
