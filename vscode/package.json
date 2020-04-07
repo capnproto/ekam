@@ -2,7 +2,7 @@
     "name": "vscode-ekam",
     "displayName": "vscode-ekam",
     "description": "Ekam Language Server",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "publisher": "kentonv",
     "homepage": "https://github.com/sandstorm-io/ekam",
     "engines": {
