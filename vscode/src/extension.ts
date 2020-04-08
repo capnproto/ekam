@@ -24,7 +24,9 @@ export function activate(context: vscode.ExtensionContext) {
     };
     const serverOptions: vscodelc.ServerOptions = options;
 
-    const clientOptions: vscodelc.LanguageClientOptions = {};
+    const clientOptions: vscodelc.LanguageClientOptions = {
+      documentSelector: [{ scheme: 'file' }]
+    };
 
     const ekamClient = new vscodelc.LanguageClient('Ekam Language Server', serverOptions, clientOptions);
     console.log('Ekam Language Server is now active!');

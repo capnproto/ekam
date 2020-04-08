@@ -9,6 +9,7 @@
 #include <kj/map.h>
 #include <kj/filesystem.h>
 #include <stdlib.h>
+#include <kj/encoding.h>
 
 namespace ekam {
 
@@ -58,29 +59,6 @@ public:
 private:
   kj::Own<kj::AsyncInputStream> input;
   kj::Own<kj::AsyncOutputStream> output;
-};
-
-class LanguageServerImpl final: public lsp::LanguageServer::Server {
-public:
-  LanguageServerImpl(kj::Own<kj::PromiseFulfiller<void>> initializedFulfiller)
-      : initializedFulfiller(kj::mv(initializedFulfiller)) {}
-  KJ_DISALLOW_COPY(LanguageServerImpl);
-
-protected:
-  kj::Promise<void> initialize(InitializeContext context) override {
-    initializedFulfiller->fulfill();
-    context.initResults().initCapabilities();
-    return kj::READY_NOW;
-  }
-  kj::Promise<void> shutdown(ShutdownContext context) override {
-    return kj::READY_NOW;
-  }
-  kj::Promise<void> exit(ExitContext context) override {
-    _exit(0);
-  }
-
-private:
-  kj::Own<kj::PromiseFulfiller<void>> initializedFulfiller;
 };
 
 class SourceFile;
@@ -142,6 +120,10 @@ class DirtySet {
 public:
   void add(SourceFile* file) {
     dirty.upsert(file, [](auto...) {});
+    KJ_IF_MAYBE(f, fulfiller) {
+      f->get()->fulfill();
+      fulfiller = nullptr;
+    }
   }
   template <typename Func>
   void forEach(Func&& func) {
@@ -151,8 +133,32 @@ public:
     dirty.clear();
   }
 
+  kj::Maybe<kj::Promise<void>> whenNonEmpty() {
+    KJ_REQUIRE(fulfiller == nullptr, "can only call whenNonEmpty() once at a time");
+    if (dirty.size() > 0) {
+      return kj::Promise<void>(kj::READY_NOW);
+    } else if (isShutdown) {
+      return nullptr;
+    } else {
+      auto paf = kj::newPromiseAndFulfiller<void>();
+      fulfiller = kj::mv(paf.fulfiller);
+      return kj::mv(paf.promise);
+    }
+  }
+
+  void shutdown() {
+    // Make it so calling whenNotEmpty() when empty returns null rather than blocking.
+    KJ_IF_MAYBE(f, fulfiller) {
+      f->get()->fulfill();
+      fulfiller = nullptr;
+    }
+    isShutdown = true;
+  }
+
 private:
   kj::HashSet<SourceFile*> dirty;
+  kj::Maybe<kj::Own<kj::PromiseFulfiller<void>>> fulfiller;
+  bool isShutdown = false;
 };
 
 class SourceFile {
@@ -165,12 +171,28 @@ public:
     dirtySet.add(this);
   }
 
+  void markStale() {
+    // We were informed the file has changed, which potentially invalidates all diagnostics.
+    // Mark them all stale.
+    bool dirty = false;
+    for (auto& diagnostic: diagnostics) {
+      if (!diagnostic.stale) {
+        diagnostic.stale = true;
+        dirty = true;
+      }
+    }
+    if (dirty) {
+      markDirty();
+    }
+  }
+
   Diagnostic& add(Diagnostic&& diagnostic) {
     auto& result = diagnostics.findOrCreate(diagnostic, [&]() {
       dirtySet.add(this);
       return DiagnosticEntry { kj::heap(kj::mv(diagnostic)), 0 };
     });
     ++result.refcount;
+    result.stale = false;
     return *result.diagnostic;
   }
 
@@ -187,9 +209,15 @@ public:
       lsp::LanguageClient::PublishDiagnosticsParams::Builder builder) {
     builder.setUri(kj::str(uriPrefix, realPath));
 
-    auto list = builder.initDiagnostics(diagnostics.size());
+    size_t count = 0;
+    for (auto& diagnostic: diagnostics) {
+      if (!diagnostic.stale) ++count;
+    }
+
+    auto list = builder.initDiagnostics(count);
     auto iter = diagnostics.begin();
     for (auto out: list) {
+      while (iter->stale) ++iter;
       auto& in = *(iter++)->diagnostic;
 
       out.setSeverity((uint)in.severity);
@@ -219,6 +247,7 @@ private:
   struct DiagnosticEntry {
     kj::Own<Diagnostic> diagnostic;
     uint refcount;
+    bool stale = false;
 
     bool operator==(const Diagnostic& other) const { return *diagnostic == other; }
     bool operator==(const DiagnosticEntry& other) const { return *diagnostic == *other.diagnostic; }
@@ -228,7 +257,6 @@ private:
 };
 
 class SourceFileSet {
-  typedef kj::HashMap<kj::String, kj::Maybe<kj::Own<SourceFile>>> FileMap;
 public:
   SourceFileSet(const kj::ReadableDirectory& projectHome, DirtySet& dirtySet)
       : projectHome(projectHome), dirtySet(dirtySet) {}
@@ -255,31 +283,34 @@ public:
 
     if (name.startsWith("/")) {
       // Absolute path, probably a header or something.
-      auto& entry = files.insert(kj::str(name), kj::heap<SourceFile>(dirtySet, kj::str(name)));
-      return deref(entry.value);
+      return insert(name, kj::heap<SourceFile>(dirtySet, kj::str(name)));
     } else {
       // Look for the file under `src` and `tmp`.
       auto canonical = kj::Path::parse(name);
       static constexpr kj::StringPtr DIRS[] = {"src"_kj, "tmp"_kj};
       for (auto dir: DIRS) {
-        if (projectHome.exists(kj::Path({dir}).append(canonical))) {
+        auto path = kj::Path({dir}).append(canonical);
+        if (projectHome.exists(path)) {
           // Found it.
-          auto& entry = files.insert(kj::str(name),
-              kj::heap<SourceFile>(dirtySet, kj::str(dir, '/', name)));
-          return deref(entry.value);
+          return insert(name, kj::heap<SourceFile>(dirtySet,
+              expandSymlinks(kj::mv(path)).toString()));
         }
       }
 
       if (projectHome.exists(canonical)) {
         // Maybe it was already non-canonical.
-        auto& entry = files.insert(kj::str(name), kj::heap<SourceFile>(dirtySet, kj::str(name)));
-        return deref(entry.value);
+        return insert(name, kj::heap<SourceFile>(dirtySet,
+            expandSymlinks(kj::mv(canonical)).toString()));
       }
 
       // This path doesn't appear to be a file. Cache this fact.
       files.insert(kj::str(name), nullptr);
       return nullptr;
     }
+  }
+
+  kj::Maybe<SourceFile&> findByRealPath(kj::StringPtr path) {
+    return filesByPath.find(path).map([](SourceFile* f) -> SourceFile& { return *f; });
   }
 
   template <typename Func>
@@ -294,7 +325,35 @@ public:
 private:
   const kj::ReadableDirectory& projectHome;
   DirtySet& dirtySet;
-  FileMap files;
+  kj::HashMap<kj::String, kj::Maybe<kj::Own<SourceFile>>> files;
+  kj::HashMap<kj::StringPtr, SourceFile*> filesByPath;
+
+  SourceFile& insert(kj::StringPtr name, kj::Own<SourceFile> file) {
+    auto& result = *file;
+    auto& realPathEntry = filesByPath.insert(file->getRealPath(), file.get());
+    KJ_ON_SCOPE_FAILURE(filesByPath.erase(realPathEntry));
+    files.insert(kj::str(name), kj::mv(file));
+    return result;
+  }
+
+  kj::Path expandSymlinks(kj::Path path) {
+  retry:
+    for (size_t i = 1; i < path.size(); i++) {
+      auto parent = path.slice(0, i);
+      KJ_IF_MAYBE(link, projectHome.tryReadlink(parent)) {
+        if (!link->startsWith("/")) {
+          try {
+            path = parent.slice(0, i-1).eval(*link).append(path.slice(i, path.size()));
+            goto retry;
+          } catch (const kj::Exception& e) {
+            KJ_LOG(WARNING, "bad symlink", *link, e.getDescription());
+          }
+        }
+      }
+    }
+
+    return kj::mv(path);
+  }
 };
 
 kj::Maybe<uint> tryConsumeNumberColon(kj::StringPtr& str) {
@@ -500,6 +559,79 @@ private:
   }
 };
 
+class LanguageServerImpl final: public lsp::LanguageServer::Server {
+public:
+  LanguageServerImpl(kj::Own<kj::PromiseFulfiller<void>> initializedFulfiller)
+      : initializedFulfiller(kj::mv(initializedFulfiller)) {}
+  KJ_DISALLOW_COPY(LanguageServerImpl);
+
+  class Scope {
+  public:
+    Scope(LanguageServerImpl& server, SourceFileSet& files, kj::StringPtr uriPrefix)
+        : server(server), files(files), uriPrefix(uriPrefix) {
+      server.scope = this;
+    }
+    ~Scope() noexcept(false) {
+      server.scope = nullptr;
+    }
+
+  private:
+    LanguageServerImpl& server;
+    SourceFileSet& files;
+    kj::StringPtr uriPrefix;
+
+    friend class LanguageServerImpl;
+  };
+
+protected:
+  kj::Promise<void> initialize(InitializeContext context) override {
+    initializedFulfiller->fulfill();
+    auto sync = context.initResults().initCapabilities().initTextDocumentSync();
+    sync.setOpenClose(true);
+    sync.setChange(lsp::TextDocumentSyncKind::INCREMENTAL);
+    sync.setDidSave(true);
+    return kj::READY_NOW;
+  }
+  kj::Promise<void> shutdown(ShutdownContext context) override {
+    return kj::READY_NOW;
+  }
+  kj::Promise<void> exit(ExitContext context) override {
+    _exit(0);
+  }
+
+  kj::Promise<void> didOpen(DidOpenContext context) override {
+    // Ignore.
+    return kj::READY_NOW;
+  }
+  kj::Promise<void> didClose(DidCloseContext context) override {
+    // Ignore.
+    return kj::READY_NOW;
+  }
+  kj::Promise<void> didChange(DidChangeContext context) override {
+    KJ_IF_MAYBE(s, scope) {
+      auto params = context.getParams();
+      auto uri = params.getTextDocument().getUri();
+      if (uri.startsWith(s->uriPrefix)) {
+        auto path = kj::decodeUriComponent(uri.slice(s->uriPrefix.size()));
+        KJ_IF_MAYBE(file, s->files.findByRealPath(path)) {
+          file->markStale();
+        }
+      }
+    }
+    return kj::READY_NOW;
+  }
+  kj::Promise<void> didSave(DidSaveContext context) override {
+    // Ignore for now.
+    // TODO(someday): Start a new location map for this file and interpret future diagnostics
+    //   against that map rather than the current one.
+    return kj::READY_NOW;
+  }
+
+private:
+  kj::Own<kj::PromiseFulfiller<void>> initializedFulfiller;
+  kj::Maybe<Scope&> scope;
+};
+
 class LanguageServerMain {
 public:
   LanguageServerMain(kj::ProcessContext& context): context(context) {}
@@ -523,9 +655,11 @@ public:
 
     auto initPaf = kj::newPromiseAndFulfiller<void>();
 
+    auto ownServer = kj::heap<LanguageServerImpl>(kj::mv(initPaf.fulfiller));
+    LanguageServerImpl& server = *ownServer;
+
     capnp::JsonRpc::ContentLengthTransport transport(*stream);
-    capnp::JsonRpc jsonRpc(transport, capnp::toDynamic(
-          kj::heap<LanguageServerImpl>(kj::mv(initPaf.fulfiller))));
+    capnp::JsonRpc jsonRpc(transport, capnp::toDynamic(kj::mv(ownServer)));
 
     auto errorTask = jsonRpc.onError()
         .then([]() {
@@ -573,15 +707,8 @@ public:
       SourceFileSet files(*projectHome, dirtySet);
       kj::HashMap<uint, kj::Own<Task>> tasks;
 
-      auto updateClient = [&]() {
-        kj::Vector<kj::Promise<void>> promises;
-        dirtySet.forEach([&](SourceFile& file) {
-          auto req = client.publishDiagnosticsRequest();
-          file.exportDiagnostics(homeUri, req);
-          promises.add(req.send().ignoreResult());
-        });
-        kj::joinPromises(promises.releaseAsArray()).wait(io.waitScope);
-      };
+      LanguageServerImpl::Scope serverScope(server, files, homeUri);
+      kj::Promise<void> updateLoopTask = updateLoop(dirtySet, client, homeUri);
 
       for (;;) {
         kj::Own<capnp::MessageReader> message;
@@ -607,18 +734,39 @@ public:
           });
           task.update(update, files);
         }
-
-        updateClient();
       }
 
       // Clear all diagnostics.
       tasks.clear();
-      updateClient();
+      dirtySet.shutdown();
+      updateLoopTask.wait(io.waitScope);
     }
   }
 
 private:
   kj::ProcessContext& context;
+
+  kj::Promise<void> updateLoop(DirtySet& dirtySet,
+      lsp::LanguageClient::Client client, kj::StringPtr homeUri) {
+    KJ_IF_MAYBE(p, dirtySet.whenNonEmpty()) {
+      return p->then([]() {
+        // Delay for other messages.
+        return kj::evalLast([]() {});
+      }).then([&dirtySet, client, homeUri]() mutable {
+        kj::Vector<kj::Promise<void>> promises;
+        dirtySet.forEach([&](SourceFile& file) {
+          auto req = client.publishDiagnosticsRequest();
+          file.exportDiagnostics(homeUri, req);
+          promises.add(req.send().ignoreResult());
+        });
+        return kj::joinPromises(promises.releaseAsArray());
+      }).then([this, &dirtySet, client, homeUri]() mutable {
+        return updateLoop(dirtySet, kj::mv(client), homeUri);
+      });
+    } else {
+      return kj::READY_NOW;
+    }
+  }
 };
 
 }  // namespace ekam

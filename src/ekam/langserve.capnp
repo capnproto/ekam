@@ -21,6 +21,19 @@ interface LanguageServer {
 
   shutdown @1 ();
   exit @2 () $Json.notification;
+
+  didOpen @3 () $Json.notification $Json.name("textDocument/didOpen");
+  didClose @4 () $Json.notification $Json.name("textDocument/didClose");
+  # Ignoring these for now.
+
+  didChange @5 (textDocument :TextDocumentIdentifier,
+                # Actually VersionedTextDocumentIdentifier but we don't care.
+                contentChanges :List(TextDocumentContentChangeEvent))
+      $Json.notification $Json.name("textDocument/didChange");
+
+  didSave @6 (textDocument :TextDocumentIdentifier)
+      $Json.notification $Json.name("textDocument/didSave");
+  # TODO(someday): Why is this never sent at present?
 }
 
 interface LanguageClient {
@@ -33,7 +46,21 @@ struct ClientCapabilities {
 }
 
 struct ServerCapabilities {
-  # TODO(someday)
+  textDocumentSync @0 :TextDocumentSyncOptions;
+
+  # TODO(someday): more
+}
+
+struct TextDocumentSyncOptions {
+  openClose @0 :Bool = false;
+  change @1 :UInt8 = TextDocumentSyncKind.none;
+  didSave @2 :Bool = false;
+}
+
+struct TextDocumentSyncKind {
+  const none :UInt32 = 0;
+  const full :UInt32 = 1;
+  const incremental :UInt32 = 2;
 }
 
 struct WorkspaceFolder {
@@ -79,4 +106,13 @@ struct Command {
   title @0 :Text;
   command @1 :Text;
   arguments @2 :List(Json.Value);
+}
+
+struct TextDocumentContentChangeEvent {
+  range @0 :Range;
+  text @1 :Text;
+}
+
+struct TextDocumentIdentifier {
+  uri @0 :DocumentUri;
 }
