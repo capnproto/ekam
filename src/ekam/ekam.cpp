@@ -444,7 +444,13 @@ OwnedPtr<Dashboard> getDashboard(int maxDisplayedLogLines) {
   //
   // See issue #29
   struct winsize windowSize;
-  ioctl(STDOUT_FILENO, TIOCGWINSZ, &windowSize);
+  if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &windowSize) < 0) {
+    const char *msg = strerror(errno);
+    DEBUG_WARNING
+      << "Error querying terminal size: " << msg << "; "
+      << "falling back to simple output.";
+    return newOwned<SimpleDashboard>(stdout);
+  }
   if(windowSize.ws_row == 0 || windowSize.ws_col == 0) {
     DEBUG_WARNING
       << "Terminal size looks suspicious "
