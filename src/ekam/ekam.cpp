@@ -25,6 +25,8 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <sys/file.h>
+#include <sys/ioctl.h>
+#include <termios.h>
 
 #include "Driver.h"
 #include "base/Debug.h"
@@ -431,6 +433,28 @@ void scanSourceTree(File* src, Driver* driver) {
   }
 }
 
+OwnedPtr<Dashboard> getDashboard(int maxDisplayedLogLines) {
+  if (!isatty(STDOUT_FILENO)) {
+    return newOwned<SimpleDashboard>(stdout);
+  }
+
+  // Sanity check: make sure the window size is non-zero; otherwise something
+  // is messed up about the terminal, and we should assume it doesn't work
+  // correctly.
+  //
+  // See issue #29
+  struct winsize windowSize;
+  ioctl(STDOUT_FILENO, TIOCGWINSZ, &windowSize);
+  if(windowSize.ws_row == 0 || windowSize.ws_col == 0) {
+    DEBUG_WARNING
+      << "Terminal size looks suspicious "
+      << "(rows = " << windowSize.ws_row << ", columns = " << windowSize.ws_col << "); "
+      << "falling back to simple output.";
+    return newOwned<SimpleDashboard>(stdout);
+  }
+  return newOwned<ConsoleDashboard>(stdout, maxDisplayedLogLines);
+}
+
 int main(int argc, char* argv[]) {
   signal(SIGPIPE, SIG_IGN);
 
@@ -515,12 +539,7 @@ int main(int argc, char* argv[]) {
 
   OwnedPtr<RunnableEventManager> eventManager = newPreferredEventManager();
 
-  OwnedPtr<Dashboard> dashboard;
-  if (isatty(STDOUT_FILENO)) {
-    dashboard = newOwned<ConsoleDashboard>(stdout, maxDisplayedLogLines);
-  } else {
-    dashboard = newOwned<SimpleDashboard>(stdout);
-  }
+  OwnedPtr<Dashboard> dashboard = getDashboard(maxDisplayedLogLines);
   if (!networkDashboardAddress.empty()) {
     dashboard = initNetworkDashboard(eventManager.get(), networkDashboardAddress,
                                      dashboard.release());
