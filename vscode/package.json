@@ -23,8 +23,8 @@
         "package": "vsce package"
     },
     "dependencies": {
-        "vscode-languageclient": "^4.0.0",
-        "vscode-languageserver": "^4.0.0"
+        "vscode-languageclient": "6.x",
+        "vscode-languageserver": "6.x"
     },
     "devDependencies": {
         "typescript": "^3.8.3",
