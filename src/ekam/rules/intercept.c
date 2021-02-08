@@ -594,6 +594,43 @@ int ___lxstat64 (int ver, const char* path, struct stat64* sb) {
   return __lxstat64 (ver, path, sb);
 }
 
+#ifndef _STAT_VER
+/* glibc 2.33+ no longer defines `stat()` as an inline wrapper in the header, but instead exports
+ * it as a regular symbol. So, we need to intercept it. And, we need to give `lstat()` special
+ * treatment just like `__lxstat()` above. */
+
+WRAP(int, stat, (const char* path, struct stat* sb), (path, sb), READ, -1)
+//WRAP(int, lstat, (const char* path, struct stat* sb), (path, sb), READ, -1)
+
+typedef int lstat_t (const char* path, struct stat* sb);
+int lstat(const char* path, struct stat* sb) {
+  static lstat_t* real_lstat = NULL;
+  static stat_t* real_stat = NULL;
+  char buffer[PATH_MAX];
+
+  if (real_lstat == NULL) {
+    real_lstat = (lstat_t*) dlsym(RTLD_NEXT, "lstat");
+    assert(real_lstat != NULL);
+  }
+  if (real_stat == NULL) {
+    real_stat = (lstat_t*) dlsym(RTLD_NEXT, "stat");
+    assert(real_stat != NULL);
+  }
+
+  path = remap_file("lstat", path, buffer, READ);
+  if (path == NULL) return -1;
+  if (path[0] == '/') {
+    return real_lstat(path, sb);
+  } else {
+    return real_stat(path, sb);
+  }
+}
+int _lstat(const char* path, struct stat* sb) {
+  return lstat(path, sb);
+}
+
+#endif  /* defined(_STAT_VER) */
+
 /* Cannot intercept intra-libc function calls on Linux, so we must intercept fopen() as well. */
 WRAP(FILE*, fopen, (const char* path, const char* mode), (path, mode),
      mode[0] == 'w' || mode[0] == 'a' ? WRITE : READ, NULL)
@@ -661,6 +698,8 @@ int _execvp (const char* path, char* const argv[]) {
 
 /* Called by access(), below. */
 static int direct_stat(const char* path, struct stat* sb) {
+#ifdef _STAT_VER
+  // glibc <2.33 defines `stat()` as an inline wrapper in the header file, which calls __xstat().
   static __xstat_t* real_xstat = NULL;
 
   if (real_xstat == NULL) {
@@ -669,6 +708,18 @@ static int direct_stat(const char* path, struct stat* sb) {
   }
 
   return real_xstat(_STAT_VER, path, sb);
+#else  /* defined(_STAT_VER) */
+  // glibc 2.33+ no longer defines stat() as an inline wrapper in the header, but instead exports
+  // it as a regular symbol.
+  static stat_t* real_stat = NULL;
+
+  if (real_stat == NULL) {
+    real_stat = (stat_t*) dlsym(RTLD_NEXT, "stat");
+    assert(real_stat != NULL);
+  }
+
+  return real_stat(path, sb);
+#endif  /* defined(_STAT_VER), #else */
 }
 
 typedef ssize_t readlink_t(const char *path, char *buf, size_t bufsiz);
