@@ -162,7 +162,7 @@ read DEPFILE
 
 # TODO:  Would be nice to use nm -C here to demangle names but it doesn't appear
 #   to be supported on OSX.
-nm $NMFLAGS "$OUTPUT_DISK_PATH" > $SYMFILE
+nm ${NMFLAGS:-} "$OUTPUT_DISK_PATH" > $SYMFILE
 
 # Function which reads the symbol list on stdin and writes all symbols matching
 # the given type pattern to stdout, optionally with a prefix.
