@@ -160,9 +160,12 @@ read DEPFILE
 # Additional flags to NM may be provided via NMFLAGS environment variables.
 # NMFLAGS is intentionally unquoted so that multiple arguments may be passed in.
 
+# The version of NM used can be supplied via the NM environment variable.
+# This can be useful, for example, if building with LTO & want to use llvm-nm.
+
 # TODO:  Would be nice to use nm -C here to demangle names but it doesn't appear
 #   to be supported on OSX.
-nm ${NMFLAGS:-} "$OUTPUT_DISK_PATH" > $SYMFILE
+"${NM:-nm}" ${NMFLAGS:-} "$OUTPUT_DISK_PATH" > $SYMFILE
 
 # Function which reads the symbol list on stdin and writes all symbols matching
 # the given type pattern to stdout, optionally with a prefix.
