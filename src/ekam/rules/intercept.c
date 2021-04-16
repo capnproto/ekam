@@ -775,7 +775,6 @@ static int intercepted_open(const char * pathname, int flags, va_list args) {
   // Technically this only needs to be done if `real_open` isn't resolved, but my thought was that
   // there's no real use-case where Ekam would want to intercept /sys/ & thus this simplifies me
   // having to do more thorough testing.
-  size_t pathname_length = strlen(pathname);
   if (strncmp("/sys/", pathname, strlen("/sys/")) == 0) {
     mode_t mode = 0;
     if (flags & O_CREAT) {
