@@ -762,6 +762,30 @@ static int intercepted_open(const char * pathname, int flags, va_list args) {
   char buffer[PATH_MAX];
   const char* remapped;
 
+#if __linux__
+  // The new TCMalloc will attempt to open various files in /sys/ to read information about the CPU
+  // (this is implemented within Abseil). If we actually do the dlsym below, we'll end up causing
+  // a deadlock within TCMalloc because `dlsym` will cause TCMalloc's constructor to try to
+  // initialize again, but the open call is being done within that. TCMalloc can actually be patched
+  // to fix the need for this workaround by explicitly initializing Abseil's CPU counters before
+  // entering its critical section: https://github.com/google/tcmalloc/issues/78
+  // Technically this only needs to be done if `real_open` isn't resolved, but my thought was that
+  // there's no real use-case where Ekam would want to intercept /sys/ & thus this simplifies me
+  // having to do more thorough testing.
+  size_t pathname_length = strlen(pathname);
+  if (strncmp("/sys/", pathname, strlen("/sys/")) == 0) {
+    mode_t mode = 0;
+    if (flags & O_CREAT) {
+      mode = va_arg(args, int);
+    }
+
+    if (EKAM_DEBUG) {
+      fprintf(stderr, "TCMalloc workaround. Bypassing Ekam for %s\n", pathname);
+    }
+    return syscall(SYS_open, pathname, flags, mode);
+  }
+#endif
+
   if (real_open == NULL) {
     real_open = (open_t*) dlsym(RTLD_NEXT, "open");
     assert(real_open != NULL);
