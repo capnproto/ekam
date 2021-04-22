@@ -30,6 +30,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <stdbool.h>
 
 #if __linux__
 #include <linux/seccomp.h>
@@ -285,6 +286,65 @@ static void canonicalizePath(char* path) {
   }
 }
 
+static bool path_has_prefix(const char* pathname, const char* prefix, size_t prefix_length) {
+  // Returns true if pathname is a child within prefix or if it matches prefix directly. Prefix must
+  // always end with a trailing '/'.
+  assert(prefix_length > 1);
+  assert(prefix_length <= PATH_MAX);
+  assert(prefix[prefix_length - 1] == '/');
+  if (strncmp(pathname, prefix, prefix_length - 1) == 0) {
+    return pathname[prefix_length - 1] == '\0' || pathname[prefix_length - 1] == '/';
+  }
+
+  return false;
+}
+
+static bool bypass_remap(const char *pathname) {
+  int debug = EKAM_DEBUG;
+
+  if (pathname[0] != '/') {
+    // Only absolute paths are allowed to bypass the remap.
+    return false;
+  }
+
+  const char* bypass_dirs = getenv("EKAM_REMAP_BYPASS_DIRS");
+  if (bypass_dirs == NULL) {
+    return false;
+  }
+
+  bool found = false;
+
+  while (bypass_dirs && *bypass_dirs) {
+    char* separator_location = strchr(bypass_dirs, ':');
+    size_t bypass_dir_length;
+    if (separator_location) {
+      bypass_dir_length = separator_location - bypass_dirs;
+    } else {
+      bypass_dir_length = strlen(bypass_dirs);
+    }
+
+    if (bypass_dirs[0] != '/') {
+      fprintf(stderr, "Bypass directory '%s' isn't an absolute path. Skipping.\n", bypass_dirs);
+    } else if (bypass_dirs[bypass_dir_length - 1] != '/') {
+      fprintf(stderr, "Bypass directory '%s' doesn't end in trailing '/'. Skipping.\n", bypass_dirs);
+    } else if (path_has_prefix(pathname, bypass_dirs, bypass_dir_length)) {
+      if (debug) {
+        fprintf(stderr, "Bypass found for %s\n", pathname);
+      }
+      found = true;
+      break;
+    }
+
+    if (separator_location) {
+      bypass_dirs = separator_location + 1;
+    } else {
+      bypass_dirs = NULL;
+    }
+  }
+
+  return found;
+}
+
 static const char* remap_file(const char* syscall_name, const char* pathname,
                               char* buffer, usage_t usage) {
   char* pos;
@@ -353,6 +413,10 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
     /* Temp file or /proc.  Ignore. */
     funlockfile(ekam_call_stream);
     if (debug) fprintf(stderr, "  temp file: %s\n", pathname);
+    return pathname;
+  } else if (bypass_remap(pathname)) {
+    funlockfile(ekam_call_stream);
+    if (debug) fprintf(stderr, "  bypassed file: %s\n", pathname);
     return pathname;
   } else {
     if (strncmp(pathname, current_dir, strlen(current_dir)) == 0 &&
