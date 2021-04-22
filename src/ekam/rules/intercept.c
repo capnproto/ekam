@@ -345,6 +345,28 @@ static bool bypass_remap(const char *pathname) {
   return found;
 }
 
+static bool is_temporary_dir(const char *pathname) {
+  // TODO(soon): Simplify the logic to use `path_has_prefix`.
+  if (strcmp(pathname, TMP) == 0 ||
+      strcmp(pathname, VAR_TMP) == 0 ||
+      strncmp(pathname, TMP_PREFIX, strlen(TMP_PREFIX)) == 0 ||
+      strncmp(pathname, VAR_TMP_PREFIX, strlen(VAR_TMP_PREFIX)) == 0 ||
+      strncmp(pathname, PROC_PREFIX, strlen(PROC_PREFIX)) == 0) {
+    return true;
+  }
+
+#if defined(__linux__)
+#define SYSTEMD_TMPDIR_PREFIX "/run/user/"
+  if (path_has_prefix(pathname, SYSTEMD_TMPDIR_PREFIX, strlen(SYSTEMD_TMPDIR_PREFIX))) {
+    return true;
+  }
+#else
+  (void) pathname;
+#endif
+
+  return false;
+}
+
 static const char* remap_file(const char* syscall_name, const char* pathname,
                               char* buffer, usage_t usage) {
   char* pos;
@@ -405,11 +427,7 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
     fputs(usage == READ ? "findProvider " : "newProvider ", ekam_call_stream);
     fputs(buffer, ekam_call_stream);
     fputs("\n", ekam_call_stream);
-  } else if (strcmp(pathname, TMP) == 0 ||
-             strcmp(pathname, VAR_TMP) == 0 ||
-             strncmp(pathname, TMP_PREFIX, strlen(TMP_PREFIX)) == 0 ||
-             strncmp(pathname, VAR_TMP_PREFIX, strlen(VAR_TMP_PREFIX)) == 0 ||
-             strncmp(pathname, PROC_PREFIX, strlen(PROC_PREFIX)) == 0) {
+  } else if (is_temporary_dir(pathname)) {
     /* Temp file or /proc.  Ignore. */
     funlockfile(ekam_call_stream);
     if (debug) fprintf(stderr, "  temp file: %s\n", pathname);
