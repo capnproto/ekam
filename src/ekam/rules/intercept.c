@@ -682,6 +682,7 @@ int ___lxstat64 (int ver, const char* path, struct stat64* sb) {
  * treatment just like `__lxstat()` above. */
 
 WRAP(int, stat, (const char* path, struct stat* sb), (path, sb), READ, -1)
+WRAP(int, stat64, (const char* path, struct stat64* sb), (path, sb), READ, -1)
 //WRAP(int, lstat, (const char* path, struct stat* sb), (path, sb), READ, -1)
 
 typedef int lstat_t (const char* path, struct stat* sb);
