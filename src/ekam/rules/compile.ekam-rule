@@ -125,7 +125,7 @@ compile() {
   # The DYLD_ vars are the Mac OSX equivalent of LD_PRELOAD.  We don't bother checking which OS
   # we're on since the other vars will just be ignored anyway.
   LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
-      $TARGET_CXX -I/ekam-provider/c++header $FLAGS "$@" -c "/ekam-provider/canonical/$INPUT" \
+      ${CXX_WRAPPER:-} $TARGET_CXX -I/ekam-provider/c++header $FLAGS "$@" -c "/ekam-provider/canonical/$INPUT" \
       -o "${MODULE_NAME}${SUFFIX}" 3>&1 4<&0 >&2
 }
 

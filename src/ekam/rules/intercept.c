@@ -30,6 +30,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <stdbool.h>
 
 #if __linux__
 #include <linux/seccomp.h>
@@ -285,6 +286,87 @@ static void canonicalizePath(char* path) {
   }
 }
 
+static bool path_has_prefix(const char* pathname, const char* prefix, size_t prefix_length) {
+  // Returns true if pathname is a child within prefix or if it matches prefix directly. Prefix must
+  // always end with a trailing '/'.
+  assert(prefix_length > 1);
+  assert(prefix_length <= PATH_MAX);
+  assert(prefix[prefix_length - 1] == '/');
+  if (strncmp(pathname, prefix, prefix_length - 1) == 0) {
+    return pathname[prefix_length - 1] == '\0' || pathname[prefix_length - 1] == '/';
+  }
+
+  return false;
+}
+
+static bool bypass_remap(const char *pathname) {
+  int debug = EKAM_DEBUG;
+
+  if (pathname[0] != '/') {
+    // Only absolute paths are allowed to bypass the remap.
+    return false;
+  }
+
+  const char* bypass_dirs = getenv("EKAM_REMAP_BYPASS_DIRS");
+  if (bypass_dirs == NULL) {
+    return false;
+  }
+
+  bool found = false;
+
+  while (bypass_dirs && *bypass_dirs) {
+    char* separator_location = strchr(bypass_dirs, ':');
+    size_t bypass_dir_length;
+    if (separator_location) {
+      bypass_dir_length = separator_location - bypass_dirs;
+    } else {
+      bypass_dir_length = strlen(bypass_dirs);
+    }
+
+    if (bypass_dirs[0] != '/') {
+      fprintf(stderr, "Bypass directory '%s' isn't an absolute path. Skipping.\n", bypass_dirs);
+    } else if (bypass_dirs[bypass_dir_length - 1] != '/') {
+      fprintf(stderr, "Bypass directory '%s' doesn't end in trailing '/'. Skipping.\n", bypass_dirs);
+    } else if (path_has_prefix(pathname, bypass_dirs, bypass_dir_length)) {
+      if (debug) {
+        fprintf(stderr, "Bypass found for %s\n", pathname);
+      }
+      found = true;
+      break;
+    }
+
+    if (separator_location) {
+      bypass_dirs = separator_location + 1;
+    } else {
+      bypass_dirs = NULL;
+    }
+  }
+
+  return found;
+}
+
+static bool is_temporary_dir(const char *pathname) {
+  // TODO(soon): Simplify the logic to use `path_has_prefix`.
+  if (strcmp(pathname, TMP) == 0 ||
+      strcmp(pathname, VAR_TMP) == 0 ||
+      strncmp(pathname, TMP_PREFIX, strlen(TMP_PREFIX)) == 0 ||
+      strncmp(pathname, VAR_TMP_PREFIX, strlen(VAR_TMP_PREFIX)) == 0 ||
+      strncmp(pathname, PROC_PREFIX, strlen(PROC_PREFIX)) == 0) {
+    return true;
+  }
+
+#if defined(__linux__)
+#define SYSTEMD_TMPDIR_PREFIX "/run/user/"
+  if (path_has_prefix(pathname, SYSTEMD_TMPDIR_PREFIX, strlen(SYSTEMD_TMPDIR_PREFIX))) {
+    return true;
+  }
+#else
+  (void) pathname;
+#endif
+
+  return false;
+}
+
 static const char* remap_file(const char* syscall_name, const char* pathname,
                               char* buffer, usage_t usage) {
   char* pos;
@@ -345,14 +427,14 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
     fputs(usage == READ ? "findProvider " : "newProvider ", ekam_call_stream);
     fputs(buffer, ekam_call_stream);
     fputs("\n", ekam_call_stream);
-  } else if (strcmp(pathname, TMP) == 0 ||
-             strcmp(pathname, VAR_TMP) == 0 ||
-             strncmp(pathname, TMP_PREFIX, strlen(TMP_PREFIX)) == 0 ||
-             strncmp(pathname, VAR_TMP_PREFIX, strlen(VAR_TMP_PREFIX)) == 0 ||
-             strncmp(pathname, PROC_PREFIX, strlen(PROC_PREFIX)) == 0) {
+  } else if (is_temporary_dir(pathname)) {
     /* Temp file or /proc.  Ignore. */
     funlockfile(ekam_call_stream);
     if (debug) fprintf(stderr, "  temp file: %s\n", pathname);
+    return pathname;
+  } else if (bypass_remap(pathname)) {
+    funlockfile(ekam_call_stream);
+    if (debug) fprintf(stderr, "  bypassed file: %s\n", pathname);
     return pathname;
   } else {
     if (strncmp(pathname, current_dir, strlen(current_dir)) == 0 &&
@@ -600,6 +682,7 @@ int ___lxstat64 (int ver, const char* path, struct stat64* sb) {
  * treatment just like `__lxstat()` above. */
 
 WRAP(int, stat, (const char* path, struct stat* sb), (path, sb), READ, -1)
+WRAP(int, stat64, (const char* path, struct stat64* sb), (path, sb), READ, -1)
 //WRAP(int, lstat, (const char* path, struct stat* sb), (path, sb), READ, -1)
 
 typedef int lstat_t (const char* path, struct stat* sb);
