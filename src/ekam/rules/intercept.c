@@ -41,6 +41,8 @@
 
 static const int EKAM_DEBUG = 0;
 
+#define likely(x)       __builtin_expect((x),1)
+
 typedef int open_t(const char * pathname, int flags, ...);
 void __attribute__((constructor)) start_interceptor() {
   if (EKAM_DEBUG) {
@@ -98,7 +100,31 @@ static pthread_mutex_lock_func* dynamic_pthread_mutex_lock = NULL;
 static pthread_mutex_unlock_func* dynamic_pthread_mutex_unlock = NULL;
 
 int fake_pthread_once(pthread_once_t* once_control, void (*init_func)(void)) {
+  static pthread_mutex_t fake_once_mutex = PTHREAD_MUTEX_INITIALIZER;
+  static int ONCE_INPROGRESS = 1;
+  static int ONCE_DONE = 2;
+
+  int initialized = __atomic_load_n(once_control, __ATOMIC_ACQUIRE);
+  if (likely(initialized & ONCE_DONE)) return 0;
+
+  // The real implementation is typically more complex to try to make sure that concurrent
+  // initialization of different pthread_once doesn't have a false dependency on a global mutex.
+  // However, we only have a single such usage here & that would be overkill to try to implement on
+  // MacOS and Linux. Use a single mutex anyway because it would have largely the same effect. It
+  // also has additional complexities to handle things like forking and that too isn't a concern
+  // here.
+  dynamic_pthread_mutex_lock(&fake_once_mutex);
+  pthread_once_t expected = PTHREAD_ONCE_INIT;
+  bool updated =__atomic_compare_exchange_n(once_control, &expected, ONCE_INPROGRESS, false,
+      __ATOMIC_RELEASE, __ATOMIC_RELAXED);
+  if (likely(!updated)) {
+    assert(__atomic_load_n(&expected, __ATOMIC_RELAXED) == ONCE_DONE);
+    dynamic_pthread_mutex_unlock(&fake_once_mutex);
+    return 0;
+  }
   init_func();
+  __atomic_store_n(once_control, ONCE_DONE, __ATOMIC_RELEASE);
+  dynamic_pthread_mutex_unlock(&fake_once_mutex);
   return 0;
 }
 int fake_pthread_mutex_lock(pthread_mutex_t* mutex) { return 0; }
