@@ -171,6 +171,42 @@ static pthread_once_t init_once_control = PTHREAD_ONCE_INIT;
 typedef ssize_t readlink_t(const char *path, char *buf, size_t bufsiz);
 static readlink_t* real_readlink = NULL;
 
+static bool bypass_interceptor = false;
+
+static void init_bypass_interceptor() {
+  static const char* sanitizer_env_vars[] = {
+    "ASAN_SYMBOLIZER_PATH",
+    "MSAN_SYMBOLIZER_PATH",
+    "LLVM_SYMBOLIZER_PATH",
+    NULL,
+  };
+
+  char real_exe[PATH_MAX + 1];
+  bool real_exe_initialized = false;
+
+  assert(real_readlink != NULL);
+
+  for (size_t i = 0; sanitizer_env_vars[i]; i++) {
+    const char* sanitizer_path = getenv(sanitizer_env_vars[i]);
+    if (sanitizer_path != NULL) {
+      if (!real_exe_initialized) {
+        ssize_t result = real_readlink("/proc/self/exe", real_exe, PATH_MAX);
+        if (result == -1) {
+          fprintf(stderr, "Failed to readlink(/proc/self/exe): %s (%d)\n", strerror(errno), errno);
+          abort();
+        }
+
+        real_exe_initialized = true;
+      }
+
+      if (strcmp(real_exe, sanitizer_path) == 0) {
+        bypass_interceptor = true;
+        break;
+      }
+    }
+  }
+}
+
 static void init_streams_once() {
   assert(ekam_call_stream == NULL);
   assert(ekam_return_stream == NULL);
@@ -178,6 +214,13 @@ static void init_streams_once() {
   assert(real_readlink == NULL);
   real_readlink = (readlink_t*) dlsym(RTLD_NEXT, "readlink");
   assert(real_readlink != NULL);
+
+  init_bypass_interceptor();
+
+  if (bypass_interceptor) {
+    /* Bypass any further initialization as it will fail. */
+    return;
+  }
 
   ekam_call_stream = fdopen(EKAM_CALL_FILENO, "w");
   if (ekam_call_stream == NULL) {
@@ -414,6 +457,11 @@ static const char* remap_file(const char* syscall_name, const char* pathname,
   }
 
   init_streams();
+
+  if (bypass_interceptor) {
+    if (debug) fprintf(stderr, "Bypassing interceptor for %s on %s\n", syscall_name, pathname);
+    return pathname;
+  }
 
   if (strlen(pathname) >= PATH_MAX) {
     /* Too long. */
