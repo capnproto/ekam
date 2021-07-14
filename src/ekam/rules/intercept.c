@@ -107,6 +107,9 @@ int fake_pthread_once(pthread_once_t* once_control, void (*init_func)(void)) {
   int initialized = __atomic_load_n(once_control, __ATOMIC_ACQUIRE);
   if (likely(initialized & ONCE_DONE)) return 0;
 
+  // TODO(soon): Remove the dynamic_pthread_mutex usage once dynamic_pthread_once isn't forced to
+  // unconditionally use fake_pthread_once. See init_pthreads.
+
   // The real implementation is typically more complex to try to make sure that concurrent
   // initialization of different pthread_once doesn't have a false dependency on a global mutex.
   // However, we only have a single such usage here & that would be overkill to try to implement on
@@ -136,6 +139,10 @@ void init_pthreads() {
         (pthread_once_func*) dlsym(RTLD_DEFAULT, "pthread_once");
   }
   /* TODO:  For some reason the pthread_once returned by dlsym() doesn't do anything? */
+  // Update 7/13/2021 - on Arch Linux pthread_once seems to work fine. Not tested on Buster so
+  // unclear if this was a glibc bug that had been fixed at some point or there's something subtle
+  // about when this breaks. There's an assert added in init_streams that ensures the functor
+  // invoked.
   if (dynamic_pthread_once == NULL || 1) {
     dynamic_pthread_once = &fake_pthread_once;
   }
@@ -208,6 +215,12 @@ static void init_bypass_interceptor() {
 }
 
 static void init_streams_once() {
+  static bool initialized = false;
+  if (__atomic_exchange_n(&initialized, true, __ATOMIC_RELEASE)) {
+    fprintf(stderr, "pthread_once is broken\n");
+    abort();
+  }
+
   assert(ekam_call_stream == NULL);
   assert(ekam_return_stream == NULL);
 
@@ -243,6 +256,8 @@ static void init_streams_once() {
 static void init_streams() {
   init_pthreads();
   dynamic_pthread_once(&init_once_control, &init_streams_once);
+  // This assert makes sure the pthread_once call actually invokes the initializer.
+  assert(bypass_interceptor || (ekam_call_stream != NULL && ekam_return_stream != NULL));
 }
 
 /****************************************************************************************/
