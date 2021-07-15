@@ -55,10 +55,10 @@ fi
 echo newOutput "${1}.log"
 read TEST_LOG
 
-if LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
-   $INTERPRETER $TEST_PROG 3>&1 4<&0 2>"$TEST_LOG" >&2; then
-	echo passed
-	exit 0
+if ${TEST_WRAPPER:-} env LD_PRELOAD=$INTERCEPTOR DYLD_FORCE_FLAT_NAMESPACE= DYLD_INSERT_LIBRARIES=$INTERCEPTOR \
+    $INTERPRETER $TEST_PROG 3>&1 4<&0 2>"$TEST_LOG" >&2; then
+  echo passed
+  exit 0
 else
   echo "full log: $TEST_LOG" >&2
   egrep 'FAIL|ERROR|FATAL|ekam-provider' "$TEST_LOG" >&2
