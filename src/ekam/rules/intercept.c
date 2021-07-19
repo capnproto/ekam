@@ -168,33 +168,26 @@ static char current_dir[PATH_MAX + 1];
 
 static pthread_once_t init_once_control = PTHREAD_ONCE_INIT;
 
-typedef ssize_t readlink_t(const char *path, char *buf, size_t bufsiz);
-static readlink_t* real_readlink = NULL;
-
 static void init_streams_once() {
-  assert(ekam_call_stream == NULL);
-  assert(ekam_return_stream == NULL);
-
-  assert(real_readlink == NULL);
-  real_readlink = (readlink_t*) dlsym(RTLD_NEXT, "readlink");
-  assert(real_readlink != NULL);
-
-  ekam_call_stream = fdopen(EKAM_CALL_FILENO, "w");
   if (ekam_call_stream == NULL) {
-    fprintf(stderr, "fdopen(EKAM_CALL_FILENO): error %d\n", errno);
-    abort();
+    ekam_call_stream = fdopen(EKAM_CALL_FILENO, "w");
+    if (ekam_call_stream == NULL) {
+      fprintf(stderr, "fdopen(EKAM_CALL_FILENO): error %d\n", errno);
+      abort();
+    }
+    ekam_return_stream = fdopen(EKAM_RETURN_FILENO, "r");
+    if (ekam_return_stream == NULL) {
+      fprintf(stderr, "fdopen(EKAM_CALL_FILENO): error %d\n", errno);
+      abort();
+    }
+    if (getcwd(current_dir, PATH_MAX) == NULL) {
+      fprintf(stderr, "getcwd(): error %d\n", errno);
+      abort();
+    }
+    strcat(current_dir, "/");
+  } else {
+    assert(ekam_return_stream != NULL);
   }
-  ekam_return_stream = fdopen(EKAM_RETURN_FILENO, "r");
-  if (ekam_return_stream == NULL) {
-    fprintf(stderr, "fdopen(EKAM_CALL_FILENO): error %d\n", errno);
-    abort();
-  }
-  if (getcwd(current_dir, PATH_MAX) == NULL) {
-    fprintf(stderr, "getcwd(): error %d\n", errno);
-    abort();
-  }
-  strcat(current_dir, "/");
-
 }
 
 static void init_streams() {
@@ -838,8 +831,15 @@ static int direct_stat(const char* path, struct stat* sb) {
 #endif  /* defined(_STAT_VER), #else */
 }
 
+typedef ssize_t readlink_t(const char *path, char *buf, size_t bufsiz);
 ssize_t readlink(const char *path, char *buf, size_t bufsiz) {
+  static readlink_t* real_readlink = NULL;
   char buffer[PATH_MAX];
+
+  if (real_readlink == NULL) {
+    real_readlink = (readlink_t*) dlsym(RTLD_NEXT, "readlink");
+    assert(real_readlink != NULL);
+  }
 
   path = remap_file("readlink", path, buffer, READ);
   if (path == NULL) return -1;
