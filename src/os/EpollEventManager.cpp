@@ -521,8 +521,9 @@ public:
     if (wd >= 0) {
       DEBUG_INFO << "inotify_rm_watch(" << path << ") [" << wd << "]";
 
-      if (WRAP_SYSCALL(inotify_rm_watch, *inotifyHandler->inotifyStream.getHandle(), wd) < 0) {
-        DEBUG_ERROR << "inotify_rm_watch(" << path << "): " << strerror(errno);
+      if (inotify_rm_watch(*inotifyHandler->inotifyStream.getHandle(), wd) < 0) {
+        DEBUG_ERROR << "inotify_rm_watch(" << path << ") on (" <<
+            *inotifyHandler->inotifyStream.getHandle() << ", " wd << "): " << strerror(errno);
       }
     }
 
