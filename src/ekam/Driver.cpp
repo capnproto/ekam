@@ -324,10 +324,38 @@ void Driver::ActionDriver::threwUnknownException() {
   returned();
 }
 
+// Poor man's kj::defer.
+template<typename Func>
+class Deferred {
+public:
+  inline Deferred(Func&& func): func(func), canceled(false) {}
+  inline ~Deferred() noexcept(false) { if (!canceled) func(); }
+
+  // This move constructor is usually optimized away by the compiler.
+  inline Deferred(Deferred&& other): func(other.func), canceled(false) {
+    other.canceled = true;
+  }
+private:
+  Func func;
+  bool canceled;
+};
+
+template <typename Func>
+Deferred<Func> defer(Func&& func) {
+  // Returns an object which will invoke the given functor in its destructor. The object is not
+  // copyable but is movable with the semantics you'd expect. Since the return type is private,
+  // you need to assign to an `auto` variable.
+  return Deferred<Func>(std::forward<Func>(func));
+}
+
+
 void Driver::ActionDriver::returned() {
   ensureRunning();
 
   currentlyExecutingReturned = true;
+  auto _ = defer([this]() {
+    currentlyExecutingReturned = false;
+  });
 
   // Cancel anything still running.
   runningAction.release();
@@ -396,8 +424,6 @@ void Driver::ActionDriver::returned() {
       target->link(installations[i].file);
     }
   }
-
-  currentlyExecutingReturned = false;
 }
 
 void Driver::ActionDriver::reset() {
