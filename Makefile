@@ -38,7 +38,7 @@ deps: deps/capnproto
 deps/capnproto:
 	$(call color,downloading capnproto)
 	@mkdir -p deps
-	git clone https://github.com/sandstorm-io/capnproto.git deps/capnproto
+	git clone https://github.com/capnproto/capnproto.git deps/capnproto
 
 SOURCES=$(shell cd src; find base os ekam -name '*.cpp' | \
     grep -v KqueueEventManager | grep -v PollEventManager | \
