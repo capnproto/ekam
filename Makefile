@@ -31,7 +31,7 @@ endef
 
 all: bin/ekam
 
-bin/ekam: bin/ekam-bootstrap deps
+bin/ekam: bin/ekam-bootstrap | deps
 	$(call color,building ekam with ekam)
 	@rm -f bin/ekam
 	@CXX="$(CXX)" CXXFLAGS="-std=c++14 $(CXXFLAGS) -pthread" LIBS="-pthread" bin/ekam-bootstrap -j$(PARALLEL)
@@ -63,7 +63,8 @@ SOURCES=$(shell cd src; find base os ekam -name '*.cpp' | \
 
 HEADERS=$(shell find src/base src/os src/ekam -name '*.h')
 
-OBJ_DIR := tmp
+# Use a subdirectory for bootstrapping so the object files don't overlap with the Ekam build.
+OBJ_DIR := tmp/bootstrap
 OBJECTS=$(addprefix $(OBJ_DIR)/, $(SOURCES:.cpp=.o))
 
 $(OBJ_DIR)/%.o: src/%.cpp $(HEADERS)
