@@ -15,23 +15,40 @@
 # limitations under the License.
 
 .SUFFIXES:
-.PHONY: all install clean deps
+.PHONY: all install clean deps continuous setup-vscode
 
 # You may override the following vars on the command line to suit
 # your config.
 CXX=g++
 CXXFLAGS=-O2 -Wall
 PARALLEL=$(shell nproc)
+# for `make continuous`
+EKAM=ekam
 
 define color
   @printf '\033[0;34m==== $1 ====\033[0m\n'
 endef
 
-all: bin/ekam-bootstrap deps
+all: bin/ekam
+
+bin/ekam: bin/ekam-bootstrap deps
 	$(call color,building ekam with ekam)
 	@rm -f bin/ekam
 	@CXX="$(CXX)" CXXFLAGS="-std=c++14 $(CXXFLAGS) -pthread" LIBS="-pthread" bin/ekam-bootstrap -j$(PARALLEL)
 	@test -e bin/ekam && printf "=====================================================\nSUCCESS\nOutput is at bin/ekam\n=====================================================\n"
+
+# NOTE: Needs a full install of Ekam instead of the bootstrap so that LSP is available.
+# To avoid recompiling 3 times, this requires the user to have Ekam already installed.
+continuous:
+	$(call color,building ekam with ekam continuously)
+	@CXX="$(CXX)" CXXFLAGS="-std=c++14 $(CXXFLAGS) -pthread" LIBS="-pthread" $(EKAM) -j$(PARALLEL) -n :41315 -c
+
+setup-vscode: vscode/vscode-ekam-0.2.0.vsix
+	code --install-extension $<
+
+vscode/vscode-ekam-0.2.0.vsix:
+	cd vscode && npm install
+	cd vscode && npm run package
 
 deps: deps/capnproto
 
