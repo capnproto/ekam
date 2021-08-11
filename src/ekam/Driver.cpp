@@ -55,7 +55,7 @@ int commonPrefixLength(const std::string& srcName, const std::string& bestMatchN
 class Driver::ActionDriver : public BuildContext, public EventGroup::ExceptionHandler {
 public:
   ActionDriver(Driver* driver, OwnedPtr<Action> action,
-               File* srcfile, Hash srcHash, OwnedPtr<Dashboard::Task> task);
+               File* srcfile, OwnedPtr<Dashboard::Task> task);
   ~ActionDriver();
 
   void start();
@@ -84,7 +84,6 @@ private:
   Driver* driver;
   OwnedPtr<Action> action;
   OwnedPtr<File> srcfile;
-  Hash srcHash;
   OwnedPtr<Dashboard::Task> dashboardTask;
 
   // TODO:  Get rid of "state".  Maybe replace with "status" or something, but don't try to
@@ -133,9 +132,9 @@ private:
 };
 
 Driver::ActionDriver::ActionDriver(Driver* driver, OwnedPtr<Action> action,
-                                   File* srcfile, Hash srcHash,
+                                   File* srcfile,
                                    OwnedPtr<Dashboard::Task> task)
-    : driver(driver), action(action.release()), srcfile(srcfile->clone()), srcHash(srcHash),
+    : driver(driver), action(action.release()), srcfile(srcfile->clone()),
       dashboardTask(task.release()), state(PENDING), eventGroup(driver->eventManager, this),
       isRunning(false) {}
 Driver::ActionDriver::~ActionDriver() {
@@ -667,7 +666,7 @@ void Driver::queueNewAction(ActionFactory* factory, OwnedPtr<Action> action,
       action->isSilent() ? Dashboard::SILENT : Dashboard::NORMAL);
 
   OwnedPtr<ActionDriver> actionDriver =
-      newOwned<ActionDriver>(this, action.release(), provision->file.get(), provision->contentHash,
+      newOwned<ActionDriver>(this, action.release(), provision->file.get(),
                              task.release());
   actionTriggersTable.add(factory, provision, actionDriver.get());
 
@@ -695,8 +694,6 @@ void Driver::getTransitiveDependencies(
 
 void Driver::registerProvider(Provision* provision, const std::vector<Tag>& tags,
                               const std::unordered_set<ActionDriver*>& dependencies) {
-  provision->contentHash = provision->file->contentHash();
-
   for (std::vector<Tag>::const_iterator iter = tags.begin(); iter != tags.end(); ++iter) {
     const Tag& tag = *iter;
     tagTable.add(tag, provision);

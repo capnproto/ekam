@@ -73,7 +73,6 @@ private:
   struct Provision {
     ActionDriver* creator;  // possibly null
     OwnedPtr<File> file;
-    Hash contentHash;
   };
 
   class TagTable : public Table<IndexedColumn<Tag, Tag::HashFunc>, IndexedColumn<Provision*> > {
