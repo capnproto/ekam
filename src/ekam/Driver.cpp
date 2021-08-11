@@ -167,11 +167,10 @@ File* Driver::ActionDriver::findProvider(Tag tag) {
 
   Provision* provision = choosePreferredProvider(tag);
 
+  driver->dependencyTable.add(tag, this, provision);
   if (provision == NULL) {
-    driver->dependencyTable.add(tag, this, NULL);
     return NULL;
   } else {
-    driver->dependencyTable.add(tag, this, provision);
     return provision->file.get();
   }
 }
