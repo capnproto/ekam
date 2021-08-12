@@ -237,7 +237,7 @@ public:
     OwnedPtrVector<File> list;
     try {
       file->list(list.appender());
-    } catch (OsError e) {
+    } catch (OsError& e) {
       // Probably the directory has been deleted but we weren't yet notified.
       reallyDeleted();
       return;
