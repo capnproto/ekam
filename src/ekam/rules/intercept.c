@@ -437,6 +437,16 @@ static bool bypass_remap(const char *pathname) {
 }
 
 static bool is_temporary_dir(const char *pathname) {
+  size_t cwd_len = strlen(current_dir) - 1;
+  if (strncmp(pathname, current_dir, cwd_len) == 0
+      && (pathname[cwd_len] == '/' || pathname[cwd_len] == '\0')) {
+    // Somewhere under our working directory. If our working directory happens
+    // to be inside one of the temporary dirs, then we need to be careful to
+    // *not* treat this as a temporary file, otherwise this will apply to basicaly
+    // everything, and strange things will happen.
+    return false;
+  }
+
   // TODO(soon): Simplify the logic to use `path_has_prefix`.
   if (strcmp(pathname, TMP) == 0 ||
       strcmp(pathname, VAR_TMP) == 0 ||
