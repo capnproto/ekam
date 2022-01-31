@@ -28,13 +28,13 @@ We'd like to see other platforms supported, but Ekam's primary user and maintain
 
 Download and compile Ekam like so:
 
-    git clone https://github.com/sandstorm-io/ekam.git
+    git clone https://github.com/capnproto/ekam.git
     cd ekam
     make
 
 If successful, Ekam should have built itself, with the output binary at "bin/ekam".
 
-Yes, we use make in order bootstrap Ekam, mostly just because it's slightly nicer than a shell script.
+Yes, we use make in order to bootstrap Ekam, mostly just because it's slightly nicer than a shell script.
 
 ### Compiling Ekam with Ekam
 
