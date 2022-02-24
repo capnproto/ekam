@@ -232,16 +232,22 @@ void ConsoleDashboard::TaskImpl::setState(TaskState state) {
       if (silence != SILENT) dashboard->runningTasks.push_back(this);
       break;
     case DONE:
-      writeFinalLog(DONE_COLOR, " ");
+      if (!dashboard->onlyPrintFailures) {
+        writeFinalLog(DONE_COLOR, " ");
+      }
       break;
     case PASSED:
-      writeFinalLog(PASSED_COLOR, "✔");
+      if (!dashboard->onlyPrintFailures) {
+        writeFinalLog(PASSED_COLOR, "✔");
+      }
       break;
     case FAILED:
       writeFinalLog(FAILED_COLOR, "✘");
       break;
     case BLOCKED:
-      // Don't display.
+      if (dashboard->onlyPrintFailures) {
+        writeFinalLog(BLOCKED_COLOR, "✘?");
+      }
       break;
   }
 
@@ -320,11 +326,13 @@ const char* const ConsoleDashboard::ANSI_CLEAR_BELOW_CURSOR = "\033[0J";
 const ConsoleDashboard::Color ConsoleDashboard::DONE_COLOR = BRIGHT_BLUE;
 const ConsoleDashboard::Color ConsoleDashboard::PASSED_COLOR = BRIGHT_GREEN;
 const ConsoleDashboard::Color ConsoleDashboard::FAILED_COLOR = BRIGHT_RED;
+const ConsoleDashboard::Color ConsoleDashboard::BLOCKED_COLOR = RED;
 const ConsoleDashboard::Color ConsoleDashboard::RUNNING_COLOR = BRIGHT_FUCHSIA;
 
-ConsoleDashboard::ConsoleDashboard(FILE* output, int maxDisplayedLogLines)
+ConsoleDashboard::ConsoleDashboard(FILE* output, int maxDisplayedLogLines, bool onlyPrintFailures)
     : fd(fileno(output)), out(output), maxDisplayedLogLines(maxDisplayedLogLines),
-      runningTasksLineCount(0), lastDebugMessageCount(DebugMessage::getMessageCount()) {}
+      onlyPrintFailures(onlyPrintFailures), runningTasksLineCount(0),
+      lastDebugMessageCount(DebugMessage::getMessageCount()) {}
 ConsoleDashboard::~ConsoleDashboard() {}
 
 OwnedPtr<Dashboard::Task> ConsoleDashboard::beginTask(

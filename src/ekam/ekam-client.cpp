@@ -80,7 +80,8 @@ Dashboard::TaskState toDashboardState(proto::TaskUpdate::State state) {
 
 int main(int argc, char* argv[]) {
   int maxDisplayedLogLines = 30;
-  
+  bool onlyPrintFailures = false;
+
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-l") == 0) {
       char* endptr;
@@ -89,6 +90,8 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "Expected number after -l.\n");
         return 1;
       }
+    } else if (strcmp(argv[i], "-f") == 0) {
+      onlyPrintFailures = true;
     } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
       printf(
           "usage: nc <host> <port> | %s [-l <count>]\n"
@@ -96,6 +99,10 @@ int main(int argc, char* argv[]) {
           "Connect to Ekam process at <host> <port> and display build status.\n"
           "\n"
           "options:\n"
+          "  -f            Only print failures, and print failures early. Some failures\n"
+          "                will be due to missing dependencies, and will be marked using\n"
+          "                with ✘? and a darker shade of red.\n"
+          "\n"
           "  -l <count>    Set max number of log lines to display per action. This is\n"
           "                kept relatively short by default because it makes the build\n"
           "                output noisy, but you may need to increase it if you need\n"
@@ -117,7 +124,7 @@ int main(int argc, char* argv[]) {
     printf("Project root: %s\n", header.getProjectRoot().cStr());
   }
 
-  ConsoleDashboard dashboard(stdout, maxDisplayedLogLines);
+  ConsoleDashboard dashboard(stdout, maxDisplayedLogLines, onlyPrintFailures);
   OwnedPtrMap<int, Dashboard::Task> tasks;
 
   while (bufferedInput.tryGetReadBuffer() != nullptr) {
