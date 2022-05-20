@@ -34,6 +34,7 @@ public:
 
 private:
   static const Tag MAIN_SYMBOLS[];
+  static const Tag LIBFUZZER_SYMBOL;
   static const Tag GTEST_TEST;
   static const Tag KJTEST_TEST;
   static const Tag NODEJS_MODULE;

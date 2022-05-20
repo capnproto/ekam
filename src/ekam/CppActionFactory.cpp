@@ -54,7 +54,8 @@ public:
     NORMAL,
     GTEST,
     KJTEST,
-    NODEJS
+    NODEJS,
+    LIBFUZZER
   };
 
   LinkAction(File* file, Mode mode);
@@ -229,6 +230,11 @@ Promise<void> LinkAction::startTarget(
     subprocess->addArgument("-static");
   }
 
+  if (mode == LIBFUZZER) {
+    const auto arg = getenv("EKAM_LIBFUZZER_LINKER_ARG");
+    subprocess->addArgument(arg == nullptr ? "-fsanitize=fuzzer" : arg);
+  }
+
   subprocess->addArgument("-o");
 
   auto executableFile = context->newOutput(target.empty() ? base : (base + "." + target));
@@ -292,6 +298,7 @@ const Tag CppActionFactory::MAIN_SYMBOLS[] = {
 const Tag CppActionFactory::GTEST_TEST = Tag::fromName("gtest:test");
 const Tag CppActionFactory::KJTEST_TEST = Tag::fromName("kjtest:test");
 const Tag CppActionFactory::NODEJS_MODULE = Tag::fromName("nodejs:module");
+const Tag CppActionFactory::LIBFUZZER_SYMBOL = Tag::fromName("c++symbol:LLVMFuzzerTestOneInput");
 
 CppActionFactory::CppActionFactory() {}
 CppActionFactory::~CppActionFactory() {}
@@ -304,6 +311,9 @@ void CppActionFactory::enumerateTriggerTags(
   *iter++ = GTEST_TEST;
   *iter++ = KJTEST_TEST;
   *iter++ = NODEJS_MODULE;
+  if (getenv("EKAM_LIBFUZZER_ENABLE") != nullptr) {
+    *iter++ = LIBFUZZER_SYMBOL;
+  }
 }
 
 OwnedPtr<Action> CppActionFactory::tryMakeAction(const Tag& id, File* file) {
@@ -312,6 +322,9 @@ OwnedPtr<Action> CppActionFactory::tryMakeAction(const Tag& id, File* file) {
     if (id == MAIN_SYMBOLS[i]) {
       return newOwned<LinkAction>(file, LinkAction::NORMAL);
     }
+  }
+  if (id == LIBFUZZER_SYMBOL) {
+    return newOwned<LinkAction>(file, LinkAction::LIBFUZZER);
   }
   if (id == GTEST_TEST) {
     return newOwned<LinkAction>(file, LinkAction::GTEST);
