@@ -26,7 +26,7 @@
         "vscode-languageserver": "6.x"
     },
     "devDependencies": {
-        "typescript": "^3.8.3",
+        "typescript": "^4.9.4",
         "@types/vscode": "^1.1.0",
         "@types/node": "^6.0.40",
         "vsce": "^1.51.0"
