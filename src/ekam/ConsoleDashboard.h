@@ -25,7 +25,7 @@ namespace ekam {
 
 class ConsoleDashboard : public Dashboard {
 public:
-  ConsoleDashboard(FILE* output, int maxDisplayedLogLines);
+  ConsoleDashboard(FILE* output, int maxDisplayedLogLines, bool onlyPrintFailures = false);
   ~ConsoleDashboard();
 
   // implements Dashboard ----------------------------------------------------------------
@@ -38,6 +38,7 @@ private:
   int fd;
   FILE* out;
   int maxDisplayedLogLines;
+  bool onlyPrintFailures;
 
   std::vector<TaskImpl*> runningTasks;
   int runningTasksLineCount;
@@ -71,6 +72,7 @@ private:
   static const Color PASSED_COLOR;
   static const Color FAILED_COLOR;
   static const Color RUNNING_COLOR;
+  static const Color BLOCKED_COLOR;
 
   void clearRunning();
   void drawRunning();
